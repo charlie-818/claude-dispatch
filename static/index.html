@@ -1,0 +1,3345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#22262d">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Yard">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>The Yard — CC Dispatch</title>
+<style>
+  :root{
+    /* Surfaces lifted off black: the list gutter, the row, the control.
+       Three steps that are actually distinguishable on a phone in daylight. */
+    --bg:#14171b; --panel:#1a1d23; --panel2:#22262d; --panel3:#2a2f38;
+    --line:#333944; --line2:#434b58;
+    --fg:#f2f5f9; --fg2:#cfd6df; --dim:#a8b2bf; --dimmer:#78828f;
+    --red:#ff6b61; --amber:#ffc233; --green:#3ddc5c; --blue:#66a9ff;
+    --violet:#bd8dff; --cyan:#5bd6cd;
+    --mono:ui-monospace,"SF Mono",Menlo,monospace;
+    --ui:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    /* Squared off. Nothing rounder than a control needs to be. */
+    --r:6px; --r2:8px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  /* Chrome Android "font boosting" silently inflates text in wide blocks and
+     Accessibility > text scaling multiplies every px. Either one blows a
+     white-space:pre pane past the viewport no matter what size we compute. */
+  html,body{margin:0;height:100%;overscroll-behavior:none;
+    -webkit-text-size-adjust:100%;text-size-adjust:100%}
+  body{background:var(--bg);color:var(--fg);
+    font:15px/1.45 var(--ui);
+    display:flex;flex-direction:column;
+    padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);}
+  .screen{display:none;flex-direction:column;flex:1;min-height:0}
+  .screen.on{display:flex}
+
+  header{display:flex;align-items:center;gap:10px;padding:11px 14px;
+    border-bottom:1px solid var(--line);background:var(--panel2);flex:none}
+  header .title{font:700 13px var(--ui);letter-spacing:.1em;flex:1;min-width:0;
+    text-transform:uppercase;color:var(--fg);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* Brand lockup: the clawd head as a mark, then the wordmark. Same block-guy
+     geometry as the yard sprite, so the icon and the critters are one family. */
+  .brand{display:flex;align-items:center;gap:8px;flex:1;min-width:0}
+  .brand .logo{display:flex;align-items:center;flex:none}
+  .brand svg{width:20px;height:20px;display:block}
+  .brand .body{fill:#d77757}
+  .brand .eye{fill:var(--panel2)}
+  .brand .wm{font:700 13px var(--ui);letter-spacing:.16em;color:var(--fg);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .brand .wm b{font-weight:700;color:#d77757}
+  header .back{font:600 24px/1 var(--ui);color:var(--dim);padding:6px 12px 6px 0;margin:-6px 0;cursor:pointer}
+  .meta{font:11px var(--mono);color:var(--dim);flex:none}
+  /* Device swapper: a compact pill in the fleet header. Each tailnet Mac is its
+     own origin (own passkey/cookie), so picking one just navigates there. */
+  /* Styled to match the bell/hardref header buttons: no fill, thin --line
+     border, 6px corners, 30px tall, scale on tap, blue when the menu is open. */
+  .devswap{position:relative;flex:none}
+  .devbtn{display:flex;align-items:center;gap:5px;background:none;
+    border:1px solid var(--line);border-radius:6px;color:var(--dim);
+    font:600 11px var(--ui);height:30px;padding:0 8px;cursor:pointer;max-width:38vw}
+  .devbtn:active{transform:scale(.92);color:var(--fg)}
+  .devbtn[aria-expanded=true]{color:var(--blue);border-color:var(--blue)}
+  .devbtn #devname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .devbtn .chev{width:12px;height:12px;flex:none;color:var(--dimmer)}
+  .devmenu{position:absolute;top:calc(100% + 6px);right:0;z-index:40;min-width:190px;
+    background:var(--panel2);border:1px solid var(--line2);border-radius:var(--r2);
+    padding:5px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+  .devrow{display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:var(--r);
+    cursor:pointer;color:var(--fg);font:600 13px var(--ui)}
+  .devrow:active{background:var(--panel3)}
+  .devrow[aria-disabled=true]{cursor:default}
+  .devrow.off{color:var(--dim)}
+  .devrow .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .devrow .tag{font:600 9.5px var(--mono);letter-spacing:.06em;color:var(--dimmer);
+    text-transform:uppercase}
+  .devrow.cur .tag{color:var(--green)}
+  .devrow .host{display:block;font:400 10px var(--mono);color:var(--dimmer)}
+  /* Two-line session brief under the chat header: overall summary + (while
+     running) the condition that ends the task. */
+  .sessinfo{padding:11px 14px 12px;border-bottom:1px solid var(--line2);
+    background:var(--panel2);display:flex;flex-direction:column;gap:9px;
+    box-shadow:inset 3px 0 0 var(--blue)}
+  .sessinfo[hidden]{display:none}   /* beat the display:flex above */
+  /* Each brief block stacks an icon+label header above its text, so summary vs
+     goal reads at a glance and the text wraps full-width (scales cleanly). */
+  .sessinfo .ss-row{display:flex;flex-direction:column;gap:4px}
+  .sessinfo .ss-row[hidden]{display:none}   /* beat the flex rule above */
+  .sessinfo .ss-head{display:flex;align-items:center;gap:6px;user-select:none}
+  .sessinfo .ss-ico{width:14px;height:14px;flex:none;color:var(--dim)}
+  .sessinfo .ss-ico-goal{color:var(--st-warn)}
+  .sessinfo .ss-lab{font:700 9.5px/1 var(--ui);letter-spacing:.09em;
+    text-transform:uppercase;color:var(--dim)}
+  .sessinfo .ss-lab-goal{color:var(--st-warn)}
+  .sessinfo .ss-sum{font:500 13.5px/1.5 var(--ui);color:var(--fg)}
+  .sessinfo .ss-goal{font:500 12.5px/1.5 var(--ui);color:var(--fg2)}
+  /* no clear goal yet — say so plainly rather than hiding the block */
+  .sessinfo .ss-goal.unsure{color:var(--dim);font-style:italic}
+  .sessinfo.loading .ss-sum{color:var(--dim);font-style:italic}
+  /* hard-refresh: forces a full page reload so a stale JS shell can't linger */
+  header .hardref{flex:none;background:none;border:1px solid var(--line);
+    border-radius:6px;color:var(--dim);font:15px/1 var(--ui);width:30px;height:30px;
+    cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center}
+  header .hardref:active{transform:scale(.92);color:var(--fg)}
+  header .sortbtn{width:auto;padding:0 10px;font:600 11px var(--ui);
+    letter-spacing:.02em;margin-right:8px}
+  header .bell{flex:none;background:none;border:1px solid var(--line);
+    border-radius:6px;color:var(--dim);width:30px;height:30px;cursor:pointer;
+    padding:0;display:flex;align-items:center;justify-content:center;margin-left:8px}
+  header .bell svg{width:16px;height:16px}
+  header .bell:active{transform:scale(.92)}
+  header .bell.on{color:var(--blue);border-color:var(--blue)}
+  header .bell.busy{opacity:.5}
+  /* Socket liveness lives on the logo: greyed mark = not connected. One less
+     piece of chrome in a header that is mostly brand. */
+  #brand{opacity:.5;filter:grayscale(.9);transition:opacity .2s,filter .2s}
+  #brand.live{opacity:1;filter:none}
+  .limit{display:flex;align-items:center;gap:6px;font:11px var(--mono);color:var(--dim);flex:none}
+  .bar{width:44px;height:6px;border-radius:2px;background:var(--line2);overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--green);transition:width .4s}
+
+  .list{flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;
+    min-width:0;background:var(--bg)}
+
+  /* A row is a card on --panel over a --bg gutter, with a full-height status
+     edge on the left. State is readable from the edge alone at arm's length. */
+  .card{position:relative;display:flex;gap:12px;padding:12px 14px 12px 15px;
+    background:var(--panel);border-bottom:1px solid var(--line);cursor:pointer}
+  .card:active{background:var(--panel2)}
+  .dot{position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--dimmer)}
+  .card.working .dot{background:var(--amber)}
+  .card.idle .dot{background:var(--line2)}
+  .card.ended .dot{background:var(--line)}
+  .card.waiting .dot{background:var(--red);animation:pulse 1.3s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+  .card .body{flex:1;min-width:0}
+
+  .row1{display:flex;align-items:center;gap:7px}
+  .name{font:700 16px/1.25 var(--ui);color:var(--fg);flex:1;min-width:0;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .row2{margin-top:4px;font:13px/1.35 var(--ui);color:var(--dim);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .card.working .row2{color:var(--fg)}
+  .card.waiting .row2{color:var(--amber)}
+  .row3{margin-top:6px;display:flex;gap:10px;font:11px var(--mono);
+    color:var(--dimmer);overflow:hidden;white-space:nowrap}
+  .row3 b{color:var(--dim);font-weight:400}
+
+  /* Status word, not a coloured pill. Uppercase + letterspacing scans faster
+     than a shape does. */
+  .tag{flex:none;font:700 10px var(--ui);letter-spacing:.1em;
+    padding:3px 6px;border-radius:3px;background:var(--line);color:var(--dim)}
+  .card.working .tag{background:rgba(255,194,51,.16);color:var(--amber)}
+  .card.waiting .tag{background:var(--red);color:#1a1200}
+  .card.ended .tag{background:var(--line);color:var(--dimmer)}
+  .tag.ro{background:transparent;box-shadow:inset 0 0 0 1px var(--line2);color:var(--dimmer)}
+
+  /* The terminal already hard-wrapped at N columns. Wrapping it AGAIN at the
+     viewport width is what produced the ragged double-breaks — so we scale the
+     font until N columns fit exactly, and never soft-wrap. */
+  .pane{flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch;
+    margin:0;padding:12px 10px;font-family:var(--mono);background:var(--bg);
+    color:var(--fg);-webkit-text-size-adjust:100%;text-size-adjust:100%;
+    font-size:11px;line-height:1.42;white-space:pre;overflow-wrap:normal}
+  .pane.wrap{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px}
+  /* one terminal row per line, diffed individually (see paint()). min-height keeps
+     blank rows at full line height; white-space/overflow inherit fit vs wrap mode. */
+  .pane .ln{display:block;margin:0;white-space:inherit;overflow-wrap:inherit;
+    min-height:1.42em}
+
+  /* Header toggle that reveals the control row. Collapsed by default — the
+     terminal is what you came for; the controls are a deliberate second tap. */
+  .hdrbtn{flex:none;background:var(--panel3);border:1px solid var(--line2);
+    border-radius:var(--r);color:var(--dim);font:700 13px/1 var(--ui);
+    letter-spacing:.06em;padding:8px 11px;cursor:pointer;margin:-2px -2px -2px 0}
+  .hdrbtn:active{background:var(--line2)}
+  .hdrbtn.on{background:var(--blue);border-color:var(--blue);color:#06172e}
+  .hdrbtn.ico{padding:6px;display:flex;align-items:center;margin-left:6px}
+  .hdrbtn.ico.lead{margin-left:0;margin-right:4px}   /* leftmost, where back was */
+  .hdrbtn.ico svg{width:17px;height:17px;display:block}
+
+  /* one compact row, itself collapsed behind the header toggle */
+  .chips{display:none;gap:6px;flex:none;padding:7px 10px;background:var(--panel2);
+    border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+  .chips.on{display:flex}
+  .chips::-webkit-scrollbar{display:none}
+  .chips button{flex:0 0 auto;font:600 12px var(--ui);color:var(--fg);
+    background:var(--panel3);border:1px solid var(--line2);border-radius:var(--r);
+    padding:7px 11px;cursor:pointer;white-space:nowrap;
+    display:inline-flex;align-items:center;gap:6px}
+  .chips button svg{width:15px;height:15px;flex:none;opacity:.85}
+  .chips button .cv{font:600 12px var(--ui);color:var(--fg)}   /* current value */
+  .chips button:active{background:var(--line2)}
+  .chips button.ghost{color:var(--violet);border-color:rgba(189,141,255,.4)}
+  .chips button.ghost svg{opacity:1}
+  .chips button.ghost.on{background:rgba(189,141,255,.18);border-color:var(--violet)}
+  .chips button:disabled{opacity:.4}
+
+  #sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:70;
+    opacity:0;pointer-events:none;transition:opacity .2s}
+  #sheet-bg.on{opacity:1;pointer-events:auto}
+  #sheet{position:fixed;left:0;right:0;bottom:0;z-index:71;
+    background:var(--panel2);border-top:1px solid var(--line2);
+    border-radius:var(--r2) var(--r2) 0 0;padding:8px 14px
+      calc(env(safe-area-inset-bottom) + 16px);
+    transform:translateY(110%);transition:transform .26s cubic-bezier(.2,.9,.3,1);
+    max-height:72vh;overflow-y:auto}
+  #sheet.on{transform:translateY(0)}
+  #sheet .grab{width:36px;height:4px;border-radius:2px;background:var(--line2);
+    margin:4px auto 14px}
+  .sheet-title{font:700 11px var(--ui);color:var(--dim);
+    letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px}
+  .sheet-body{display:flex;flex-direction:column;gap:7px}
+  .opt{display:flex;align-items:center;gap:11px;width:100%;
+    background:var(--panel3);border:1px solid var(--line2);border-radius:var(--r);
+    padding:14px 15px;cursor:pointer;text-align:left;color:var(--fg);
+    font:600 15px var(--ui)}
+  .opt:active{background:var(--line2)}
+  .opt .desc{font:400 12px var(--mono);color:var(--dim);margin-left:auto}
+  .opt.cur{border-color:var(--blue);background:rgba(102,169,255,.16);color:var(--blue)}
+  .opt.confirm{border-color:var(--red);background:rgba(255,107,97,.18);color:var(--red)}
+  .opt:disabled{opacity:.38}
+  .sheet-note{font:11px/1.55 var(--ui);color:var(--dim);margin-top:6px}
+  .sheet-note.warn{color:var(--red)}
+  .c-dim{color:var(--dim)} .c-green{color:var(--green)} .c-red{color:var(--red)}
+  .c-amber{color:var(--amber)} .c-blue{color:var(--blue)} .c-violet{color:var(--violet)}
+  .c-cyan{color:var(--cyan)} .c-sel{color:var(--fg);font-weight:600}
+
+  /* Contextual: Claude's own options when it asks something, interrupt keys
+     while it works, nothing at all when idle. */
+  .actionbar{flex:none;background:var(--panel2);border-top:1px solid var(--line2);
+    padding:0;display:none}
+  .actionbar.on{display:block;padding:10px}
+  .actionbar .q{font:600 12px/1.4 var(--ui);color:var(--amber);
+    margin:0 2px 9px;display:block}
+  .actionbar .opts{display:flex;flex-direction:column;gap:6px}
+  .actionbar .opts.row{flex-direction:row}
+  .act{display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+    background:var(--panel3);border:1px solid var(--line2);border-radius:var(--r);
+    padding:13px;cursor:pointer;color:var(--fg);font:600 14px var(--ui)}
+  .act:active{background:var(--line2)}
+  .act .num{display:inline-flex;align-items:center;justify-content:center;
+    width:21px;height:21px;border-radius:3px;background:var(--line2);
+    color:var(--fg);font:700 11px var(--mono);flex:none}
+  .act.sel{border-color:var(--green);background:rgba(61,220,92,.14)}
+  .act.sel .num{background:var(--green);color:#04210a}
+  .act.yes{border-color:rgba(61,220,92,.5)}
+  .act.no{border-color:rgba(255,107,97,.45);color:var(--red)}
+  .act.slim{flex:1;justify-content:center;padding:12px 8px;font-size:13px}
+  .act.stop{color:var(--red);border-color:rgba(255,107,97,.4)}
+
+  .composer{flex:none;padding:9px 10px 11px;background:transparent;
+    display:flex;gap:8px;align-items:flex-end}
+  .composer textarea{flex:1;resize:none;min-height:46px;max-height:132px;
+    background:var(--panel);color:var(--fg);border:1px solid var(--line2);
+    border-radius:var(--r);padding:12px 13px;
+    font:15px/1.4 var(--ui);outline:none}
+  .composer textarea:focus{border-color:var(--blue)}
+  .composer textarea::placeholder{color:var(--dimmer)}
+  /* mic + send share one 46×46 footprint and center an SVG icon, so the row
+     reads as a matched pair; align-items:flex-end on .composer keeps both pinned
+     to the bottom as the textarea grows. */
+  .mic,.send{flex:none;width:46px;height:46px;border-radius:var(--r);cursor:pointer;
+    display:flex;align-items:center;justify-content:center;padding:0;
+    -webkit-tap-highlight-color:transparent}
+  .mic svg,.send svg{width:22px;height:22px;display:block}
+  .send{border:none;background:var(--blue);color:#06172e}
+  .send:disabled{background:var(--line);color:var(--dimmer)}
+  .mic{border:1px solid var(--line2);background:var(--panel);color:var(--fg)}
+  .mic:disabled{opacity:.55;cursor:default}
+  .mic .i-stop{display:none}
+  .mic.rec{background:var(--red);border-color:transparent;color:#1a1200;
+    animation:micpulse 1.1s ease-in-out infinite}
+  .mic.rec .i-mic{display:none}
+  .mic.rec .i-stop{display:block}
+  .mic.busy{background:var(--amber);border-color:transparent;color:#1a1200;
+    animation:micpulse 1.1s ease-in-out infinite}
+  @keyframes micpulse{0%,100%{opacity:1}50%{opacity:.5}}
+
+  #toast{position:fixed;left:14px;right:14px;bottom:calc(env(safe-area-inset-bottom) + 84px);
+    background:var(--panel3);border:1px solid var(--line2);border-radius:var(--r);padding:11px 14px;
+    font:13px var(--ui);z-index:60;opacity:0;transform:translateY(12px);
+    transition:all .22s;pointer-events:none}
+  #toast.on{opacity:1;transform:translateY(0)}
+  #toast.err{border-color:var(--red);color:var(--red)}
+  .empty{padding:36px 20px;text-align:center;color:var(--dim);
+    font:13px/1.7 var(--ui);white-space:pre-wrap;word-break:break-all}
+
+  /* ── fleet terrarium ───────────────────────────────
+     Every Claude pane is a "clawd" — the block-guy from cc-dashboard, here as a
+     vector so he stays crisp on a phone. He crawls the yard; his behaviour is the
+     status (walk=working, hop=needs you, snooze=idle), a thought bubble is what
+     he's doing, and the ring at his feet is context used. Tap opens the session. */
+  #yard{position:relative;flex:1;min-height:0;overflow:hidden;background:var(--bg);
+    touch-action:manipulation;
+    user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+  #yard-status{position:absolute;inset:0;display:flex;align-items:center;
+    justify-content:center;padding:30px;text-align:center;color:var(--dim);
+    font:13px/1.7 var(--ui);white-space:pre-wrap;word-break:break-word;z-index:8}
+  /* spawn a new clawd — terracotta FAB, bottom-right of the yard */
+  .fab{position:absolute;right:16px;bottom:16px;z-index:9;
+    width:54px;height:54px;border-radius:50%;border:none;cursor:pointer;
+    background:#d77757;color:#2a1206;font:300 32px/1 var(--ui);
+    box-shadow:0 5px 16px rgba(0,0,0,.5);display:flex;align-items:center;
+    justify-content:center;padding-bottom:3px;transition:transform .1s,background .15s}
+  .fab:active{background:#c56b4a;transform:scale(.94)}
+  .fab:disabled{opacity:.5}
+
+
+
+  /* drop zone for the drag-to-kill gesture — mirrors the spawn FAB on the left,
+     red instead of terracotta. Only appears mid-drag. */
+  .trash{position:absolute;left:16px;bottom:16px;transform:scale(.8);
+    z-index:10;width:54px;height:54px;border-radius:50%;
+    border:2px dashed rgba(255,107,97,.6);background:rgba(20,23,27,.9);
+    display:flex;align-items:center;justify-content:center;
+    font:300 26px/1 var(--ui);color:var(--red);opacity:0;pointer-events:none;
+    box-shadow:0 5px 16px rgba(0,0,0,.5);
+    transition:opacity .16s,transform .16s,border-color .16s,background .16s}
+  .trash.on{opacity:1;transform:scale(1)}
+  .trash.hot{border-color:var(--red);border-style:solid;color:#2a0606;
+    background:var(--red);transform:scale(1.14)}
+
+  .critter{position:absolute;left:0;top:0;width:80px;height:100px;z-index:4;
+    transform:translate(-999px,-999px);cursor:pointer;touch-action:none;
+    user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;
+    display:flex;flex-direction:column;align-items:center;will-change:transform}
+  .critter.dragging{z-index:11;filter:drop-shadow(0 10px 14px rgba(0,0,0,.6));
+    transition:none}
+  .critter.dragging .stage{transform:scale(1.14)}
+  .critter.doomed .stage{transform:scale(.86);filter:grayscale(.5)}
+  .critter.doomed .clawd .body,.critter.doomed .clawd .limb{fill:var(--red)}
+  .critter.doomed .clawd .shade{fill:#a83a32}
+  .critter .stage{position:relative;width:64px;height:58px}
+  .critter.ended{opacity:.32;filter:grayscale(.7)}
+
+  .ring{position:absolute;left:50%;bottom:2px;transform:translateX(-50%);
+    width:58px;height:20px;pointer-events:none}
+  .ring path{fill:none;stroke-linecap:round}
+  .ring .track{stroke:var(--line);stroke-width:3}
+  .ring .fill{stroke-width:3;transition:stroke-dasharray .6s,stroke .6s}
+
+  .clawd{position:absolute;left:50%;bottom:15px;transform:translateX(-50%);
+    width:44px;height:40px;overflow:visible}
+  .clawd .body{fill:#d77757}.clawd .shade{fill:#b85f42}
+  .clawd .eye{fill:var(--bg);transition:all .12s}
+  .clawd .limb{fill:#d77757;transform-box:fill-box;transform-origin:center;
+    transition:transform .18s ease}
+  .stage.walk .clawd{animation:cbob .5s ease-in-out infinite}
+  .stage.walk .arm-l,.stage.walk .leg-r{animation:cswA .5s ease-in-out infinite}
+  .stage.walk .arm-r,.stage.walk .leg-l{animation:cswB .5s ease-in-out infinite}
+  @keyframes cbob{50%{transform:translateX(-50%) translateY(-2px)}}
+  @keyframes cswA{50%{transform:rotate(16deg)}}
+  @keyframes cswB{50%{transform:rotate(-16deg)}}
+  .stage.hop{animation:chop .7s ease-in-out infinite}
+  @keyframes chop{0%,100%{transform:translateY(0)}30%{transform:translateY(-9px)}
+    45%{transform:translateY(-4px)}60%{transform:translateY(-9px)}}
+  .stage.wave .arm-r{transform:rotate(-140deg);transform-origin:20% 20%;
+    animation:cwave .4s ease-in-out infinite}
+  @keyframes cwave{50%{transform:rotate(-115deg)}}
+  .critter.left .stage{transform:scaleX(-1)}
+  /* Only the clawd should face-flip; the context ring must not mirror with him
+     (its fill would then grow the wrong way). Counter the parent flip so the
+     arc always reads left-to-right regardless of which way he's walking. */
+  .critter.left .ring{transform:translateX(-50%) scaleX(-1)}
+
+  .glow{position:absolute;left:50%;bottom:6px;transform:translateX(-50%);
+    width:52px;height:14px;border-radius:50%;filter:blur(6px);opacity:0;transition:opacity .3s}
+  .working .glow{opacity:.5;background:var(--green)}
+  .waiting .glow{opacity:.7;background:var(--red);animation:cglow 1.3s infinite}
+  @keyframes cglow{50%{opacity:.26}}
+
+  .ctag{margin-top:2px;font:600 10.5px var(--mono);letter-spacing:.02em;color:var(--dim);
+    max-width:92px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    text-align:center;padding:1px 6px;border-radius:4px;background:rgba(20,23,27,.72)}
+  .working .ctag{color:var(--fg)}.waiting .ctag{color:var(--red)}
+  /* how long this pane has held its current state, ticking live. Working and
+     idle clawds show it (different colours below); a waiting pane does not. */
+  .wtimer{display:none;margin-top:2px;font:600 10px var(--mono);
+    letter-spacing:.04em;color:#2a1206;background:var(--amber);
+    padding:1px 6px;border-radius:4px;text-align:center;
+    box-shadow:0 1px 3px rgba(0,0,0,.4)}
+  .wtimer::before{content:"";display:inline-block;width:5px;height:5px;
+    border-radius:50%;background:#2a1206;margin-right:4px;vertical-align:middle;
+    animation:tpulse 1.1s ease-in-out infinite}
+  @keyframes tpulse{0%,100%{opacity:1}50%{opacity:.3}}
+  .working .wtimer,.idle .wtimer{display:inline-block}
+  /* idle clawds show how long they've snoozed — a calm slate chip, no pulse, so
+     it reads as "resting", not "running". */
+  .idle .wtimer{color:#9fb0c4;background:#2b3440;box-shadow:none}
+  .idle .wtimer::before{display:none}
+  @media (prefers-reduced-motion:reduce){.wtimer::before{animation:none}}
+
+  .bubble{position:absolute;left:50%;bottom:104px;transform:translateX(-50%) scale(.9);
+    min-width:60px;max-width:158px;padding:5px 9px;border-radius:9px;
+    background:var(--panel3);border:1px solid var(--line2);
+    font:500 10.5px/1.3 var(--mono);color:var(--fg);text-align:center;
+    opacity:0;transition:opacity .25s,transform .25s;pointer-events:none;z-index:3;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bubble::after{content:"";position:absolute;left:50%;bottom:-5px;width:8px;height:8px;
+    background:var(--panel3);border-right:1px solid var(--line2);
+    border-bottom:1px solid var(--line2);transform:translateX(-50%) rotate(45deg)}
+  .bubble.on{opacity:1;transform:translateX(-50%) scale(1)}
+  .bubble .verb{color:var(--green)}
+  .waiting .bubble{border-color:var(--red);color:var(--amber)}
+  .waiting .bubble .verb{color:var(--red)}
+  @media (prefers-reduced-motion:reduce){
+    .stage,.clawd,.limb,.glow{animation:none!important}}
+
+  /* ── game layer: identity band, pet reaction, idle life ──
+     A forehead band tinted by a hash of the pane name gives every clawd a stable
+     colour you learn to recognise. The pet is pure joy. */
+  .clawd .band{transition:fill .3s}
+  .clawd{transition:transform .35s ease}
+  .ctag .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:92px}
+  /* idle clawd settles — a small squat that reads as sitting down */
+  .critter.resting .clawd{transform:translateX(-50%) translateY(4px) scaleY(.9)}
+
+  /* floating emote (hearts on a pet) */
+  .fx{position:absolute;margin-left:-8px;margin-top:-8px;pointer-events:none;
+    z-index:12;font-size:15px;line-height:1;will-change:transform,opacity;
+    animation:fxup 1s ease-out forwards}
+  @keyframes fxup{0%{opacity:0;transform:translate(0,0) scale(.4)}
+    15%{opacity:1}100%{opacity:0;transform:translate(var(--dx,0),-46px) scale(1.15)}}
+  /* the little joy-jump when you pet him */
+  .critter.petting .clawd{animation:cpet .52s ease}
+  @keyframes cpet{0%,100%{transform:translateX(-50%) translateY(0)}
+    28%{transform:translateX(-50%) translateY(-15px)}
+    56%{transform:translateX(-50%) translateY(0)}
+    76%{transform:translateX(-50%) translateY(-6px)}}
+  /* a small idle fidget-hop, so a resting clawd still looks alive */
+  .critter.fidget .clawd{animation:cfidget .5s ease}
+  @keyframes cfidget{0%,100%{transform:translateX(-50%) translateY(0)}
+    45%{transform:translateX(-50%) translateY(-6px)}}
+  @media (prefers-reduced-motion:reduce){
+    .fx{animation-duration:.6s}
+    .critter.petting .clawd,.critter.fidget .clawd{animation:none}}
+
+  /* ── usage ─────────────────────────────────────────
+     Chart hues from the validated dark set: blue #3987e5 (primary sequential),
+     orange #d95926 (second sequential context). Re-verified vs the new surface
+     #1a1d23 — all six checks PASS. Status hues are the fixed reserved palette. */
+  :root{ --c-blue:#3987e5; --c-orange:#d95926;
+         --st-good:#0ca30c; --st-warn:#fab219; --st-serious:#ec835a; --st-crit:#d03b3b; }
+  /* Persistent global-status strip: a thin row above the bottom nav, present on
+     every screen that shows the nav. Holds pane count + usage — moved out of the
+     header so the header stays brand + controls. */
+  .statusbar{display:flex;align-items:center;justify-content:space-between;gap:12px;
+    flex:none;padding:5px 14px;background:var(--panel2);border-top:1px solid var(--line);
+    font:11px var(--mono);color:var(--dim)}
+  .statusbar .sb-lim{display:flex;align-items:center;gap:6px;flex:none}
+  .tabbar{display:flex;flex:none;border-top:1px solid var(--line2);background:var(--panel2)}
+  .tabbar button{flex:1;background:none;border:none;cursor:pointer;
+    padding:13px 0 calc(13px + env(safe-area-inset-bottom));
+    font:700 11px var(--ui);letter-spacing:.12em;text-transform:uppercase;
+    color:var(--dim);border-top:2px solid transparent;margin-top:-1px}
+  .tabbar button.cur{color:var(--blue);border-top-color:var(--blue)}
+  .tabbar button{position:relative}
+  .tabdot{display:none;position:absolute;top:9px;margin-left:5px;width:7px;height:7px;
+    border-radius:50%;background:var(--red);box-shadow:0 0 0 2px var(--panel2)}
+  .tabdot.on{display:inline-block;animation:pulse 1.3s infinite}
+
+  /* ── auth / integrations ─────────────────────────────── */
+  #auth-body{flex:1;min-height:0;overflow-y:auto;padding:6px 0 20px}
+  #auth-body section{padding:6px 14px 12px}
+  .auth-h{display:flex;align-items:center;font:700 11px var(--ui);letter-spacing:.12em;
+    text-transform:uppercase;color:var(--dim);margin:10px 0 8px}
+  .auth-add{margin-left:auto;font:700 11px var(--ui);color:var(--blue);background:none;
+    border:1px solid var(--line2);border-radius:var(--r);padding:5px 10px;cursor:pointer}
+  .auth-add:active{background:var(--line2)}
+  .icard{display:flex;align-items:center;gap:11px;padding:11px 13px;margin-bottom:8px;
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--r2)}
+  .icard .pv{flex:none;width:34px;height:34px;border-radius:8px;display:flex;
+    align-items:center;justify-content:center;font:700 13px var(--mono);color:#0d0f12;
+    background:#fff;overflow:hidden}
+  .icard .pv img{width:22px;height:22px;object-fit:contain;display:block}
+  .icard .pv.pvfallback img{display:none}
+  .opt .pv{flex:none;width:24px;height:24px;border-radius:6px;display:inline-flex;
+    align-items:center;justify-content:center;background:#fff;overflow:hidden;
+    margin-right:2px;font:700 11px var(--mono);color:#0d0f12}
+  .opt .pv img{width:16px;height:16px;object-fit:contain}
+  .icard .ib{flex:1;min-width:0}
+  .icard .il{font:600 14px var(--ui);color:var(--fg);display:flex;gap:7px;align-items:center}
+  .icard .il .mask{font:600 11px var(--mono);color:var(--dimmer)}
+  .icard .im{font:11px var(--mono);color:var(--dim);margin-top:2px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .icard .im .warn{color:var(--amber)} .icard .im .bad{color:var(--red)}
+  .icard .ix{flex:none;background:none;border:none;color:var(--dimmer);font-size:18px;
+    padding:6px;cursor:pointer;line-height:1}
+  .icard .ix:active{color:var(--red)}
+  .scchip{display:inline-block;font:600 10px var(--mono);color:var(--dim);
+    background:var(--panel3);border-radius:4px;padding:1px 6px;margin:3px 4px 0 0}
+  .reqcard{border:1px solid rgba(255,107,97,.4);background:rgba(255,107,97,.07)}
+  .reqcard .il{color:var(--amber)}
+  .reqbtns{display:flex;gap:6px;flex:none}
+  .reqbtns button{font:700 12px var(--ui);border-radius:var(--r);padding:7px 12px;
+    cursor:pointer;border:1px solid var(--line2);background:var(--panel3);color:var(--fg)}
+  .reqbtns .ok{border-color:rgba(61,220,92,.5);color:var(--green)}
+  .reqbtns .no{border-color:rgba(255,107,97,.45);color:var(--red)}
+  #auth-body .empty{color:var(--dimmer);font:12px var(--mono);padding:4px 2px}
+  .fld{display:block;width:100%;font:14px var(--mono);color:var(--fg);
+    background:var(--panel3);border:1px solid var(--line2);border-radius:var(--r);
+    padding:10px 11px;margin:6px 0}
+  .fld::placeholder{color:var(--dimmer)}
+
+  /* Usage is a monitor screen: it SCROLLS, most-urgent first. The running-agent
+     cards up top are the point, so they get real room; the account totals sit
+     below them. Nothing is clipped to force a single page anymore. */
+  #usage-body,#hist-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;
+    -webkit-overflow-scrolling:touch;background:var(--bg);
+    padding-bottom:calc(env(safe-area-inset-bottom) + 16px)}
+  /* history search bar */
+  .hsearch{flex:none;display:flex;align-items:center;gap:8px;padding:9px 12px;
+    background:var(--panel2);border-bottom:1px solid var(--line)}
+  .hsearch svg{width:16px;height:16px;flex:none;color:var(--dim)}
+  .hsearch input{flex:1;min-width:0;background:var(--panel);color:var(--fg);
+    border:1px solid var(--line2);border-radius:var(--r);padding:9px 11px;
+    font:14px var(--ui);outline:none;-webkit-appearance:none}
+  .hsearch input:focus{border-color:var(--blue)}
+  .hsearch input::placeholder{color:var(--dimmer)}
+  .hqclear{flex:none;background:none;border:none;color:var(--dim);font:14px var(--ui);
+    cursor:pointer;padding:4px 6px}
+  /* flat result rows when searching — cards, with the repo shown inline */
+  #hist-body > .hrow{background:var(--panel2);border:1px solid var(--line2);
+    border-radius:var(--r);margin-bottom:9px;padding:11px 12px}
+  #hist-body > .hrow:active{background:var(--panel3)}
+  .hrow .hrepo{font:700 10.5px var(--ui);color:var(--blue);flex:none;
+    max-width:44%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .hrow .hsnip{font:500 12px/1.4 var(--ui);color:var(--dim);margin:5px 0 0;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .hrow mark{background:rgba(255,194,51,.28);color:var(--fg);border-radius:2px;
+    padding:0 1px}
+  /* history grouped by directory: collapsed repo headers, expand to session rows */
+  #hist-body{padding:8px 12px 0}
+  .hgroup{margin-bottom:8px}
+  .hg-head{display:flex;align-items:center;gap:9px;width:100%;text-align:left;
+    cursor:pointer;background:var(--panel2);border:1px solid var(--line2);
+    border-radius:var(--r);padding:12px 12px;color:var(--fg);
+    -webkit-tap-highlight-color:transparent}
+  .hg-head:active{background:var(--panel3)}
+  .hgroup.open .hg-head{border-radius:var(--r) var(--r) 0 0;border-bottom:none}
+  .hg-chev{width:15px;height:15px;flex:none;color:var(--dim);
+    transition:transform .15s}
+  .hgroup.open .hg-chev{transform:rotate(90deg);color:var(--blue)}
+  .hg-name{font:700 13px var(--ui);color:var(--fg);flex:1;min-width:0;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .hg-count{font:700 10px var(--ui);color:var(--dim);background:var(--panel3);
+    border-radius:999px;padding:2px 8px;flex:none}
+  .hg-when{font:500 11px var(--ui);color:var(--dim);flex:none}
+  .hg-cost{font:600 11px var(--ui);color:var(--dim);flex:none;min-width:44px;
+    text-align:right}
+  .hg-items{border:1px solid var(--line2);border-top:none;
+    border-radius:0 0 var(--r) var(--r);overflow:hidden}
+  /* session row → resumes on tap */
+  .hrow{display:block;width:100%;text-align:left;cursor:pointer;
+    background:var(--bg);border:none;border-top:1px solid var(--line);
+    padding:10px 12px 11px;color:var(--fg);-webkit-tap-highlight-color:transparent}
+  .hg-items .hrow:first-child{border-top:none}
+  .hrow:active{background:var(--panel2)}
+  .hrow .htop{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
+  .hrow .htitle{font:500 13px/1.35 var(--ui);color:var(--fg2);flex:1;min-width:0;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .hrow .hwhen{font:500 11px var(--ui);color:var(--dim);flex:none}
+  .hrow .hmeta{display:flex;gap:10px;
+    font:600 10.5px var(--ui);letter-spacing:.02em;color:var(--dim)}
+  .hrow .hmeta .hm-model{color:var(--violet)}
+  .hrow.busy{opacity:.55;pointer-events:none}
+  .usec{padding:14px 14px 0;min-width:0}
+  .usec h3{display:flex;justify-content:space-between;align-items:baseline;gap:8px;
+    font:700 10px var(--ui);color:var(--dim);letter-spacing:.13em;
+    text-transform:uppercase;margin:0 0 10px}
+  .usec h3 em{font-style:normal;color:var(--dimmer);letter-spacing:.04em}
+  .tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px;min-width:0}
+  .tile{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+    padding:10px 12px;min-width:0;overflow:hidden}
+  .tile .k{font:600 10px var(--ui);color:var(--dim);letter-spacing:.09em;
+    text-transform:uppercase}
+  .tile .v{font:700 20px/1.15 var(--mono);color:var(--fg);margin-top:4px;
+    overflow-wrap:anywhere}
+  .tile .s{font:11px/1.4 var(--mono);color:var(--dimmer);margin-top:2px;
+    overflow-wrap:anywhere}
+
+  .meter{margin-bottom:11px;min-width:0}
+  .meter:last-child{margin-bottom:0}
+  .meter .top{display:flex;justify-content:space-between;align-items:baseline;
+    gap:8px;margin-bottom:5px}
+  .meter .top .k{font:600 10px var(--ui);color:var(--dim);letter-spacing:.09em;
+    text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .meter .top b{flex:none;font:700 14px var(--mono);color:var(--fg)}
+  .meter .rst{font:11px/1.4 var(--mono);color:var(--dimmer);margin-top:4px}
+  .track{height:12px;border-radius:2px;background:var(--line2);overflow:hidden;
+    max-width:100%;box-sizing:border-box;flex:none}
+  .track i{display:block;height:100%;border-radius:2px;transition:width .5s}
+  .track.tall{height:22px;min-height:22px;max-height:22px}
+
+  /* running-agent cards — the headline of this screen, so they're roomy */
+  .agents{display:flex;flex-direction:column;gap:10px}
+  .ucard{background:var(--panel);border:1px solid var(--line);
+    border-left:4px solid var(--line2);border-radius:10px;padding:13px 14px;
+    cursor:pointer;min-width:0}
+  .ucard:active{background:var(--panel2)}
+  .ucard.working{border-left:1px solid var(--line)}
+  .ucard.waiting{border-left-color:var(--st-crit);
+    box-shadow:inset 0 0 0 1px rgba(208,59,59,.28);
+    background:linear-gradient(90deg,rgba(208,59,59,.10),transparent 55%),var(--panel)}
+  .ucard .hd{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .ucard .nm{font:700 17px/1.2 var(--ui);color:var(--fg);flex:1;min-width:0;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ucard .chip{flex:none;font:700 9px var(--ui);letter-spacing:.1em;
+    text-transform:uppercase;padding:3px 7px;border-radius:4px;
+    background:rgba(255,194,51,.16);color:var(--amber)}
+  .ucard.waiting .chip{background:var(--st-crit);color:#160604}
+  .ucard .age{flex:none;font:11px var(--mono);color:var(--dimmer)}
+  .ucard .act{font:12.5px/1.4 var(--mono);color:var(--dim);margin:0 0 11px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ucard.waiting .act{color:var(--amber);white-space:normal;
+    font:600 14px/1.45 var(--ui)}
+  .ucard .ctxbar{display:flex;align-items:center;gap:9px;margin-bottom:12px}
+  .ucard .ctxbar .track{flex:1;height:11px}
+  .ucard .ctxbar b{flex:none;font:700 12px var(--mono);color:var(--fg)}
+  .ucard .ctxbar span{flex:none;font:10px var(--ui);letter-spacing:.06em;
+    text-transform:uppercase;color:var(--dim)}
+  /* one compact line: tokens · prompts · files · lines change */
+  .ucard .stats{font:11.5px/1.4 var(--mono);color:var(--dimmer);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ucard .stats b{color:var(--fg);font-weight:700}
+  .ucard .stats .add{color:var(--green)} .ucard .stats .del{color:var(--red)}
+  .ucard .foot{margin-top:10px;font:10.5px var(--mono);color:var(--dimmer);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ucard .answer{margin-top:2px;font:700 11px var(--mono);color:var(--st-crit)}
+  .tiles.tri{grid-template-columns:repeat(3,1fr)}
+  .tiles.tri .tile{padding:9px 10px}
+  .tiles.tri .v{font-size:16px}
+  .unone{font:12px var(--ui);color:var(--dimmer);padding:10px 2px}
+
+  /* ── lock screen ───────────────────────────────────
+     Covers everything until the passkey says otherwise. It is a cover, not a
+     route: the fleet keeps its state underneath, so unlocking is instant. */
+  #lock{position:fixed;inset:0;z-index:90;display:none;flex-direction:column;
+    align-items:center;justify-content:center;gap:16px;padding:32px;
+    background:var(--bg);text-align:center}
+  #lock.on{display:flex}
+  #lock .mark svg{width:56px;height:56px}
+  #lock .mark .body{fill:#d77757} #lock .mark .eye{fill:var(--bg)}
+  #lock h2{font:700 15px var(--ui);letter-spacing:.14em;text-transform:uppercase;
+    color:var(--fg);margin:4px 0 0}
+  #lock p{font:13px/1.6 var(--ui);color:var(--dim);margin:0;max-width:19em}
+  #lock button{background:#d77757;border:none;border-radius:var(--r);
+    color:#2a1206;font:700 15px var(--ui);padding:14px 26px;cursor:pointer}
+  #lock button:active{background:#c56b4a}
+  #lock button.ghost{background:none;border:1px solid var(--line2);color:var(--dim);
+    font-weight:600;padding:10px 18px}
+  #lock .warn{color:var(--amber);font:12px/1.6 var(--mono);max-width:22em}
+  #lock .err{color:var(--red);font:12px/1.5 var(--mono);max-width:22em;min-height:1em}
+</style>
+</head>
+<body>
+
+<div class="screen on" id="s-fleet">
+  <header>
+    <div class="brand" id="brand"><span class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><rect class="body" x="2.5" y="6.5" width="19" height="14" rx="4.5"/><rect class="body" x="5" y="2" width="2.6" height="5" rx="1.3"/><rect class="body" x="16.4" y="2" width="2.6" height="5" rx="1.3"/><rect class="eye" x="7.4" y="11" width="3.6" height="5" rx="1.4"/><rect class="eye" x="13" y="11" width="3.6" height="5" rx="1.4"/></svg></span>
+      <span class="wm"><b>THE</b> YARD</span></div>
+    <div class="devswap" id="devswap" hidden>
+      <button class="devbtn" id="devbtn" onclick="toggleDevMenu(event)"
+              aria-haspopup="true" aria-expanded="false" title="switch device">
+        <span id="devname">—</span>
+        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+          <path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <div class="devmenu" id="devmenu" hidden></div>
+    </div>
+    <button class="bell" id="bell" onclick="toggleNotify()" aria-label="notifications" title="notifications">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
+        <path d="M13.7 21a2 2 0 0 1-3.4 0"/>
+      </svg>
+    </button>
+  </header>
+  <div id="yard">
+    <div id="yard-status">connecting…</div>
+    <div class="trash" id="trash" aria-hidden="true">✕</div>
+    <button class="fab" id="fab" onclick="spawnSession()" title="new session">+</button>
+  </div>
+  <div class="statusbar">
+    <span class="sb-panes">—</span>
+    <span class="sb-lim"><span class="bar"><i class="sb-lim-fill" style="width:0%"></i></span><span class="sb-lim-t">—</span></span>
+  </div>
+  <div class="tabbar">
+    <button class="cur" onclick="showFleet()">fleet</button>
+    <button onclick="showUsage()">usage</button>
+    <button onclick="showHistory()">history</button>
+    <button onclick="showAuth()">auth<i class="tabdot" id="authdot"></i></button>
+  </div>
+</div>
+
+<div class="screen" id="s-usage">
+  <header>
+    <div class="back" onclick="window.history.back()">‹</div>
+    <div class="brand"><span class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><rect class="body" x="2.5" y="6.5" width="19" height="14" rx="4.5"/><rect class="body" x="5" y="2" width="2.6" height="5" rx="1.3"/><rect class="body" x="16.4" y="2" width="2.6" height="5" rx="1.3"/><rect class="eye" x="7.4" y="11" width="3.6" height="5" rx="1.4"/><rect class="eye" x="13" y="11" width="3.6" height="5" rx="1.4"/></svg></span>
+      <span class="wm">NOW</span></div>
+    <div class="meta" id="usage-age"></div>
+    <button class="hardref" onclick="hardReload()" title="hard refresh"
+      aria-label="hard refresh">⟳</button>
+  </header>
+  <div id="usage-body"><div class="empty">loading…</div></div>
+  <div class="statusbar">
+    <span class="sb-panes">—</span>
+    <span class="sb-lim"><span class="bar"><i class="sb-lim-fill" style="width:0%"></i></span><span class="sb-lim-t">—</span></span>
+  </div>
+  <div class="tabbar">
+    <button onclick="showFleet()">fleet</button>
+    <button class="cur" onclick="showUsage()">usage</button>
+    <button onclick="showHistory()">history</button>
+    <button onclick="showAuth()">auth<i class="tabdot" id="authdot2"></i></button>
+  </div>
+</div>
+
+<div class="screen" id="s-history">
+  <header>
+    <div class="back" onclick="window.history.back()">‹</div>
+    <div class="brand"><span class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><rect class="body" x="2.5" y="6.5" width="19" height="14" rx="4.5"/><rect class="body" x="5" y="2" width="2.6" height="5" rx="1.3"/><rect class="body" x="16.4" y="2" width="2.6" height="5" rx="1.3"/><rect class="eye" x="7.4" y="11" width="3.6" height="5" rx="1.4"/><rect class="eye" x="13" y="11" width="3.6" height="5" rx="1.4"/></svg></span>
+      <span class="wm">PAST</span></div>
+    <div class="meta" id="hist-meta"></div>
+    <button class="hardref sortbtn" id="histsort" onclick="cycleHistSort()"
+      title="sort" aria-label="sort">recent</button>
+    <button class="hardref" onclick="loadHistory()" title="refresh"
+      aria-label="refresh">⟳</button>
+  </header>
+  <div class="hsearch">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" aria-hidden="true">
+      <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/>
+    </svg>
+    <input id="histq" type="search" placeholder="search prompts, repos…"
+      autocapitalize="none" autocomplete="off" spellcheck="false"
+      oninput="onHistSearch()">
+    <button id="histqclear" class="hqclear" onclick="clearHistSearch()" hidden aria-label="clear">✕</button>
+  </div>
+  <div id="hist-body"><div class="empty">loading…</div></div>
+  <div class="statusbar">
+    <span class="sb-panes">—</span>
+    <span class="sb-lim"><span class="bar"><i class="sb-lim-fill" style="width:0%"></i></span><span class="sb-lim-t">—</span></span>
+  </div>
+  <div class="tabbar">
+    <button onclick="showFleet()">fleet</button>
+    <button onclick="showUsage()">usage</button>
+    <button class="cur" onclick="showHistory()">history</button>
+    <button onclick="showAuth()">auth<i class="tabdot" id="authdot3"></i></button>
+  </div>
+</div>
+
+<div class="screen" id="s-auth">
+  <header>
+    <div class="back" onclick="window.history.back()">‹</div>
+    <div class="brand"><span class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><rect class="body" x="2.5" y="6.5" width="19" height="14" rx="4.5"/><rect class="body" x="5" y="2" width="2.6" height="5" rx="1.3"/><rect class="body" x="16.4" y="2" width="2.6" height="5" rx="1.3"/><rect class="eye" x="7.4" y="11" width="3.6" height="5" rx="1.4"/><rect class="eye" x="13" y="11" width="3.6" height="5" rx="1.4"/></svg></span>
+      <span class="wm">AUTH</span></div>
+    <div class="meta" id="auth-meta"></div>
+    <button class="hardref" onclick="loadAuth()" title="refresh" aria-label="refresh">⟳</button>
+  </header>
+  <div id="auth-body">
+    <section id="auth-requests" hidden>
+      <div class="auth-h">Pending requests</div>
+      <div id="auth-reqlist"></div>
+    </section>
+    <section>
+      <div class="auth-h">Connected integrations
+        <button class="auth-add" onclick="openAddIntegration()">+ Add</button></div>
+      <div id="auth-intlist"><div class="empty">loading…</div></div>
+    </section>
+    <section>
+      <div class="auth-h">Agent grants</div>
+      <div id="auth-grantlist"></div>
+    </section>
+  </div>
+  <div class="statusbar">
+    <span class="sb-panes">—</span>
+    <span class="sb-lim"><span class="bar"><i class="sb-lim-fill" style="width:0%"></i></span><span class="sb-lim-t">—</span></span>
+  </div>
+  <div class="tabbar">
+    <button onclick="showFleet()">fleet</button>
+    <button onclick="showUsage()">usage</button>
+    <button onclick="showHistory()">history</button>
+    <button class="cur" onclick="showAuth()">auth<i class="tabdot" id="authdot4"></i></button>
+  </div>
+</div>
+
+<div class="screen" id="s-session">
+  <header>
+    <button class="hdrbtn ico lead" id="briefbtn" onclick="toggleBrief()"
+            aria-label="summary" aria-expanded="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/>
+        <circle cx="12" cy="12" r="3"/>
+      </svg>
+    </button>
+    <div class="title" id="st">—</div>
+    <div class="meta" id="sm"></div>
+    <button class="hdrbtn" id="ctrlbtn" onclick="toggleChips()"
+            aria-label="controls" aria-expanded="false">•••</button>
+  </header>
+  <div class="sessinfo" id="sessinfo" hidden>
+    <div class="ss-row">
+      <div class="ss-head">
+        <svg class="ss-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+          aria-hidden="true">
+          <line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/>
+          <line x1="4" y1="17" x2="14" y2="17"/>
+        </svg>
+        <span class="ss-lab">Summary</span>
+      </div>
+      <div class="ss-sum" id="ss-sum"></div>
+    </div>
+    <div class="ss-row ss-goalrow" id="ss-goalrow" hidden>
+      <div class="ss-head">
+        <svg class="ss-ico ss-ico-goal" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4"/>
+          <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/>
+        </svg>
+        <span class="ss-lab ss-lab-goal">Goal</span>
+      </div>
+      <div class="ss-goal" id="ss-goal"></div>
+    </div>
+  </div>
+  <div class="chips" id="chips">
+    <button id="chip-mode" onclick="openSheet('mode')" aria-label="permission mode">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" aria-hidden="true">
+        <line x1="4" y1="8" x2="20" y2="8"/><circle cx="9" cy="8" r="2.4" fill="var(--panel3)"/>
+        <line x1="4" y1="16" x2="20" y2="16"/><circle cx="15" cy="16" r="2.4" fill="var(--panel3)"/>
+      </svg><span class="cv">auto</span>
+    </button>
+    <button id="chip-effort" onclick="openSheet('effort')" aria-label="reasoning effort">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" aria-hidden="true">
+        <line x1="6" y1="18" x2="6" y2="13"/><line x1="12" y1="18" x2="12" y2="9"/>
+        <line x1="18" y1="18" x2="18" y2="5"/>
+      </svg><span class="cv">med</span>
+    </button>
+    <button onclick="openSheet('cmd')" aria-label="commands">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polyline points="6 8 10 12 6 16"/><line x1="12" y1="16" x2="18" y2="16"/>
+      </svg>
+    </button>
+    <button onclick="openSheet('keys')" aria-label="keys">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="2.5" y="6.5" width="19" height="11" rx="2.5"/>
+        <line x1="7" y1="10.5" x2="7" y2="10.5"/><line x1="12" y1="10.5" x2="12" y2="10.5"/>
+        <line x1="17" y1="10.5" x2="17" y2="10.5"/><line x1="8" y1="14" x2="16" y2="14"/>
+      </svg>
+    </button>
+    <button id="fitbtn" class="ghost" onclick="cycleFit()" aria-label="fit or wrap">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polyline points="4 9 4 4 9 4"/><polyline points="20 9 20 4 15 4"/>
+        <polyline points="4 15 4 20 9 20"/><polyline points="20 15 20 20 15 20"/>
+      </svg>
+    </button>
+  </div>
+  <pre class="pane" id="pane"></pre>
+  <div class="actionbar" id="actionbar"></div>
+  <div class="composer">
+    <input type="file" id="fileinput" accept="image/*,video/*" multiple hidden
+           onchange="uploadFiles(this.files)">
+    <button class="mic" id="attachbtn" onclick="document.getElementById('fileinput').click()" aria-label="attach">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21 11.5l-8.5 8.5a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.6 1.6 0 0 1-2.3-2.3l7.8-7.8"/>
+      </svg>
+    </button>
+    <textarea id="input" rows="1" placeholder=""></textarea>
+    <button class="mic" id="micbtn" onclick="toggleMic()" aria-label="dictate">
+      <svg class="i-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="9" y="2.5" width="6" height="11" rx="3"/>
+        <path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="21.5"/>
+      </svg>
+      <svg class="i-stop" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <rect x="6" y="6" width="12" height="12" rx="2.5"/>
+      </svg>
+    </button>
+    <button class="send" id="sendbtn" onclick="send()" disabled aria-label="send">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M3.5 20.6l16.9-8.1c.8-.4.8-1.6 0-2L3.5 2.4c-.8-.4-1.6.4-1.3 1.2L4 11l-1.8 6.4c-.3.8.5 1.6 1.3 1.2z"/>
+      </svg>
+    </button>
+  </div>
+</div>
+
+<div id="sheet-bg" onclick="closeSheet()"></div>
+<div id="sheet">
+  <div class="grab"></div>
+  <div class="sheet-title" id="sheet-title">—</div>
+  <div class="sheet-body" id="sheet-body"></div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* A phone has no devtools. Any uncaught error is shown on the yard AND posted
+   to the server log, so a blank "connecting…" is never a mystery again. */
+function _report(msg){
+  try {
+    const st = document.getElementById('yard-status');
+    if (st){ st.textContent = 'JS error:\n' + msg; st.style.display = 'flex'; }
+    fetch('/api/clientlog', {method:'POST', headers:{'Content-Type':'application/json'},
+                             body: JSON.stringify({msg})}).catch(()=>{});
+  } catch(_){}
+}
+window.addEventListener('error', e =>
+  _report(`${e.message} @ ${e.filename||''}:${e.lineno}:${e.colno}`));
+window.addEventListener('unhandledrejection', e =>
+  _report('promise: ' + (e.reason && (e.reason.stack || e.reason.message) || e.reason)));
+
+/* No secret lives in this file or in the URL. The server swapped the QR token
+   for an HttpOnly session cookie before this page was ever served, and the
+   cookie rides along automatically — including on the websockets. */
+const Q = '';
+let SESSIONS = [], current = null, paneWS = null;
+// which pane the session screen wants connected; survives socket drops so we can
+// auto-reconnect. null when we're not on a session (fleet/usage screen).
+let paneWantUuid = null, paneReconnectT = null;
+
+const esc = s => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+/* Claude's TUI has a small, stable vocabulary of line prefixes. Colouring on
+   those is cheaper and more robust than shipping full ANSI over the wire. */
+function colorizeLine(l){
+  const e = esc(l);
+  if (/^\s*[●⏺]/.test(l))            return `<span class="c-violet">${e}</span>`;
+  if (/^\s*⎿/.test(l))                return `<span class="c-dim">${e}</span>`;
+  if (/^\s*[✻✽*]/.test(l))            return `<span class="c-amber">${e}</span>`;
+  if (/^\s*❯/.test(l))                return `<span class="c-sel">${e}</span>`;
+  if (/^\s*\d\.\s/.test(l))           return `<span class="c-dim">${e}</span>`;
+  if (/(error|failed|refus)/i.test(l))return `<span class="c-red">${e}</span>`;
+  if (/[█▓]|\d+%/.test(l))            return `<span class="c-cyan">${e}</span>`;
+  if (/^\s*>/.test(l))                return `<span class="c-green">${e}</span>`;
+  if (/^\s*[─━]{4,}/.test(l))         return `<span class="c-dim">${e}</span>`;
+  return e;
+}
+function colorizeLines(text){ return text.split('\n').map(colorizeLine); }
+function colorize(text){ return colorizeLines(text).join('\n'); }
+
+function toast(msg, err){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'on' + (err ? ' err' : '');
+  clearTimeout(t._h); t._h = setTimeout(()=>t.className='', 2600);
+}
+const buzz = n => navigator.vibrate && navigator.vibrate(n);
+
+/* ── fleet terrarium ───────────────────────────────────
+   The fleet is a yard of clawds — one per pane. renderFleet() reconciles the live
+   rows into that troupe; a single rAF loop crawls them. Behaviour IS status:
+   working walks, waiting hops + waves, idle snoozes, ended greys out. The ring at
+   his feet is context used, the bubble is what he's doing, tap opens the session. */
+let PENDING_PANE = '';
+let LIMITS = null;
+function renderFleet(rows){
+  SESSIONS = rows;
+  // the usage screen reads the same live rows, so repaint it in place
+  if (document.getElementById('s-usage').classList.contains('on')) renderUsage();
+  // ?pane=<uuid> deep link. The first frame off the socket can be an empty
+  // list, so only spend the link once there is actually a fleet to match in.
+  if (PENDING_PANE && rows.length){
+    const want = PENDING_PANE; PENDING_PANE = '';
+    const hit = rows.find(r => r.uuid.toUpperCase().startsWith(want.toUpperCase()));
+    if (hit) openSession(hit.uuid);
+  }
+  if (current){                     // keep the open session's effort in sync
+    const fresh = rows.find(r => r.uuid === current.uuid);
+    if (fresh){ current = fresh; markEffort(fresh.effort); markMode(fresh.mode); markModel(fresh.model); renderActions(); }
+  }
+  const panes = `${rows.length} pane${rows.length===1?'':'s'}`;
+  document.querySelectorAll('.sb-panes').forEach(e => e.textContent = panes);
+  const st = document.getElementById('yard-status');
+  if (!rows.length){ st.textContent = 'no Claude panes found'; st.style.display = 'flex'; }
+  else { st.style.display = 'none'; }
+  syncCritters(rows);
+}
+
+let tries = 0;
+function status(msg){
+  if (SESSIONS.length) return;
+  const st = document.getElementById('yard-status');
+  st.textContent = msg; st.style.display = 'flex';
+}
+
+/* ── clawd sprite + engine ─────────────────────────────
+   Vector clawd: the eyes are the black gaps of the block-guy, kept as bg-coloured
+   notches so he reads the same as the TUI original in cc-dashboard. */
+const CLAWD_SVG = `
+<svg class="clawd" viewBox="0 0 44 40">
+  <rect class="limb leg-l" x="13" y="30" width="7" height="10" rx="2"/>
+  <rect class="limb leg-r" x="24" y="30" width="7" height="10" rx="2"/>
+  <rect class="limb arm-l" x="1"  y="14" width="7" height="15" rx="3.5"/>
+  <rect class="limb arm-r" x="36" y="14" width="7" height="15" rx="3.5"/>
+  <rect class="body"  x="7" y="6" width="30" height="28" rx="7"/>
+  <rect class="shade" x="7" y="26" width="30" height="8" rx="4"/>
+  <rect class="body"  x="7" y="6" width="30" height="24" rx="7"/>
+  <rect class="eye" x="14" y="15" width="6" height="7" rx="2"/>
+  <rect class="eye" x="24" y="15" width="6" height="7" rx="2"/>
+  <rect class="band" x="7" y="8" width="30" height="4.5" rx="2.25" fill="transparent"/>
+</svg>`;
+const RING_LEN = 60;                                  // path length of the ctx arc
+const reduceMotion = matchMedia('(prefers-reduced-motion:reduce)').matches;
+const CRITTERS = new Map();                            // uuid → critter
+
+const stateOf = s => s.prompt ? 'waiting' : (s.state || 'idle');
+const ctxColor = p => p >= 85 ? 'var(--c-red)' : p >= 60 ? 'var(--c-amber)' : 'var(--c-blue)';
+
+/* what a pane is doing, distilled from its screen tail into {verb, rest} */
+// Skip Claude's chrome: mode/keybind footers AND the status line (model name,
+// context %, token/interrupt counters) — context is the ring, not the bubble.
+const YARD_NOISE = /mode on|bypass permissions|shift\+tab|for shortcuts|context (left|used)|\btokens\b|esc to interrupt|\b(opus|sonnet|haiku|fable)\b|\d+\s?%|^\W*$/i;
+const TOOL_RE = /^\s*[⏺●]\s*([A-Za-z]+)\((.*?)\)/;
+const VERBS = {Edit:'editing',MultiEdit:'editing',Write:'writing',Read:'reading',
+  Bash:'running',Grep:'searching',Glob:'searching',Task:'dispatching',
+  WebFetch:'fetching',WebSearch:'searching'};
+function shortArg(tool, a){
+  a = a.trim().replace(/^["']|["']$/g,'');
+  // Bash: show the command itself — that's the useful bit. File tools: just the
+  // basename so a long path doesn't bury which file it is.
+  if (tool === 'Bash' || tool === 'Task') return a.slice(0, 30);
+  a = a.split(',')[0].trim().replace(/^["']|["']$/g,'');
+  const p = a.split('/'); return (p[p.length-1] || a).slice(0, 24);
+}
+function activity(s){
+  const st = stateOf(s);
+  if (st === 'waiting') return {verb:'!', rest:(s.prompt && s.prompt.question) || 'needs an answer'};
+  if (st === 'ended')   return {verb:'', rest:'done'};
+  if (st === 'idle')    return {verb:'', rest:'idle'};
+  // Working: the newest tool call from the transcript is authoritative — the
+  // screen scrape lost it under tool output. Fall back to the scrape, then to a
+  // plain thinking/working, only when there's no transcript action yet.
+  if (s.action && s.action.tool){
+    const v = VERBS[s.action.tool] || s.action.tool.toLowerCase();
+    return {verb:v, rest:s.action.arg || ''};
+  }
+  const lines = (s.tail || []).filter(x => x.trim() && !YARD_NOISE.test(x));
+  for (let i = lines.length - 1; i >= 0; i--){
+    const m = lines[i].match(TOOL_RE);
+    if (m) return {verb:VERBS[m[1]] || m[1].toLowerCase(), rest:shortArg(m[1], m[2])};
+  }
+  // Working, but no recognised tool line in view. Do NOT echo the last raw
+  // screen line — mid-run that's a spinner, a wrapped sentence or tool output,
+  // which reads as random noise. Say "thinking" when Claude's spinner glyph is
+  // up, otherwise a plain "working".
+  const spinner = lines.some(l => /^\s*[✻✽·]/.test(l));
+  return {verb:'', rest: spinner ? 'thinking' : 'working'};
+}
+function bubbleHTML(s){
+  const a = activity(s);
+  return (a.verb ? `<span class="verb">${esc(a.verb)}</span> ` : '') + esc(a.rest);
+}
+
+/* reconcile live rows into the troupe: add new, drop gone, update the rest */
+function syncCritters(rows){
+  const seen = new Set();
+  rows.forEach(s => {
+    seen.add(s.uuid);
+    let c = CRITTERS.get(s.uuid) || spawnCritter(s);
+    c.s = s; c.state = stateOf(s);
+    const dash = ((s.ctx || 0) / 100 * RING_LEN).toFixed(1);   // ring = ctx used
+    c.fill.setAttribute('stroke-dasharray', `${dash} 200`);
+    c.fill.setAttribute('stroke', ctxColor(s.ctx || 0));
+    c.nm.textContent = s.name;
+    paintIdentity(c);
+  });
+  for (const [uuid, c] of CRITTERS){          // panes that vanished walk off
+    if (!seen.has(uuid)){ c.el.remove(); CRITTERS.delete(uuid); }
+  }
+}
+/* elapsed seconds → a compact clock: 0:42, 7:18, 1:03:5 (h:mm for long runs) */
+function fmtDur(sec){
+  sec = Math.max(0, Math.floor(sec));
+  const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+  if (h) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  return `${m}:${String(s).padStart(2,'0')}`;
+}
+
+/* ── game layer ─────────────────────────────────────
+   A forehead band, tinted by a stable hash of the pane name, gives every clawd a
+   colour you learn to recognise in a busy yard. The pet is pure joy — it doesn't
+   touch real state. */
+// FNV-1a hash → a stable 32-bit number, so the same repo always maps the same way
+function hashStr(str){
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < str.length; i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+// A curated bandana palette — hand-picked to be maximally distinct on the dark
+// yard (spread around the wheel, varied lightness) instead of a raw hue hash,
+// which used to bunch several crews into look-alike teals. Repo → stable colour.
+const BAND_COLORS = [
+  'hsl(2 84% 61%)',    // red
+  'hsl(28 90% 55%)',   // orange
+  'hsl(45 95% 55%)',   // amber
+  'hsl(60 88% 60%)',   // yellow
+  'hsl(96 66% 52%)',   // lime
+  'hsl(150 62% 46%)',  // green
+  'hsl(176 72% 40%)',  // teal (deep, dark)
+  'hsl(190 90% 57%)',  // cyan (bright, light)
+  'hsl(220 86% 62%)',  // blue (vivid, mid)
+  'hsl(255 74% 73%)',  // periwinkle (pale)
+  'hsl(288 62% 62%)',  // violet
+  'hsl(318 76% 62%)',  // magenta
+  'hsl(336 86% 67%)',  // pink
+  'hsl(22 46% 46%)',   // brown
+];
+// Assign colours so crews on the yard together are always different: each new
+// repo takes whichever palette colour is currently least used, so the first 14
+// crews are guaranteed distinct (no two hashing to the same cyan). The choice is
+// remembered for the session, so a repo keeps its bandana across reconnects.
+const bandAssign = new Map();          // gkey → colour, stable for the session
+function bandColor(key){
+  let col = bandAssign.get(key);
+  if (col) return col;
+  const counts = new Map(BAND_COLORS.map(c => [c, 0]));
+  bandAssign.forEach(c => counts.set(c, counts.get(c) + 1));
+  const off = hashStr(key) % BAND_COLORS.length;   // vary which colour crews start from
+  let best = BAND_COLORS[off], bestN = Infinity;
+  for (let i = 0; i < BAND_COLORS.length; i++){
+    const c = BAND_COLORS[(i + off) % BAND_COLORS.length], n = counts.get(c);
+    if (n < bestN){ bestN = n; best = c; }
+  }
+  bandAssign.set(key, best);
+  return best;
+}
+
+/* a floating emote above a clawd's head (yard-relative, same space as his x/y) */
+function fx(c, glyph, dur){
+  if (c.x == null) return;
+  const el = document.createElement('div');
+  el.className = 'fx'; el.textContent = glyph;
+  el.style.left = (c.x + 40) + 'px'; el.style.top = (c.y + 16) + 'px';
+  el.style.setProperty('--dx', ((Math.random()*2 - 1) * 22).toFixed(0) + 'px');
+  if (dur) el.style.animationDuration = dur + 'ms';
+  document.getElementById('yard').appendChild(el);
+  setTimeout(() => el.remove(), dur || 1000);
+}
+function fxBurst(c, glyph, n){ for (let i = 0; i < n; i++) setTimeout(() => fx(c, glyph), i * 70); }
+
+/* a quick tap opens the pane; a double-tap pets him — a happy jump + a few hearts */
+function tapClawd(c){
+  if (Date.now() - dragEndedAt < 400) return;      // a drop is not a tap
+  c._taps = (c._taps || 0) + 1;
+  if (c._taps === 1){
+    c._tapT = setTimeout(() => { c._taps = 0; buzz(8); openSession(c.uuid); }, 250);
+  } else {
+    clearTimeout(c._tapT); c._taps = 0; petClawd(c);
+  }
+}
+/* a quick spontaneous hop while idling — no touch needed, just liveliness */
+function fidget(c){
+  c._fid = false;
+  requestAnimationFrame(() => { c._fid = true;
+    setTimeout(() => { c._fid = false; }, 480); });
+}
+function petClawd(c){
+  buzz(14);
+  c._pet = false;                                    // retrigger cleanly on a rapid re-pet
+  requestAnimationFrame(() => { c._pet = true;
+    setTimeout(() => { c._pet = false; }, 540); });
+  fxBurst(c, '❤', 3);
+  c.greet = 0;                                       // don't wave right after a pet
+}
+
+/* every pane in the same repo is one crew: they share a band colour and flock
+   together. The key is the working directory (falls back to the name). */
+function groupKey(s){ return s.cwd || s.name || ''; }
+
+/* repo-colour on the forehead band — the whole crew wears the same one */
+function paintIdentity(c){
+  c.gkey = groupKey(c.s);
+  const col = bandColor(c.gkey);
+  if (c._bandc !== col){ c._bandc = col;
+    const band = c.el.querySelector('.band');
+    if (band) band.style.fill = col; }
+}
+
+function spawnCritter(s){
+  const el = document.createElement('div');
+  el.className = 'critter';
+  el.innerHTML =
+    `<div class="stage">
+       <div class="glow"></div>${CLAWD_SVG}
+       <svg class="ring" viewBox="0 0 58 20">
+         <path class="track" d="M4 18 A25 25 0 0 1 54 18"/>
+         <path class="fill"  d="M4 18 A25 25 0 0 1 54 18"/>
+       </svg>
+     </div>
+     <div class="bubble"></div>
+     <div class="ctag"><span class="nm"></span></div>
+     <div class="wtimer"></div>`;
+  el.onclick = () => tapClawd(CRITTERS.get(s.uuid));
+  document.getElementById('yard').appendChild(el);
+  const c = {
+    uuid:s.uuid, s, el,
+    stage:el.querySelector('.stage'), bubble:el.querySelector('.bubble'),
+    fill:el.querySelector('.fill'), nm:el.querySelector('.nm'),
+    wtimer:el.querySelector('.wtimer'), _wt:'',
+    x:null, y:0, vx:0, vy:0, facing:1, next:0, greet:0, bubbleOn:false, _cls:'', _sc:'',
+    _bhtml:'', _bat:0,          // last announced command + when, for the bubble
+    _fling:false, gkey:groupKey(s),
+    pace: 0.7 + Math.random() * 0.7,   // personal walking speed — no two alike
+    wvx: 0, wvy: 0,             // his own wander heading (separate from cohesion)
+    tx:null, ty:0,
+    drag:false,
+  };
+  CRITTERS.set(s.uuid, c);
+  attachDrag(c);
+  return c;
+}
+
+/* ── drag a clawd into the trash to end his session ────
+   Press and hold picks him up (a plain tap still opens the pane); the bin only
+   appears once you are actually holding one, and the drop asks before killing —
+   closing a pane cannot be undone. */
+const HOLD_MS = 400;
+let dragEndedAt = 0;
+
+function overTrash(x, y){
+  const r = document.getElementById('trash').getBoundingClientRect();
+  const cx = r.left + r.width/2, cy = r.top + r.height/2;
+  return Math.hypot(x - cx, y - cy) < r.width/2 + 26;   // generous for thumbs
+}
+
+function attachDrag(c){
+  const el = c.el, trash = document.getElementById('trash');
+  let hold = null, sx = 0, sy = 0, on = false;
+  let lmx = 0, lmy = 0, lmt = 0, fvx = 0, fvy = 0;   // recent pointer velocity, for the fling
+
+  const place = (x, y) => {
+    const r = document.getElementById('yard').getBoundingClientRect();
+    c.x = x - r.left - 40; c.y = y - r.top - 62;
+    el.style.transform = `translate(${c.x.toFixed(1)}px,${c.y.toFixed(1)}px)`;
+  };
+
+  // a press-and-hold is a gesture here, not a text selection or a long-press menu
+  el.addEventListener('contextmenu', e => e.preventDefault());
+  el.addEventListener('selectstart', e => e.preventDefault());
+  el.addEventListener('dragstart', e => e.preventDefault());
+
+  el.addEventListener('pointerdown', e => {
+    sx = e.clientX; sy = e.clientY;
+    hold = setTimeout(() => {
+      on = true; c.drag = true; c._fling = false; buzz(30);
+      lmx = sx; lmy = sy; lmt = Date.now(); fvx = fvy = 0;
+      el.classList.add('dragging');
+      trash.classList.add('on');
+      try { el.setPointerCapture(e.pointerId); } catch(_){}
+      place(sx, sy);
+    }, HOLD_MS);
+  });
+
+  el.addEventListener('pointermove', e => {
+    if (!on){
+      // a scroll or a sloppy tap cancels the pickup before it starts
+      if (Math.abs(e.clientX-sx) + Math.abs(e.clientY-sy) > 12) clearTimeout(hold);
+      return;
+    }
+    e.preventDefault();
+    const t = Date.now(), d = Math.max(1, t - lmt);   // track release velocity for the fling
+    fvx = (e.clientX - lmx) / d; fvy = (e.clientY - lmy) / d;
+    lmx = e.clientX; lmy = e.clientY; lmt = t;
+    place(e.clientX, e.clientY);
+    const hot = overTrash(e.clientX, e.clientY);
+    trash.classList.toggle('hot', hot);
+    if (hot !== el.classList.contains('doomed')) buzz(hot ? 18 : 6);
+    el.classList.toggle('doomed', hot);
+  });
+
+  const drop = e => {
+    clearTimeout(hold);
+    if (!on) return;
+    on = false; c.drag = false; dragEndedAt = Date.now();
+    el.classList.remove('dragging', 'doomed');
+    trash.classList.remove('on', 'hot');
+    if (e.type === 'pointercancel') return;
+    if (overTrash(e.clientX, e.clientY)){ askKill(c); return; }
+    // released in the open: hand him the flick's momentum so he skids to a stop
+    const K = 16.7, cap = 15;                          // px/ms → px/frame, clamped
+    if (Date.now() - lmt > 90){ fvx = fvy = 0; }       // a held-still release is not a throw
+    c.vx = Math.max(-cap, Math.min(cap, fvx * K));
+    c.vy = Math.max(-cap, Math.min(cap, fvy * K * 0.6));
+    if (Math.abs(c.vx) + Math.abs(c.vy) > 1.4){ c._fling = true; c.next = 0; buzz(10); }
+  };
+  el.addEventListener('pointerup', drop);
+  el.addEventListener('pointercancel', drop);
+}
+
+let killTarget = null;
+function askKill(c){
+  killTarget = c.s;
+  buzz(24);
+  openSheet('kill');
+}
+
+async function killPane(uuid, name){
+  closeSheet();
+  try {
+    await post('/api/kill', {uuid});
+    toast(`${name} killed`);
+  } catch(e){ toast(String(e.message), true); }
+}
+
+/* The clawds crawl an empty yard now — no scenery, no landmarks. Two behaviours
+   remain: a firm separation so they never overlap, and a wave when two pass
+   close. Personal space is an ellipse — they crowd side-to-side more than
+   front-to-back, matching the perspective — so all distances squash y by SQUAT. */
+const CLAWD_GAP = 66;                  // closest two clawds ever stand (feet)
+const SQUAT = 1.6;                     // y compressed this much in every distance
+// A clawd is not just his sprite: his name chip (up to ~92px) and the timer sit
+// below him. Treat the whole thing as a box and never let two boxes overlap, so
+// neither the clawds NOR their labels ever cover each other.
+const FOOT_W = 98;                     // min horizontal gap: nameplate width + margin
+const FOOT_H = 88;                     // min vertical gap: head-top down to timer bottom
+
+/* Usable ground: the box origin ranges the feet can occupy without a clawd
+   clipping the header or the tab bar. One definition, used by placement,
+   steering and clamping alike. */
+function bounds(W, H){
+  return {x0: 16, x1: Math.max(16, W - 96), y0: 56, y1: Math.max(56, H - 150)};
+}
+
+/* Spread newcomers across the WHOLE yard instead of dropping them at random —
+   a jittered grid sized to the crowd, so the first frame is already well
+   spaced and every corner gets used. Occupied cells (clawds already placed)
+   are skipped so a reconnect slots new arrivals into the gaps. */
+function placeClawds(W, H){
+  const need = [...CRITTERS.values()].filter(c => c.x == null && !c.drag);
+  if (!need.length) return;
+  const b = bounds(W, H);
+  const total = CRITTERS.size;
+  const cols = Math.max(1, Math.ceil(Math.sqrt(total * (b.x1 - b.x0) /
+                                    Math.max(1, (b.y1 - b.y0) * SQUAT))));
+  const rows = Math.max(1, Math.ceil(total / cols));
+  const cw = (b.x1 - b.x0) / cols, ch = (b.y1 - b.y0) / rows;
+  const taken = [...CRITTERS.values()].filter(c => c.x != null)
+    .map(c => [Math.floor((c.x - b.x0) / cw), Math.floor((c.y - b.y0) / ch)]);
+  const free = [];
+  for (let r = 0; r < rows; r++) for (let cX = 0; cX < cols; cX++)
+    if (!taken.some(([tx, ty]) => tx === cX && ty === r)) free.push([cX, r]);
+  for (let i = free.length - 1; i > 0; i--){        // shuffle so it's not a raster
+    const j = Math.floor(Math.random() * (i + 1)); [free[i], free[j]] = [free[j], free[i]];
+  }
+  need.forEach((c, i) => {
+    // if this pane's crew is already on the yard, drop him beside them rather
+    // than in a far grid cell — the flock stays a flock through reconnects
+    const crew = [...CRITTERS.values()].filter(o => o.x != null && o.gkey === c.gkey);
+    if (crew.length){
+      const mx = crew.reduce((a, o) => a + o.x, 0) / crew.length;
+      const my = crew.reduce((a, o) => a + o.y, 0) / crew.length;
+      c.x = Math.min(Math.max(mx + (Math.random()*2-1)*FOOT_W, b.x0), b.x1);
+      c.y = Math.min(Math.max(my + (Math.random()*2-1)*FOOT_H, b.y0), b.y1);
+      return;
+    }
+    const [cX, r] = free[i % free.length] || [i % cols, Math.floor(i / cols) % rows];
+    c.x = b.x0 + (cX + 0.22 + Math.random() * 0.56) * cw;
+    c.y = b.y0 + (r  + 0.22 + Math.random() * 0.56) * ch;
+  });
+}
+
+/* Keep every clawd's box (sprite + name + timer) clear of every other's. Each
+   pair is an axis-aligned overlap test; we shove them apart along whichever axis
+   they overlap least, so neither the clawds nor their labels ever cover one
+   another. Several relaxation passes unpack a tight knot in a single frame; the
+   edge clamp is inside the loop so a wall-pinned clawd still gives ground. */
+function resolveCollisions(W, H){
+  const arr = [...CRITTERS.values()].filter(c => c.x != null && !c.drag);
+  const b = bounds(W, H);
+  for (let pass = 0; pass < 6; pass++){
+    for (let i = 0; i < arr.length; i++){
+      for (let j = i + 1; j < arr.length; j++){
+        const a = arr[i], q = arr[j];
+        const dx = q.x - a.x, dy = q.y - a.y;
+        const ox = FOOT_W - Math.abs(dx), oy = FOOT_H - Math.abs(dy);
+        if (ox <= 0 || oy <= 0) continue;         // already clear on one axis
+        if (ox < oy){                             // less overlap sideways → part sideways
+          let s = (dx < 0 ? -ox : ox) / 2;
+          if (dx === 0) s = (Math.random() < 0.5 ? -ox : ox) / 2;
+          a.x -= s; q.x += s;
+        } else {                                  // less overlap vertically → part vertically
+          let s = (dy < 0 ? -oy : oy) / 2;
+          if (dy === 0) s = (Math.random() < 0.5 ? -oy : oy) / 2;
+          a.y -= s; q.y += s;
+        }
+      }
+    }
+    arr.forEach(c => {
+      c.x = Math.min(Math.max(c.x, b.x0), b.x1);
+      c.y = Math.min(Math.max(c.y, b.y0), b.y1);
+    });
+  }
+}
+
+let lastT = 0;
+function tick(t){
+  const yard = document.getElementById('yard');
+  const W = yard.clientWidth, H = yard.clientHeight;
+  const dt = Math.min(50, t - lastT) / 16.7; lastT = t;
+  const now = t / 1000;
+  const liveView = W > 60;                       // fleet screen actually on-screen
+
+  if (liveView) placeClawds(W, H);               // spread any newcomers first
+
+  // ── flock bookkeeping: each repo is a crew ──────────
+  // Sum every crew's position for its centre (cohesion pulls members toward it)
+  // just the crew's centre of mass — a WEAK pull toward it keeps a repo loosely
+  // together, but each clawd still wanders on his own (no shared marching order).
+  const CEN = new Map();                          // repo key → {cx, cy, n}
+  CRITTERS.forEach(c => {
+    if (c.x == null) return;
+    let g = CEN.get(c.gkey);
+    if (!g){ g = {sx:0, sy:0, n:0}; CEN.set(c.gkey, g); }
+    g.sx += c.x; g.sy += c.y; g.n++;
+  });
+  CEN.forEach(g => { g.cx = g.sx / g.n; g.cy = g.sy / g.n; });
+
+  // ── speech-bubble arbitration ───────────────────────
+  // Bubbles are wide and float above the crowd, so two side-by-side clawds would
+  // cover each other. Pick a non-overlapping set: a waiting clawd (needs you)
+  // always wins, then the freshest working ones, and anyone whose bubble would
+  // land on an already-chosen one stays quiet this frame.
+  // A bubble is drawn centred on the clawd, ~58px above his box origin. To keep
+  // it off everything, a shown bubble must clear every OTHER clawd's whole box
+  // (sprite + name + timer) and every already-shown bubble. Waiting clawds are
+  // exempt from the body test — the one that needs you always gets to speak.
+  const BUB_DX = 150, BUB_DY = 44;            // bubble↔bubble min centre gap
+  const OB_DX = 124, OB_DY = 65, OB_YOFF = 103;  // bubble↔clawd-box overlap window
+  const wants = [];
+  CRITTERS.forEach(c => {
+    c._okB = false;
+    if (c.x == null || c.drag) return;
+    if (c.state === 'waiting'){ c._prB = 2; wants.push(c); }
+    else if (c.state === 'working'){
+      const html = bubbleHTML(c.s);           // keep the "announce once" window ticking
+      if (html !== c._bhtml){ c._bhtml = html; c._bat = now; c.bubble.innerHTML = html; }
+      if (now - c._bat < 4){ c._prB = 1; wants.push(c); }
+    }
+  });
+  wants.sort((a, b) => b._prB - a._prB || b._bat - a._bat);   // waiting first, then freshest
+  const shownB = [];
+  wants.forEach(c => {
+    const hitsBody = c.state !== 'waiting' && [...CRITTERS.values()].some(o =>
+      o !== c && o.x != null && !o.drag &&
+      Math.abs(o.x - c.x) < OB_DX && Math.abs((o.y - c.y) + OB_YOFF) < OB_DY);
+    const hitsBub = shownB.some(o => Math.abs(o.x - c.x) < BUB_DX && Math.abs(o.y - c.y) < BUB_DY);
+    if (!hitsBody && !hitsBub){ c._okB = true; shownB.push(c); }
+  });
+
+  CRITTERS.forEach(c => {
+    const s = c.s, st = c.state;
+    if (c.drag) return;                          // the finger owns him right now
+    if (!liveView || c.x == null) return;
+
+    // heavier context → slower crawl (a loaded clawd trudges)
+    const speed = (0.35 + (1 - (s.ctx || 0) / 100) * 0.5) * (st === 'working' ? 1 : 0.5);
+    if (c._fling){
+      // a thrown clawd coasts and skids to rest; walls still bounce him (below)
+      c.vx *= 0.90; c.vy *= 0.90;
+      if (Math.abs(c.vx) + Math.abs(c.vy) < 0.15){ c._fling = false; c.vx = c.vy = 0; }
+    } else if (st === 'working' || st === 'idle'){
+      // ── his own wander — each clawd on his own clock, heading, speed ──
+      // Every roll picks a fresh random heading; sometimes he just stops to
+      // look around. His personal pace (set at birth) keeps crewmates from
+      // moving in sync, so a repo reads as individuals milling, not a machine.
+      if (now > c.next){
+        c.next = now + (st === 'idle' ? 1.1 + Math.random() * 3.4
+                                      : 0.6 + Math.random() * 2.2);
+        if (st === 'idle' && Math.random() < 0.34){
+          c.wvx = c.wvy = 0;                       // pause & look around
+          if (Math.random() < 0.5) c.facing = -c.facing;
+          if (!reduceMotion && Math.random() < 0.45) fidget(c);   // little hop
+        } else {
+          const ang = Math.random() * Math.PI * 2;
+          const sp = speed * (0.55 + Math.random() * 1.0) * c.pace;
+          c.wvx = Math.cos(ang) * sp; c.wvy = Math.sin(ang) * sp * 0.6;
+        }
+      }
+      // weak, loose leash back to the crew — only once he's really strayed, and
+      // gentle enough that it never overrides his own wandering
+      let cvx = 0, cvy = 0;
+      const g = CEN.get(c.gkey);
+      if (g){
+        const hx = g.cx - c.x, hy = g.cy - c.y, hd = Math.hypot(hx, hy * SQUAT);
+        if (hd > 130){ const k = Math.min(0.3, (hd - 130) / 500) * speed;
+          cvx = hx / hd * k; cvy = hy / hd * k * 0.6; }
+      }
+      // a little live jitter every frame so nobody glides on rails
+      const jx = (Math.random() * 2 - 1) * 0.06 * speed;
+      const jy = (Math.random() * 2 - 1) * 0.04 * speed;
+      const dvx = c.wvx + cvx + jx, dvy = c.wvy + cvy + jy;
+      // ease toward the target — snappy enough to feel lively, not teleporting
+      c.vx += (dvx - c.vx) * 0.18; c.vy += (dvy - c.vy) * 0.18;
+      // still keep personal space — steer off anyone whose box we're nearing
+      CRITTERS.forEach(o => {
+        if (o === c || o.x == null) return;
+        const dx = c.x - o.x, dy = c.y - o.y;
+        const nx = Math.abs(dx) / (FOOT_W * 1.4), ny = Math.abs(dy) / (FOOT_H * 1.4);
+        const d = Math.hypot(nx, ny);
+        if (d > 0.01 && d < 1){
+          const f = (1 - d) * 0.22;
+          c.vx += (dx / (Math.abs(dx) + Math.abs(dy) + 1)) * f * 2;
+          c.vy += (dy / (Math.abs(dx) + Math.abs(dy) + 1)) * f;
+        }
+      });
+    } else { c.vx = c.vy = 0; }                   // waiting / ended hold position
+
+    if (!reduceMotion){ c.x += c.vx * dt; c.y += c.vy * dt; }
+    if (c.x < 16){ c.x = 16; c.vx = Math.abs(c.vx); }
+    if (c.x > W-96){ c.x = W-96; c.vx = -Math.abs(c.vx); }
+    if (c.y < 56){ c.y = 56; c.vy = Math.abs(c.vy); }
+    if (c.y > H-150){ c.y = H-150; c.vy = -Math.abs(c.vy); }
+    if (Math.abs(c.vx) > 0.01) c.facing = c.vx < 0 ? -1 : 1;
+
+    const moving = Math.abs(c.vx) + Math.abs(c.vy) > 0.05;
+    const resting = st === 'idle' && Math.abs(c.vx) + Math.abs(c.vy) < 0.03;
+    const cls = 'critter ' + st + (c.facing < 0 ? ' left' : '')
+              + (resting ? ' resting' : '') + (c._pet ? ' petting' : '')
+              + (c._fid ? ' fidget' : '');
+    if (cls !== c._cls){ c.el.className = cls; c._cls = cls; }
+    const scl = 'stage' + (moving && st !== 'waiting' ? ' walk' : '')
+                        + (st === 'waiting' ? ' hop wave' : '');
+    if (scl !== c._sc){ c.stage.className = scl; c._sc = scl; }
+
+    // Idle clawds say nothing — a snoozing pane has no news, and a yard full of
+    // Zzz bubbles buries the one clawd that actually needs you.
+    // visibility decided above by the arbitration pass, so no two bubbles overlap
+    const show = c._okB;
+    if (show && st === 'waiting' && !c.bubbleOn) c.bubble.innerHTML = bubbleHTML(s);
+    if (show !== c.bubbleOn){ c.bubble.classList.toggle('on', show); c.bubbleOn = show; }
+
+    // live timer off the server's state epoch, ticking between the ~1s updates:
+    // for a working pane it's how long it's run, for an idle pane how long it's
+    // snoozed. Same field (state_since); the chip colour differs by parent class.
+    if ((st === 'working' || st === 'idle') && s.work_since){
+      const txt = fmtDur(Date.now()/1000 - s.work_since);
+      if (txt !== c._wt){ c.wtimer.textContent = txt; c._wt = txt; }
+    } else if (c._wt){ c.wtimer.textContent = ''; c._wt = ''; }
+  });
+
+  // Usage screen's freshness label rides this same loop, so it ticks off the
+  // client clock every frame just like the working timers above.
+  if (document.getElementById('s-usage').classList.contains('on')){
+    paintUsageAge();
+    // tick each running card's timer off work_since, same as the fleet above
+    document.querySelectorAll('#usage-body .age[data-since]').forEach(n => {
+      const since = +n.dataset.since;
+      if (since){ const t = fmtDur(Date.now()/1000 - since);
+        if (t !== n.textContent) n.textContent = t; }
+    });
+  }
+
+  // separation runs on the settled positions, then everyone is painted once
+  if (liveView) resolveCollisions(W, H);
+  CRITTERS.forEach(c => {
+    if (c.x == null || c.drag) return;
+    c.el.style.transform = `translate(${c.x.toFixed(1)}px,${c.y.toFixed(1)}px)`;
+  });
+
+  // two nearby non-waiting clawds turn and wave at each other
+  if (liveView && !reduceMotion){
+    const arr = [...CRITTERS.values()].filter(c => c.x != null &&
+      c.state !== 'waiting' && c.state !== 'ended');
+    for (let i = 0; i < arr.length; i++) for (let j = i+1; j < arr.length; j++){
+      const a = arr[i], b = arr[j], dx = a.x-b.x, dy = a.y-b.y;
+      // adjacent boxes are ~FOOT apart now, so greet at a bit past that
+      const wd = FOOT_W * 1.35;
+      if (dx*dx + dy*dy < wd*wd && now > a.greet && now > b.greet){
+        a.greet = b.greet = now + 7;
+        [[a,b],[b,a]].forEach(([who,other]) => {
+          who.vx = who.vy = 0; who.next = now + 1.4;
+          who.facing = other.x > who.x ? 1 : -1;
+          who.stage.classList.add('wave');
+          setTimeout(() => who.stage.classList.remove('wave'), 1300);
+        });
+      }
+    }
+  }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+function connectFleet(){
+  const url = `${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/fleet${Q}`;
+  tries++;
+  status(`connecting… (try ${tries})\n${url}`);
+  let ws;
+  try { ws = new WebSocket(url); }
+  catch(e){ status('WebSocket ctor failed: ' + e.message); return; }
+  ws.onopen  = () => { tries = 0; unlockUI(); document.getElementById('brand').classList.add('live');
+                       loadDevices(); status('connected, waiting for data…'); };
+  ws.onerror = () => status(`socket error — cannot reach ${location.host}`);
+  ws.onclose = ev => {
+    document.getElementById('brand').classList.remove('live');
+    // 1008/1006 right after open with no data almost always means auth refused
+    status(`disconnected (code ${ev.code}${ev.reason ? ' ' + ev.reason : ''})`);
+    // A socket refused because the session went stale must land on the lock
+    // screen, not retry forever against a server that will keep saying no.
+    authState().then(a => {
+      if (relock(a)) return;             // Face ID / token screen, whichever fits
+      setTimeout(connectFleet, 2000);
+    }).catch(() => setTimeout(connectFleet, 2000));
+  };
+  ws.onmessage = e => {
+    let d;
+    try { d = JSON.parse(e.data); }
+    catch(err){ status('bad JSON from server: ' + err.message); return; }
+    try { if (d.sessions) renderFleet(d.sessions); }
+    catch(err){ status('render failed: ' + err.message); return; }
+    if (d.limits) LIMITS = d.limits;
+    const fh = d.limits && d.limits.five_hour;
+    if (fh && fh.used_percentage != null){
+      document.querySelectorAll('.sb-lim-fill').forEach(e => e.style.width = fh.used_percentage + '%');
+      document.querySelectorAll('.sb-lim-t').forEach(e => e.textContent = pct(fh.used_percentage));
+    }
+    if ('pending' in d) setAuthBadge(d.pending);
+    // If the auth screen is open, keep its request list live as agents ask.
+    if (('pending' in d) && document.getElementById('s-auth').classList.contains('on'))
+      loadAuth();
+  };
+}
+
+/* The red dot on the auth tab: how many agents are waiting on the owner. */
+function setAuthBadge(n){
+  ['authdot','authdot2','authdot3','authdot4'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('on', n > 0);
+  });
+}
+
+/* ── session ───────────────────────────────────────── */
+/* Open (or re-open) the live pane socket. Mobile browsers suspend sockets when
+   the tab backgrounds or the phone sleeps, and the old socket never recovers —
+   so we track the wanted pane and auto-reconnect on close and on wake. Without
+   this a sent prompt lands in the pane (laptop sees it) but the phone's dead
+   socket never receives the update. */
+function connectPane(uuid){
+  paneWantUuid = uuid;
+  clearTimeout(paneReconnectT);
+  if (paneWS) { try { paneWS.onclose = null; paneWS.close(); } catch(e){} }
+  paneWS = new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/pane/${uuid}${Q}`);
+  paneWS.onmessage = e => {
+    const d = JSON.parse(e.data);
+    if (d.gone) { toast('pane closed', true); showFleet(); return; }
+    if (d.history) history = d.history;
+    if (d.text != null) live = d.text;
+    // fit AFTER the text lands — it sizes against the widest line we hold
+    if (d.cols) cols = d.cols;
+    fitFont(cols);
+    if (d.prompt !== undefined){ livePrompt = d.prompt; renderActions(); }
+    if ('suggest' in d) applySuggest(d.suggest);
+    paint();
+    // Reveal only once the LIVE screen has landed. The server ships history in
+    // its own frame first, then text; revealing on the history-only frame shows
+    // one size, then the wider text frame shrinks it — the visible resize. Wait
+    // for text so the first thing shown is already at final size.
+    const p = document.getElementById('pane');
+    if (p.style.visibility === 'hidden' && live){
+      p.style.visibility = '';
+      pinBottom = true; p.scrollTop = p.scrollHeight;   // land at bottom post-reveal
+    }
+  };
+  paneWS.onclose = () => {
+    // only chase a reconnect if this pane is still the one on screen
+    if (paneWantUuid !== uuid) return;
+    clearTimeout(paneReconnectT);
+    paneReconnectT = setTimeout(() => {
+      if (paneWantUuid === uuid) connectPane(uuid);
+    }, 700);
+  };
+}
+
+/* ── in-app back stack ──────────────────────────────────────────────────────
+   Android's back gesture/button and iOS edge-swipe fire the browser's history
+   navigation. Without our own history entries that pops the whole PWA off the
+   stack — kicking you out of the app. We push a state entering a session, a
+   sheet, or usage, so back unwinds one level (chat → fleet) instead of exiting.
+   navPop guards the renderers from re-pushing while we're reacting to popstate. */
+let navPop = false;
+function pushNav(state){ if (!navPop) window.history.pushState(state, ''); }
+function replaceNav(state){ if (!navPop) window.history.replaceState(state, ''); }
+
+window.addEventListener('popstate', e => {
+  navPop = true;
+  try {
+    if (openKind){ closeSheet(); return; }   // an open sheet swallows the first back
+    const st = e.state || {v:'fleet'};
+    const onS = document.getElementById('s-session').classList.contains('on');
+    const onU = document.getElementById('s-usage').classList.contains('on');
+    const onH = document.getElementById('s-history').classList.contains('on');
+    const onF = document.getElementById('s-fleet').classList.contains('on');
+    // Re-render only when the target screen isn't already showing — a sheet close
+    // pops back to the same screen and shouldn't reconnect the pane / flash.
+    if (st.v === 'session' && st.uuid && SESSIONS.some(s => s.uuid === st.uuid)){
+      if (!(onS && current && current.uuid === st.uuid)) openSession(st.uuid);
+    } else if (st.v === 'usage'){
+      if (!onU) showUsage();
+    } else if (st.v === 'history'){
+      if (!onH) showHistory();
+    } else if (st.v === 'auth'){
+      if (!document.getElementById('s-auth').classList.contains('on')) showAuth();
+    } else {
+      if (!onF) showFleet();
+    }
+  } finally { navPop = false; }
+});
+
+function openSession(uuid){
+  current = SESSIONS.find(s => s.uuid === uuid);
+  if (!current) return;
+  pushNav({v: 'session', uuid});
+  // Entering a chat starts with the header controls collapsed — the terminal
+  // owns the screen; open the ••• row deliberately if you want the chips.
+  chipsOpen = false; applyChips();
+  document.getElementById('st').textContent = current.name;
+  updateMeta();
+  document.querySelectorAll('.chips button:not(.ghost)').forEach(b => b.disabled = !current.sendable);
+  document.getElementById('sendbtn').disabled = !current.sendable;
+  document.getElementById('input').placeholder =
+    current.sendable ? '' : 'read-only';
+  hideScreens();
+  document.getElementById('s-session').classList.add('on');
+  const pane = document.getElementById('pane');
+  pane.textContent = '';
+  // Always enter in fit mode — a stale `wrap` class (added by shrinkToFit's
+  // last-resort soft-wrap in a prior session) is the 13px "big" state that
+  // flashes before fit kicks in. Clear it so fit is the guaranteed default.
+  if (fitMode === 0) pane.classList.remove('wrap');
+  // Hide until the first frame is sized+shrunk — the reveal in the socket
+  // handler shows it already-fitted, so no big→small resize is ever visible.
+  pane.style.visibility = 'hidden';
+  fitFont(cols);        // seed size from cached width before content lands
+  // Safety: never leave the pane blank if the first frame is slow to arrive.
+  setTimeout(() => {
+    if (current && current.uuid === uuid && pane.style.visibility === 'hidden')
+      pane.style.visibility = '';
+  }, 1200);
+
+  markEffort(current.effort); markMode(current.mode); markModel(current.model);
+  livePrompt = current.prompt || null; renderActions();
+  history = []; live = ''; pinBottom = true;   // land at newest output
+  briefOpen = false; briefHasContent = false; applyBrief();   // brief hidden until toggled
+  connectPane(uuid);
+  loadSummary(uuid, true);              // header brief: summary + stop condition
+  clearInterval(summaryTimer);
+  summaryTimer = setInterval(() => {
+    if (current && current.uuid === uuid &&
+        document.getElementById('s-session').classList.contains('on'))
+      loadSummary(uuid, false);
+    else { clearInterval(summaryTimer); summaryTimer = null; }
+  }, 45000);
+}
+
+/* The two-line brief under the chat header. Line 1 is a rolling summary of the
+   whole session; line 2, only while the task runs, is the condition that ends
+   it. Both come from `claude -p` server-side (cached ~45s), so the first paint
+   for a fresh pane can take a few seconds. */
+let summaryTimer = null;
+async function loadSummary(uuid, first){
+  const box = document.getElementById('sessinfo');
+  const sum = document.getElementById('ss-sum');
+  const goal = document.getElementById('ss-goal');
+  const goalRow = document.getElementById('ss-goalrow');
+  if (first){
+    box.classList.add('loading');
+    sum.textContent = 'summarising session…';
+    goalRow.hidden = true;
+    briefHasContent = true;               // loading placeholder is worth showing
+    applyBrief();
+  }
+  try {
+    const r = await fetch('/api/summary?uuid=' + encodeURIComponent(uuid));
+    const d = await r.json();
+    if (!current || current.uuid !== uuid) return;      // user switched panes
+    box.classList.remove('loading');
+    if (d.summary){ sum.textContent = d.summary; briefHasContent = true; }
+    else if (first){ briefHasContent = false; }
+    // Summary is the norm; the goal block only appears if a real goal comes back.
+    if (d.running && d.success){
+      goal.textContent = d.success; goal.classList.remove('unsure');
+      goalRow.hidden = false;
+    } else {
+      goalRow.hidden = true;
+    }
+    applyBrief();
+  } catch(e){
+    box.classList.remove('loading');
+    if (first){ briefHasContent = false; applyBrief(); }
+  }
+}
+
+/* Summary + goal stay hidden by default; the info button in the header reveals
+   them. Reset to hidden on each session open. */
+let briefOpen = false, briefHasContent = false;
+function applyBrief(){
+  document.getElementById('sessinfo').hidden = !(briefOpen && briefHasContent);
+  const b = document.getElementById('briefbtn');
+  if (b){ b.classList.toggle('on', briefOpen);
+          b.setAttribute('aria-expanded', briefOpen ? 'true' : 'false'); }
+}
+function toggleBrief(){ briefOpen = !briefOpen; applyBrief(); buzz(8); }
+
+/* history (scrollback, sent once) sits above the live screen */
+// cols seeds from the last fitted width so a fresh chat sizes small on the first
+// frame instead of flashing big and snapping down when the socket's cols lands.
+let history = [], live = '', cols = +localStorage.getItem('cols') || 80, fitMode = 0;   // 0 = fit cols, 1 = wrap
+// Pin the view to the bottom (newest output). True on open so a fresh chat lands
+// at the live prompt, not the top of scrollback. User scrolling up unpins;
+// scrolling back to the bottom re-pins. Maintained by the pane scroll listener.
+let pinBottom = true, userScrolling = false;
+
+// Claude's bottom chrome — the input box, spinner/status, and shortcut footer —
+// is redundant on mobile: OUR composer is the input. Strip it off the live
+// screen so the last visible line is real output, not Claude's prompt UI.
+// Claude's input box sits at the very bottom, bracketed by two horizontal
+// divider rows (long runs of ─). Below it: the model/context bar, the ⏵⏵ mode
+// line, and a "new task?" footer. Above it may sit a spinner ("✻ Cooked for 2s",
+// "✢ Gesticulating… (22s …)"). Strip all of that so the pane ends at real output.
+// A divider is a line that's mostly ─ — pure ("────") or labelled ("── name ──").
+function isDivider(l){
+  const t = l.trim();
+  if (t.length < 8) return false;
+  // a run of ─ at both ends (pure "────" or a labelled "──── name ──" border)
+  const dashes = (t.match(/[─━]/g) || []).length;
+  return dashes >= 8 && /^[─━]{3,}/.test(t) && /[─━]{2,}$/.test(t);
+}
+function isBorder(l){ return isDivider(l) || /[╭╮╰╯┌┐└┘┏┓┗┛]/.test(l); }
+function trimChrome(text){
+  let lines = text.split('\n');
+  // Remove ONLY the input box (the one holding the ❯ prompt) and everything below
+  // it — its bottom border, the model/context bar, the ⏵⏵ mode line and the
+  // "new task?" footer. The "✻ Cooked for 14s" status line sits ABOVE the box, so
+  // it's kept: it's the last useful line before our own composer.
+  let p = -1;
+  for (let i = lines.length - 1; i >= 0; i--){ if (lines[i].includes('❯')){ p = i; break; } }
+  if (p >= 0){
+    let top = p;
+    while (top - 1 >= 0 && isBorder(lines[top - 1])) top--;   // climb the top border
+    lines = lines.slice(0, top);
+  }
+  return lines.join('\n').replace(/\n+$/, '');
+}
+
+function paint(){
+  const p = document.getElementById('pane');
+  // trailing blank lines between scrollback and live screen just waste space
+  const hist = history.join('\n').replace(/\n+$/, '');
+  const liveT = trimChrome(live);
+  const lines = colorizeLines(hist ? hist + '\n' + liveT : liveT);
+  // Diff line-by-line instead of replacing innerHTML. Only changed rows are
+  // rewritten; untouched scrollback nodes stay put, so the browser keeps the
+  // scroll position natively — no reset-to-0, no anchor math, no drift, and a
+  // finger mid-scroll isn't yanked. New output just appends rows at the bottom.
+  const kids = p.children;
+  for (let i = 0; i < lines.length; i++){
+    let el = kids[i];
+    if (!el){ el = document.createElement('div'); el.className = 'ln'; p.appendChild(el); }
+    if (el.__h !== lines[i]){ el.innerHTML = lines[i] || ''; el.__h = lines[i]; }
+  }
+  while (kids.length > lines.length) p.removeChild(p.lastElementChild);
+  if (fitMode === 0) shrinkToFit(p);
+  // Follow live output only when parked at the bottom and not actively scrolling.
+  if (pinBottom && !userScrolling) p.scrollTop = p.scrollHeight;
+}
+
+/* pinBottom must reflect USER intent only. paint() writes scrollTop every frame
+   while output streams, and those writes fire async 'scroll' events too — reading
+   pinBottom off every scroll event let our own writes flip it, so the view drifted
+   on its own. Instead we only re-evaluate during (and just after) a real touch /
+   wheel gesture; programmatic frames never touch pinBottom. */
+(function(){
+  const p = document.getElementById('pane');
+  if (!p) return;
+  const nearBottom = () => p.scrollTop + p.clientHeight >= p.scrollHeight - 60;
+  let idle = null;
+  const begin = () => { userScrolling = true; clearTimeout(idle); };
+  const settle = () => { clearTimeout(idle);
+    idle = setTimeout(() => { userScrolling = false; }, 180); };
+  // a gesture starts tracking; momentum keeps firing 'scroll' until it idles
+  p.addEventListener('touchstart', begin, {passive: true});
+  p.addEventListener('wheel', () => { begin(); settle(); }, {passive: true});
+  p.addEventListener('touchend', settle, {passive: true});
+  p.addEventListener('scroll', () => {
+    if (!userScrolling) return;      // ignore paint()'s own scrollTop writes
+    pinBottom = nearBottom();
+    settle();
+  }, {passive: true});
+})();
+
+const PANE_PAD = 22;                    // .pane padding both sides, +1px slack
+                                        // each side so subpixel rounding can't
+                                        // trip the scrollbar on
+const MIN_PX = 4;                       // tiny, but pinch-zoom can read it
+
+/* Scale the font so every line fits the viewport exactly — no soft wrap, no
+   horizontal scroll. Measured, not guessed: glyph width varies by device and
+   font fallback. */
+function fitFont(c){
+  cols = c || cols;
+  const p = document.getElementById('pane');
+  if (fitMode === 1){ p.classList.add('wrap'); p.style.fontSize = ''; return; }
+  p.classList.remove('wrap');
+  if (!p.clientWidth) return;           // screen not laid out yet
+  // Fit the terminal's own column count, not the widest line we currently hold.
+  // The live screen streams in wider as output arrives; sizing to the tallest
+  // line present at open would pick a big font, then shrink it half a second
+  // later when a wider live row lands — a visible jump. `cols` is the steady
+  // state, so sizing to it is right from the first frame and never shrinks.
+  // Over-wide old scrollback (captured when iTerm was wider) is caught by
+  // shrinkToFit / soft-wrap instead.
+  let widest = cols;
+
+  const probe = document.createElement('span');
+  probe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;'
+    + 'font-family:' + getComputedStyle(p).fontFamily + ';font-size:100px';
+  probe.textContent = '0'.repeat(10);
+  document.body.appendChild(probe);
+  const chAt100 = probe.getBoundingClientRect().width / 10;
+  probe.remove();
+  const avail = p.clientWidth - PANE_PAD;
+  const size = Math.max(MIN_PX, Math.min(15, (avail / widest) * 100 / chAt100));
+  p.style.fontSize = size.toFixed(2) + 'px';
+  try { localStorage.setItem('cols', cols); } catch(e){}   // seed next open's pre-fit
+}
+
+/* Belt and braces: character counting misses tabs, wide CJK/emoji glyphs and
+   any width colorize()'s markup adds. Measure what actually rendered and step
+   down until nothing overflows. */
+function shrinkToFit(p){
+  for (let i = 0; i < 5; i++){
+    if (!p.clientWidth || p.scrollWidth <= p.clientWidth){ p.classList.remove('wrap'); return; }
+    const cur = parseFloat(p.style.fontSize) || 11;
+    const next = Math.max(MIN_PX,
+      cur * (p.clientWidth - PANE_PAD) / (p.scrollWidth - PANE_PAD));
+    if (next >= cur - 0.05) break;      // bottomed out at the floor
+    p.style.fontSize = next.toFixed(2) + 'px';
+  }
+  // Below the floor, shrinking further is illegible anyway. "Nothing runs off
+  // the right edge" is the promise that matters, so soft-wrap instead of
+  // handing back a horizontal scrollbar.
+  if (p.scrollWidth > p.clientWidth){ p.classList.add('wrap'); p.style.fontSize = ''; }
+}
+
+/* The control row is collapsed by default so the terminal owns the screen.
+   Choice sticks across sessions — someone who wants the chips wants them. */
+let chipsOpen = localStorage.getItem('chips') === '1';
+function applyChips(){
+  document.getElementById('chips').classList.toggle('on', chipsOpen);
+  const b = document.getElementById('ctrlbtn');
+  b.classList.toggle('on', chipsOpen);
+  b.setAttribute('aria-expanded', chipsOpen ? 'true' : 'false');
+}
+function toggleChips(){
+  chipsOpen = !chipsOpen;
+  localStorage.setItem('chips', chipsOpen ? '1' : '0');
+  applyChips();
+  paint();                       // pane height changed; keep it pinned to bottom
+}
+applyChips();
+
+function cycleFit(){
+  fitMode = fitMode ? 0 : 1;
+  const b = document.getElementById('fitbtn');
+  b.classList.toggle('on', fitMode === 1);        // wrap mode active
+  b.setAttribute('aria-label', fitMode ? 'wrap' : 'fit');
+  fitFont(cols); paint();
+}
+window.addEventListener('resize', () => { if (current){ fitFont(cols); paint(); } });
+
+/* Reconnect a dead/zombie pane socket. Safe to call any time — no-op if the
+   socket is already open. */
+function ensurePaneLive(){
+  if (!paneWantUuid) return;
+  if (!paneWS || paneWS.readyState > 1)   // 2 CLOSING, 3 CLOSED
+    connectPane(paneWantUuid);
+}
+// Phone wakes / tab refocuses: the socket may be a zombie — force a fresh one.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') ensurePaneLive();
+});
+window.addEventListener('focus', ensurePaneLive);
+window.addEventListener('pageshow', ensurePaneLive);
+
+/* With the chip row collapsed the header is the only place mode/effort/context
+   still show, so keep it current on every state change. */
+function updateMeta(){
+  if (!current) return;
+  document.getElementById('sm').textContent =
+    [current.mode, EFFORT_LABEL[current.effort],
+     current.ctx != null ? current.ctx + '%' : null].filter(Boolean).join(' · ');
+}
+
+/* chips just mirror state; the options live in the sheet */
+const EFFORTS = ['low','medium','high','xhigh','ultracode'];
+const EFFORT_LABEL = {low:'low', medium:'med', high:'high',
+                      xhigh:'xhi', ultracode:'ultra'};
+// set a chip's current-value label without disturbing its leading icon
+function chipVal(id, text){
+  const cv = document.querySelector('#' + id + ' .cv');
+  if (cv) cv.textContent = text;
+}
+function markEffort(level){
+  chipVal('chip-effort', EFFORT_LABEL[level] || 'effort');
+  if (current) current.effort = level;
+  updateMeta();
+  if (openKind === 'effort') renderSheet();
+}
+function markMode(mode){
+  chipVal('chip-mode', mode || 'mode');
+  if (current) current.mode = mode;
+  updateMeta();
+  if (openKind === 'mode') renderSheet();
+}
+function markModel(name){
+  const m = (name || '').toLowerCase();
+  const short = ['opus','sonnet','haiku','fable'].find(x => m.includes(x)) || (name || 'model');
+  chipVal('chip-model', short);
+  if (openKind === 'model') renderSheet();
+}
+
+/* ── bottom sheet ──────────────────────────────────── */
+let openKind = null, COMMANDS = [];
+
+function openSheet(kind){ openKind = kind; renderSheet();
+  document.getElementById('sheet').classList.add('on');
+  document.getElementById('sheet-bg').classList.add('on');
+  pushNav({v: 'sheet'}); }          // back closes the sheet, not the screen
+function closeSheet(){
+  const wasOpen = openKind !== null;
+  openKind = null; pendingModel = null;
+  if (typeof deviceTimer !== 'undefined') clearInterval(deviceTimer);
+  document.getElementById('sheet').classList.remove('on');
+  document.getElementById('sheet-bg').classList.remove('on');
+  // pop the sheet's history entry when closed by tap/action (popstate already
+  // consumed it when the close came from a back gesture — navPop guards that)
+  if (wasOpen && !navPop && window.history.state && window.history.state.v === 'sheet') window.history.back(); }
+
+function opt(label, {desc = '', cur = false, cls = '', dis = false, on}){
+  const b = document.createElement('button');
+  b.className = 'opt' + (cur ? ' cur' : '') + (cls ? ' ' + cls : '');
+  b.disabled = dis;
+  b.innerHTML = `<span>${esc(label)}</span>` +
+                (desc ? `<span class="desc">${esc(desc)}</span>` : '');
+  b.onclick = on;
+  return b;
+}
+
+function renderSheet(){
+  const body = document.getElementById('sheet-body');
+  const title = document.getElementById('sheet-title');
+  body.innerHTML = '';
+  const send = current && current.sendable;
+
+  if (openKind === 'effort'){
+    title.textContent = 'reasoning effort';
+    EFFORTS.forEach(l => body.appendChild(opt(l, {
+      cur: current && current.effort === l, dis: !send,
+      on: () => { setEffort(l); closeSheet(); }})));
+  }
+
+  else if (openKind === 'mode'){
+    title.textContent = 'permission mode';
+    [['plan','read-only planning'], ['auto','auto-accept'],
+     ['accept','accept edits'], ['manual','ask every time']]
+      .forEach(([m, d]) => body.appendChild(opt(m, {
+        desc: d, cur: current && current.mode === m, dis: !send,
+        on: () => { setMode(m); closeSheet(); }})));
+  }
+
+  else if (openKind === 'model'){
+    title.textContent = 'model';
+    const m = ((current && current.model) || '').toLowerCase();
+    ['opus','sonnet','haiku','fable'].forEach(name => body.appendChild(opt(
+      pendingModel === name ? 'tap again to confirm' : name, {
+        desc: pendingModel === name ? '' : (m.includes(name) ? 'current' : ''),
+        cur: pendingModel !== name && m.includes(name),
+        cls: pendingModel === name ? 'confirm' : '', dis: !send,
+        on: () => setModel(name)})));
+    const n = document.createElement('div');
+    n.className = 'sheet-note warn';
+    n.textContent = '/model also rewrites your global default — every future '
+      + 'session you start will use it, not just this pane.';
+    body.appendChild(n);
+  }
+
+  else if (openKind === 'kill'){
+    const t = killTarget || {};
+    title.textContent = 'end session';
+    body.appendChild(opt(`kill ${t.name || 'pane'}`, {
+      desc: t.state === 'working' ? 'is working' : (t.state || ''), cls: 'confirm',
+      on: () => killPane(t.uuid, t.name || 'pane')}));
+    body.appendChild(opt('cancel', {on: closeSheet}));
+  }
+
+  else if (openKind === 'keys'){
+    title.textContent = 'keys';
+    KEYSET.forEach(([k, label, desc]) => body.appendChild(opt(label, {
+      desc, dis: !send, on: () => { key(k); closeSheet(); }})));
+  }
+
+  else if (openKind === 'cmd'){
+    title.textContent = 'commands';
+    COMMANDS.forEach(c => body.appendChild(opt(c.cmd, {
+      desc: c.desc, dis: !send,
+      on: () => { runCmd(c.id); closeSheet(); }})));
+    if (!COMMANDS.length){
+      const n = document.createElement('div');
+      n.className = 'sheet-note'; n.textContent = 'loading…';
+      body.appendChild(n);
+    }
+  }
+}
+
+/* ── contextual action bar ─────────────────────────── */
+const KEYSET = [
+  ['esc','esc','interrupt / dismiss'], ['^C','^C','stop'],
+  ['s-tab','⇧⇥','cycle mode'], ['enter','⏎','submit'],
+  ['up','↑','history up'], ['down','↓','history down'],
+  ['tab','⇥','complete'], ['^D','^D','eof'],
+];
+
+let livePrompt = null;
+
+function renderActions(){
+  const bar = document.getElementById('actionbar');
+  const send = current && current.sendable;
+  bar.innerHTML = '';
+  if (!send){ bar.className = 'actionbar'; return; }
+
+  if (livePrompt && livePrompt.options && livePrompt.options.length){
+    // Claude is asking. Show ITS options verbatim, one tap each.
+    bar.className = 'actionbar on';
+    if (livePrompt.question){
+      const q = document.createElement('span');
+      q.className = 'q'; q.textContent = livePrompt.question;
+      bar.appendChild(q);
+    }
+    const wrap = document.createElement('div');
+    wrap.className = 'opts';
+    livePrompt.options.forEach(o => {
+      const b = document.createElement('button');
+      const yes = /^(yes|approve|accept|proceed|allow)/i.test(o.label);
+      const no  = /^(no|cancel|reject|keep planning)/i.test(o.label);
+      b.className = 'act' + (o.selected ? ' sel' : '') +
+                    (yes ? ' yes' : '') + (no ? ' no' : '');
+      b.innerHTML = `<span class="num">${esc(o.key)}</span><span>${esc(o.label)}</span>`;
+      b.onclick = () => { key(o.key); livePrompt = null; renderActions(); };
+      wrap.appendChild(b);
+    });
+    bar.appendChild(wrap);
+    return;
+  }
+
+  bar.className = 'actionbar';
+}
+
+async function runCmd(id){
+  if (!current) return;
+  buzz(12);
+  try { const r = await post('/api/cmd', {uuid: current.uuid, cmd: id});
+        toast('sent ' + r.cmd); }
+  catch(e){ toast(String(e.message), true); }
+}
+
+function loadCommands(){
+  fetch('/api/commands')
+    .then(r => r.json()).then(d => { COMMANDS = d.commands || [];
+                                     if (openKind === 'cmd') renderSheet(); })
+    .catch(() => {});
+}
+
+async function setMode(mode){
+  if (!current) return;
+  buzz(12);
+  try {
+    const r = await post('/api/mode', {uuid: current.uuid, mode});
+    markMode(r.mode); toast('mode → ' + r.mode);
+  } catch(e){ toast(String(e.message), true); }
+}
+
+/* /model rewrites ~/.claude/settings.json — it repoints every FUTURE session,
+   not just this one. Two taps required, and the second is labelled. */
+let pendingModel = null, pendingTimer = null;
+function setModel(name){
+  if (!current) return;
+  if (pendingModel !== name){          // first tap arms, second fires
+    pendingModel = name; renderSheet();
+    clearTimeout(pendingTimer);
+    pendingTimer = setTimeout(() => { pendingModel = null; renderSheet(); }, 4000);
+    return;
+  }
+  clearTimeout(pendingTimer); pendingModel = null;
+  buzz(18); closeSheet();
+  post('/api/model', {uuid: current.uuid, model: name})
+    .then(() => toast('model \u2192 ' + name + ' (global default changed)'))
+    .catch(e => toast(String(e.message), true));
+}
+
+async function setEffort(level){
+  if (!current) return;
+  buzz(12);
+  markEffort(level);
+  try {
+    await post('/api/effort', {uuid: current.uuid, level});
+    toast('effort → ' + level);
+  } catch(e){ toast(String(e.message), true); markEffort(current.effort); }
+}
+
+function showFleet(){
+  paneWantUuid = null; clearTimeout(paneReconnectT);
+  if (paneWS) { try { paneWS.onclose = null; paneWS.close(); } catch(e){} paneWS = null; }
+  current = null;
+  hideScreens();
+  document.getElementById('s-fleet').classList.add('on');
+  replaceNav({v: 'fleet'});   // fleet is home — collapse, don't stack
+}
+
+/* ── auth / integrations ───────────────────────────────
+   The owner's control room for agent credentials: approve what agents ask for,
+   connect new services, and see/revoke what each agent currently holds. */
+let AUTH_PROVIDERS = {}, AUTH_REQS = [], AUTH_INTS = [];
+function showAuth(){
+  pushNav({v: 'auth'});
+  hideScreens();
+  document.getElementById('s-auth').classList.add('on');
+  loadAuth();
+}
+
+async function loadAuth(){
+  try {
+    const [ints, reqs, grants] = await Promise.all([
+      fetch('/api/integrations').then(r=>r.json()),
+      fetch('/api/requests').then(r=>r.json()),
+      fetch('/api/grants').then(r=>r.json()),
+    ]);
+    AUTH_PROVIDERS = ints.providers || {};
+    AUTH_REQS = reqs.requests || [];
+    AUTH_INTS = ints.integrations || [];
+    renderRequests(AUTH_REQS);
+    renderIntegrations(AUTH_INTS);
+    renderGrants(grants.grants || []);
+  } catch(e){ /* leave last paint; a 401 will have relocked via post() elsewhere */ }
+}
+
+const provColor = p => (AUTH_PROVIDERS[p]||{}).color || 'var(--dim)';
+const provDomain = p => (AUTH_PROVIDERS[p]||{}).domain;
+// Real brand mark, resolved from the provider's domain favicon. Falls back to a
+// coloured letter tile if the domain is unknown (custom) or the icon won't load.
+const provIcon = p => { const d = provDomain(p);
+  return d ? `https://icons.duckduckgo.com/ip3/${d}.ico` : ''; };
+function pvHTML(p){
+  const ic = provIcon(p), letter = esc((provLabel(p)[0]||'?'));
+  if (ic) return `<span class="pv"><img src="${ic}" alt="" loading="lazy"`
+    + ` onerror="this.parentNode.classList.add('pvfallback');`
+    + `this.parentNode.style.background='${provColor(p)}';this.parentNode.textContent='${letter}'"></span>`;
+  return `<span class="pv pvfallback" style="background:${provColor(p)}">${letter}</span>`;
+}
+const provLabel = p => (AUTH_PROVIDERS[p]||{}).label || p;
+
+function daysLeft(expires){
+  if (!expires) return null;
+  const t = Date.parse(expires.length<=10 ? expires+'T00:00:00' : expires);
+  if (isNaN(t)) return null;
+  return Math.ceil((t - Date.now())/86400000);
+}
+
+function renderRequests(reqs){
+  const sec = document.getElementById('auth-requests');
+  const list = document.getElementById('auth-reqlist');
+  sec.hidden = reqs.length === 0;
+  list.innerHTML = reqs.map(r => {
+    const pane = (SESSIONS.find(s=>s.uuid===r.uuid)||{}).name || r.uuid.slice(0,8);
+    return `<div class="icard reqcard">
+      <div class="ib"><div class="il">${esc(pane)} wants ${esc(r.service)}</div>
+        <div class="im">${esc(r.reason||'no reason given')}</div></div>
+      <div class="reqbtns">
+        <button class="ok" onclick="approveReq('${r.id}')">Approve</button>
+        <button class="no" onclick="denyReq('${r.id}')">Deny</button></div></div>`;
+  }).join('');
+}
+
+function renderIntegrations(ints){
+  const el = document.getElementById('auth-intlist');
+  document.getElementById('auth-meta').textContent =
+    ints.length ? ints.length + ' connected' : '';
+  if (!ints.length){ el.innerHTML = '<div class="empty">none yet — tap + Add</div>'; return; }
+  el.innerHTML = ints.map(i => {
+    const dl = daysLeft(i.expires);
+    let exp = i.expires ? `expires ${esc(i.expires)}` : 'no expiry';
+    if (dl != null && dl < 0) exp = `<span class="bad">expired</span>`;
+    else if (dl != null && dl < 7) exp = `<span class="warn">expires in ${dl}d</span>`;
+    const scopes = (i.scopes||[]).map(s=>`<span class="scchip">${esc(s)}</span>`).join('');
+    const mask = i.live ? '<span class="mask">live</span>' : `<span class="mask">…${esc(i.last4)}</span>`;
+    return `<div class="icard">
+      ${pvHTML(i.provider)}
+      <div class="ib">
+        <div class="il">${esc(i.label)} ${mask}</div>
+        <div class="im">${esc(i.env_var)} · ${exp}</div>
+        <div>${scopes}</div></div>
+      <button class="ix" title="disconnect" onclick="deleteInt('${i.id}')">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function renderGrants(grants){
+  const el = document.getElementById('auth-grantlist');
+  if (!grants.length){ el.innerHTML = '<div class="empty">no agent holds a credential right now</div>'; return; }
+  el.innerHTML = grants.map(g => {
+    const pane = (SESSIONS.find(s=>s.uuid===g.uuid)||{}).name || g.uuid.slice(0,8);
+    return `<div class="icard">
+      ${pvHTML(g.provider)}
+      <div class="ib"><div class="il">${esc(pane)}</div>
+        <div class="im">${esc(g.label)} …${esc(g.last4)} → ${esc(g.env_var)}</div></div>
+      <button class="ix" title="revoke" onclick="revokeGrant('${g.id}')">✕</button></div>`;
+  }).join('');
+}
+
+async function approveReq(rid){
+  const req = AUTH_REQS.find(r => r.id === rid); if (!req) return;
+  const service = (req.service || '').toLowerCase();
+  const match = AUTH_INTS.filter(i =>
+    [i.provider, (i.env_var||'').toLowerCase(), (i.label||'').toLowerCase()].includes(service));
+  const pool = match.length ? match : AUTH_INTS;
+  if (!pool.length){
+    toast('connect a credential first', true); openAddIntegration(req.service); return;
+  }
+  sheetChoose('Grant which credential?', pool.map(i => ({
+    label: `${i.label} …${i.last4}`,
+    on: async () => {
+      try { await post(`/api/requests/${rid}/approve`, {cred_id: i.id, scopes: i.scopes||[]});
+            buzz(20); toast('granted'); closeSheet(); loadAuth(); }
+      catch(e){ toast('grant failed: '+e.message, true); }
+    }})));
+}
+async function denyReq(rid){
+  try { await post(`/api/requests/${rid}/deny`, {}); loadAuth(); } catch(e){}
+}
+async function revokeGrant(gid){
+  try { await post(`/api/grants/${gid}/revoke`, {}); buzz(14); loadAuth(); }
+  catch(e){ toast('revoke failed', true); }
+}
+function deleteInt(cid){
+  const i = AUTH_INTS.find(x => x.id === cid); if (!i) return;
+  sheetChoose(`Disconnect ${i.label}?`, [{
+    label: 'Disconnect & purge', cls: 'confirm',
+    on: async () => {
+      try { await post(`/api/integrations/${cid}/delete`, {}); buzz(20); closeSheet(); loadAuth(); }
+      catch(e){ toast('delete failed', true); }
+    }}]);
+}
+
+/* A generic bottom-sheet of tappable options, reusing the existing sheet DOM +
+   the `opt()` builder so it matches the mode/effort pickers exactly. */
+function sheetChoose(title, items){
+  openKind = 'auth';
+  const body = document.getElementById('sheet-body');
+  document.getElementById('sheet-title').textContent = title;
+  body.innerHTML = '';
+  items.forEach(it => body.appendChild(opt(it.label, {cls: it.cls||'', on: it.on})));
+  document.getElementById('sheet').classList.add('on');
+  document.getElementById('sheet-bg').classList.add('on');
+  pushNav({v: 'sheet'});
+}
+
+/* Add-integration form, rendered into the same sheet. Provider first; then the
+   right inputs — GitHub gets device-flow, everyone else a token field. */
+function openAddIntegration(preselect){
+  openKind = 'auth';
+  const body = document.getElementById('sheet-body');
+  document.getElementById('sheet-title').textContent = 'Connect a service';
+  body.innerHTML = '';
+  Object.keys(AUTH_PROVIDERS).forEach(p => {
+    const b = opt(AUTH_PROVIDERS[p].label, {
+      cur: preselect && preselect.toLowerCase() === p,
+      on: () => addIntegrationForm(p)});
+    b.insertAdjacentHTML('afterbegin', pvHTML(p));   // real brand mark before the name
+    body.appendChild(b);
+  });
+  document.getElementById('sheet').classList.add('on');
+  document.getElementById('sheet-bg').classList.add('on');
+  pushNav({v: 'sheet'});
+}
+
+function addIntegrationForm(provider){
+  const meta = AUTH_PROVIDERS[provider] || {};
+  const body = document.getElementById('sheet-body');
+  document.getElementById('sheet-title').textContent = 'Connect ' + (meta.label || provider);
+  body.innerHTML = '';
+  const mk = (tag, attrs, html) => { const e = document.createElement(tag);
+    Object.assign(e, attrs); if (html!=null) e.innerHTML = html; return e; };
+
+  if (meta.device_flow){
+    // GitHub: OAuth device flow. Kick it off, show the code, poll to completion.
+    const status = mk('div', {className:'sheet-note'}, 'Starting GitHub sign-in…');
+    body.appendChild(status);
+    startDeviceFlow(provider, status);
+    return;
+  }
+
+  const label = mk('input', {className:'fld', placeholder:(meta.label||provider)+' account name'});
+  const token = mk('input', {className:'fld', type:'password',
+    placeholder:'paste access token', autocapitalize:'off', autocorrect:'off', spellcheck:false});
+  const expiry = mk('input', {className:'fld', type:'date'});
+  body.append(label, token);
+  if (provider === 'custom'){
+    var envv = mk('input', {className:'fld', placeholder:'ENV_VAR_NAME (e.g. NPM_TOKEN)'});
+    body.appendChild(envv);
+  }
+  // scope checkboxes
+  const scopeWrap = mk('div', {}, '');
+  (meta.scopes||[]).forEach(s => {
+    const id = 'sc_'+s.replace(/\W/g,'');
+    scopeWrap.appendChild(mk('label', {style:'display:inline-flex;gap:5px;align-items:center;margin:4px 10px 4px 0;font:12px var(--mono);color:var(--dim)'},
+      `<input type="checkbox" value="${esc(s)}"> ${esc(s)}`));
+  });
+  body.appendChild(scopeWrap);
+  const note = mk('div', {className:'sheet-note'},
+    (meta.help ? `Create one at <span style="color:var(--blue)">${esc(meta.help)}</span>. ` : '') +
+    'An expiry is required — the UI warns before it lapses.');
+  body.appendChild(note);
+  const save = opt('Connect', {cls:'', on: async () => {
+    const scopes = [...scopeWrap.querySelectorAll('input:checked')].map(c=>c.value);
+    try {
+      await post('/api/integrations', {provider, label: label.value.trim(),
+        secret: token.value, scopes, expires: expiry.value || null,
+        env_var: provider==='custom' ? (envv.value.trim()||null) : null});
+      buzz(20); toast('connected'); closeSheet(); loadAuth();
+    } catch(e){ toast(e.message==='expiry required'?'set an expiry date':('failed: '+e.message), true); }
+  }});
+  body.appendChild(save);
+}
+
+let deviceTimer = null;
+async function startDeviceFlow(provider, statusEl){
+  clearInterval(deviceTimer);
+  try {
+    const d = await post('/api/integrations/device/start', {});
+    statusEl.innerHTML = `On another device open <b style="color:var(--blue)">${esc(d.verification_uri)}</b>`
+      + ` and enter code <b style="color:var(--fg);font:700 18px var(--mono);letter-spacing:.1em">${esc(d.user_code)}</b>`
+      + `<br>Waiting for you to authorize…`;
+    deviceTimer = setInterval(async () => {
+      try {
+        const p = await post('/api/integrations/device/poll', {flow: d.flow});
+        if (p.status === 'ok'){ clearInterval(deviceTimer); buzz(20); toast('connected'); closeSheet(); loadAuth(); }
+        else if (p.status === 'error'){ clearInterval(deviceTimer); statusEl.innerHTML = 'GitHub error: '+esc(p.error); }
+      } catch(e){ clearInterval(deviceTimer); statusEl.textContent = 'poll failed: '+e.message; }
+    }, (d.interval||5)*1000 + 500);
+  } catch(e){
+    statusEl.innerHTML = 'Device flow unavailable: '+esc(e.message)
+      + '<br>Set DISPATCH_GITHUB_CLIENT_ID, or paste a token via the Custom option.';
+  }
+}
+
+async function post(path, body){
+  const r = await fetch(path, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  });
+  const d = await r.json().catch(()=>({}));
+  if (r.status === 401){ authState().then(relock); throw new Error('locked'); }
+  if (!r.ok) throw new Error(d.error || r.status);
+  return d;
+}
+
+/* Spawn a fresh Claude pane on the Mac. The server splits a new iTerm pane in a
+   scratch dir; we arm PENDING_PANE with its UUID so the moment it lands in the
+   fleet we drop straight into it — you answer its first-run trust prompt there. */
+async function spawnSession(){
+  const fab = document.getElementById('fab');
+  fab.disabled = true; buzz(14);
+  try {
+    const r = await post('/api/spawn', {});
+    PENDING_PANE = r.uuid;
+    toast('new clawd hatching…');
+  } catch(e){ toast(String(e.message), true); }
+  finally { setTimeout(() => fab.disabled = false, 1500); }
+}
+
+async function key(k){
+  if (!current) return;
+  buzz(8);
+  try { await post('/api/key', {uuid: current.uuid, key: k}); }
+  catch(e){ toast(String(e.message), true); }
+}
+
+const input = document.getElementById('input'), sendbtn = document.getElementById('sendbtn');
+input.addEventListener('input', () => {
+  // Enabled whenever the pane can take input — an empty box still submits
+  // whatever Claude has pre-filled in the pane (see send()).
+  sendbtn.disabled = !(current && current.sendable);
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 132) + 'px';
+});
+/* ── voice dictation (local whisper.cpp on the server) ──────────────────────
+   Tap to record, tap again to stop. The clip is POSTed to /api/whisper, which
+   ffmpeg-normalises it and runs whisper-cli; the transcript is appended to the
+   box (never auto-sent — you review before hitting send). */
+const micbtn = document.getElementById('micbtn');
+let mediaRec = null, mediaChunks = [], recording = false;
+
+async function toggleMic(){
+  if (recording){ if (mediaRec && mediaRec.state !== 'inactive') mediaRec.stop(); return; }
+  if (!navigator.mediaDevices || !window.MediaRecorder){
+    toast('recording not supported here', true); return; }
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({audio:true}); }
+  catch(e){ toast('mic blocked: ' + (e.message || e.name), true); return; }
+  mediaChunks = [];
+  const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
+             : MediaRecorder.isTypeSupported('audio/mp4')  ? 'audio/mp4'  : '';
+  try { mediaRec = new MediaRecorder(stream, mime ? {mimeType:mime} : undefined); }
+  catch(e){ stream.getTracks().forEach(t=>t.stop()); toast('recorder failed: '+e.message, true); return; }
+  mediaRec.ondataavailable = e => { if (e.data && e.data.size) mediaChunks.push(e.data); };
+  mediaRec.onstop = async () => {
+    stream.getTracks().forEach(t => t.stop());
+    recording = false; micbtn.classList.remove('rec');
+    const blob = new Blob(mediaChunks, {type: (mediaRec && mediaRec.mimeType) || 'audio/webm'});
+    if (blob.size) await transcribe(blob);
+  };
+  mediaRec.start(); recording = true; micbtn.classList.add('rec'); buzz(12);
+}
+
+async function transcribe(blob){
+  micbtn.disabled = true; micbtn.classList.add('busy');
+  try {
+    const r = await fetch('/api/whisper', {method:'POST',
+      headers:{'Content-Type': blob.type || 'application/octet-stream'}, body: blob});
+    if (r.status === 401){ authState().then(relock); return; }
+    const d = await r.json().catch(()=>({}));
+    if (!r.ok || d.error){ toast(d.error || ('whisper ' + r.status), true); return; }
+    const t = (d.text || '').trim();
+    if (!t){ toast('nothing heard', true); return; }
+    const cur = input.value;
+    input.value = cur ? cur.replace(/\s*$/,'') + ' ' + t : t;
+    input.dispatchEvent(new Event('input'));   // resize + enable send
+    send();                                    // dictation fires the prompt straight off
+  } catch(e){ toast(String(e.message), true); }
+  finally { micbtn.disabled = false; micbtn.classList.remove('busy'); }
+}
+
+/* Claude's ❯ box suggestion (ghost hint or queued text) — surfaced as the
+   composer placeholder so it still shows now that we hide the box from the pane.
+   An empty-box send already retypes+submits it server-side (api/submit). */
+let liveSuggest = null;
+function applySuggest(s){
+  liveSuggest = s;
+  const base = (current && current.sendable) ? '' : 'read-only';
+  input.placeholder = (s && s.text) ? s.text : base;
+}
+
+/* Upload image/video from the device. The server saves it in the pane's working
+   dir and returns an absolute path; we drop that path into the composer so
+   Claude Code can Read/view it when you send. */
+async function uploadFiles(files){
+  if (!current || !files || !files.length) return;
+  const attach = document.getElementById('attachbtn');
+  attach.classList.add('busy'); attach.disabled = true; buzz(12);
+  try {
+    for (const f of files){
+      try {
+        const r = await fetch('/api/upload', {method:'POST',
+          headers:{'Content-Type': f.type || 'application/octet-stream',
+                   'X-Filename': encodeURIComponent(f.name).replace(/%/g,'_'),
+                   'X-Uuid': current.uuid},
+          body: f});
+        if (r.status === 401){ authState().then(relock); return; }
+        const d = await r.json().catch(()=>({}));
+        if (!r.ok || d.error){ toast(d.error || ('upload '+r.status), true); continue; }
+        const cur = input.value;
+        input.value = (cur ? cur.replace(/\s*$/,'') + ' ' : '') + d.path + ' ';
+        input.dispatchEvent(new Event('input'));
+        toast('attached ' + d.name);
+      } catch(e){ toast(String(e.message), true); }
+    }
+    input.focus();
+  } finally {
+    attach.classList.remove('busy'); attach.disabled = false;
+    document.getElementById('fileinput').value = '';   // allow re-picking same file
+  }
+}
+
+async function send(){
+  if (!current) return;
+  const t = input.value.trim();
+  buzz(12);
+  ensurePaneLive();          // dead socket → the sent prompt would never show
+  try {
+    if (t){
+      await post('/api/send', {uuid: current.uuid, text: t, submit: true});
+      input.value = ''; input.style.height = 'auto';
+    } else {
+      // Empty box: let the server "just send it" — retype Claude's ghost
+      // suggestion and submit, or press Enter on already-typed text.
+      await post('/api/submit', {uuid: current.uuid});
+    }
+    sendbtn.disabled = !(current && current.sendable);
+  } catch(e){ toast(String(e.message), true); }
+}
+
+/* ── push notifications ────────────────────────────────
+   A service worker + Web Push so the phone pings when a session finishes or
+   needs a prompt, even with the app closed. iOS needs the app installed to the
+   home screen; Android Chrome works in-browser. */
+let swReg = null;
+const pushSupported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+
+function b64ToU8(base64){
+  const pad = '='.repeat((4 - base64.length % 4) % 4);
+  const b = (base64 + pad).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(b); const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
+async function initPush(){
+  const bell = document.getElementById('bell');
+  if (!pushSupported){ if (bell) bell.style.display = 'none'; return; }
+  try {
+    swReg = await navigator.serviceWorker.register('/sw.js');
+    await navigator.serviceWorker.ready;
+    const sub = await swReg.pushManager.getSubscription();
+    reflectBell(!!sub);
+  } catch(e){ /* SW registration can fail on http/insecure — leave bell off */ }
+  navigator.serviceWorker.addEventListener('message', e => {
+    if (e.data && e.data.type === 'open-pane' && e.data.uuid){
+      const hit = SESSIONS.find(s => s.uuid === e.data.uuid);
+      if (hit) openSession(hit.uuid); else { PENDING_PANE = e.data.uuid; showFleet(); }
+    }
+  });
+}
+function reflectBell(on){
+  const bell = document.getElementById('bell');
+  if (bell) bell.classList.toggle('on', on);
+}
+
+async function toggleNotify(){
+  if (!pushSupported){ toast('notifications not supported here', true); return; }
+  const bell = document.getElementById('bell');
+  bell.classList.add('busy'); buzz(12);
+  try {
+    if (!swReg){ swReg = await navigator.serviceWorker.register('/sw.js'); await navigator.serviceWorker.ready; }
+    const existing = await swReg.pushManager.getSubscription();
+    if (existing){                       // turn OFF
+      const ep = existing.endpoint;
+      await existing.unsubscribe();
+      await post('/api/push/unsubscribe', {endpoint: ep});
+      reflectBell(false); toast('notifications off');
+      return;
+    }
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted'){ toast('permission denied', true); return; }
+    const v = await (await fetch('/api/vapid')).json();
+    if (!v.key){ toast('push not configured on server', true); return; }
+    const sub = await swReg.pushManager.subscribe({
+      userVisibleOnly: true, applicationServerKey: b64ToU8(v.key)});
+    await post('/api/push/subscribe', sub.toJSON());
+    reflectBell(true); toast('notifications on');
+    post('/api/push/test', {}).catch(()=>{});   // confirm the pipe end-to-end
+  } catch(e){ toast(String(e.message || e), true); }
+  finally { bell.classList.remove('busy'); }
+}
+
+/* ── usage screen ──────────────────────────────────── */
+const fmtTok = n => n >= 1e9 ? (n/1e9).toFixed(1)+'B'
+                 : n >= 1e6 ? (n/1e6).toFixed(1)+'M'
+                 : n >= 1e3 ? (n/1e3).toFixed(0)+'k' : String(n);
+const fmtUsd = n => n >= 1000 ? '$'+(n/1000).toFixed(2)+'k' : '$'+n.toFixed(2);
+const fmtAge = s => s == null ? '' : s < 60 ? `${s}s`
+                 : s < 3600 ? `${Math.floor(s/60)}m` : `${Math.floor(s/3600)}h`;
+
+/* The limits API hands back raw floats (4.000000000000004%). Nobody needs the
+   tail — one whole number reads at a glance, which is the whole point here. */
+const pct = n => n == null ? '—' : Math.round(n) + '%';
+
+/* Reserved status palette — never the categorical hues. */
+function limitColor(p){
+  return p >= 90 ? 'var(--st-crit)' : p >= 75 ? 'var(--st-serious)'
+       : p >= 50 ? 'var(--st-warn)' : 'var(--st-good)';
+}
+function resetIn(ts){
+  if (!ts) return '';
+  const m = Math.max(0, Math.round((ts*1000 - Date.now())/60000));
+  return m >= 60 ? `resets in ${Math.floor(m/60)}h ${m%60}m` : `resets in ${m}m`;
+}
+
+let USAGE_D = null, usageTimer = null, USAGE_SIG = '';
+// Absolute server epoch (unix seconds) the usage data was computed at. Same idea
+// as the fleet's s.work_since: fixed reference the client subtracts its own clock
+// from every frame, so the label keeps counting between the 60s refetches.
+let USAGE_AT = 0, _usageAgeTxt = '';
+
+/* Freshness label, ticked off the client clock against the server's compute
+   epoch — exactly how the fleet working-timers count (Date.now()/1000 - epoch).
+   Called from the rAF tick() loop, which runs every frame regardless of screen. */
+function paintUsageAge(){
+  const el = document.getElementById('usage-age');
+  if (!el) return;
+  if (!USAGE_AT){ if (_usageAgeTxt !== '…'){ el.textContent = _usageAgeTxt = '…'; } return; }
+  const s = Math.max(0, Math.floor(Date.now()/1000 - USAGE_AT));
+  const txt = s ? `${fmtAge(s)} ago` : 'live';
+  if (txt !== _usageAgeTxt){ el.textContent = _usageAgeTxt = txt; }
+}
+
+/* Full page reload that can't serve a stale shell: wipe any CacheStorage first
+   (belt-and-suspenders — there's no service worker today), then reload from a
+   cache-busted URL so the browser refetches index.html and its JS. */
+async function hardReload(){
+  try {
+    if (window.caches) {
+      const ks = await caches.keys();
+      await Promise.all(ks.map(k => caches.delete(k)));
+    }
+  } catch(e){}
+  const u = new URL(location.href);
+  u.searchParams.set('_', Date.now());   // defeat any intermediary cache
+  location.replace(u.toString());
+}
+
+function showUsage(){
+  pushNav({v: 'usage'});   // back from usage returns to fleet
+  hideScreens();
+  document.getElementById('s-usage').classList.add('on');
+  // Do NOT reset USAGE_SIG here. The #usage-body DOM from the last visit is still
+  // in place; keeping the sig means renderUsage repaints only when the data has
+  // actually changed, so reopening shows the previous numbers instantly and they
+  // update in place instead of blanking and snapping back.
+  renderUsage();                       // paint from cache immediately, if unchanged it's a no-op
+  loadUsage();                         // then refresh in the background
+  clearInterval(usageTimer);
+  usageTimer = setInterval(() => {
+    if (document.getElementById('s-usage').classList.contains('on')) loadUsage();
+    else { clearInterval(usageTimer); usageTimer = null; }
+  }, 60000);
+  // The per-second label tick is driven by the rAF tick() loop, same as the
+  // fleet timers — no separate interval to keep alive here.
+}
+
+/* ── history ───────────────────────────────────────────
+   Every agent that has come through the fleet, newest first. Tap a row to
+   resume that session in a fresh pane (claude --resume) and drop into it. */
+// hide every screen — call before showing one so two can't be .on at once
+// (that stacked them as two rows / a split-down-the-middle view).
+function hideScreens(){
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('on'));
+}
+
+let HISTORY = [];
+function showHistory(){
+  pushNav({v: 'history'});
+  hideScreens();
+  document.getElementById('s-history').classList.add('on');
+  document.getElementById('histsort').textContent = histSort;   // reflect saved sort
+  if (HISTORY.length) renderHistory();     // instant from cache
+  loadHistory();                           // refresh in the background
+}
+
+async function loadHistory(){
+  const body = document.getElementById('hist-body');
+  if (!HISTORY.length) body.innerHTML = '<div class="empty">loading…</div>';
+  try {
+    const r = await fetch('/api/history');
+    const d = await r.json();
+    if (r.status === 401){ authState().then(relock); return; }
+    if (!r.ok) throw new Error(d.error || r.status);
+    HISTORY = d.history || [];
+    renderHistory();
+  } catch(e){
+    if (!HISTORY.length) body.innerHTML = '<div class="empty">'+esc(String(e.message))+'</div>';
+  }
+}
+
+const histOpen = new Set();   // which directory groups are expanded (by cwd)
+// sort modes: recent (last activity), cost (spend), busy (message count)
+const HIST_ORDER = ['recent', 'cost', 'busy'];
+const HIST_SORTS = { recent: g => g.last, cost: g => g.cost,
+                     busy: g => g.items.reduce((n, h) => n + (h.prompts || 0), 0) };
+const HIST_ITEM  = { recent: h => h.last, cost: h => h.cost || 0,
+                     busy: h => h.prompts || 0 };
+let histSort = localStorage.getItem('histSort') || 'recent';
+function cycleHistSort(){
+  histSort = HIST_ORDER[(HIST_ORDER.indexOf(histSort) + 1) % HIST_ORDER.length];
+  localStorage.setItem('histSort', histSort);
+  const b = document.getElementById('histsort'); if (b) b.textContent = histSort;
+  renderHistory();
+}
+
+/* fuzzy search across prompt title, repo, model and path. A query token matches
+   as a substring, or as a subsequence (typo/gap tolerant) for tokens ≥3 chars. */
+let histQuery = '';
+function onHistSearch(){
+  histQuery = (document.getElementById('histq').value || '').trim().toLowerCase();
+  document.getElementById('histqclear').hidden = !histQuery;
+  renderHistory();
+}
+function clearHistSearch(){
+  const i = document.getElementById('histq'); i.value = ''; histQuery = '';
+  document.getElementById('histqclear').hidden = true; renderHistory(); i.focus();
+}
+function fuzzyHas(text, tok){
+  if (text.includes(tok)) return true;
+  if (tok.length < 3) return false;
+  let i = 0; for (let k = 0; k < text.length && i < tok.length; k++)
+    if (text[k] === tok[i]) i++;
+  return i === tok.length;
+}
+function histMatch(h){
+  if (!histQuery) return true;
+  const text = ((h.title||'')+' '+(h.project||'')+' '+(h.model||'')+' '
+    +(h.cwd||'')+' '+(h.search||'')).toLowerCase();
+  // Multi-word query → match the words in succession (as a phrase). Single word
+  // stays fuzzy (substring or subsequence).
+  if (/\s/.test(histQuery)) return text.includes(histQuery);
+  return fuzzyHas(text, histQuery);
+}
+// what to highlight: the whole phrase for multi-word, else the single token
+const histTokens = () => /\s/.test(histQuery) ? [histQuery]
+                        : (histQuery.length >= 2 ? [histQuery] : []);
+// wrap literal query-token occurrences in <mark>; input is escaped first
+function hlHtml(text, tokens){
+  let out = esc(text || '');
+  tokens.forEach(t => {
+    const re = new RegExp('(' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig');
+    out = out.replace(re, '<mark>$1</mark>');
+  });
+  return out;
+}
+// a short excerpt of a session's prompts around the first matching token
+function histSnippet(h, tokens){
+  const s = h.search || '';
+  if (!s) return '';
+  const low = s.toLowerCase();
+  let idx = -1;
+  tokens.forEach(t => { const i = low.indexOf(t); if (i >= 0 && (idx < 0 || i < idx)) idx = i; });
+  if (idx < 0) return '';                       // only substring matches get a snippet
+  // don't bother if it's already visible in the title
+  if ((h.title || '').toLowerCase().includes(low.slice(idx, idx + 3))) {
+    if (tokens.some(t => (h.title || '').toLowerCase().includes(t))) return '';
+  }
+  const start = Math.max(0, idx - 32), end = Math.min(s.length, idx + 64);
+  return (start > 0 ? '…' : '') + s.slice(start, end).trim() + (end < s.length ? '…' : '');
+}
+
+function renderHistory(){
+  const body = document.getElementById('hist-body');
+  if (!HISTORY.length){
+    document.getElementById('hist-meta').textContent = '';
+    body.innerHTML = '<div class="empty">no past sessions</div>'; return;
+  }
+  const now = Date.now()/1000;
+  // Searching: skip grouping entirely — show a flat list of matching sessions.
+  if (histQuery){
+    const hits = HISTORY.filter(histMatch)
+      .sort((a, b) => HIST_ITEM[histSort](b) - HIST_ITEM[histSort](a));
+    document.getElementById('hist-meta').textContent =
+      hits.length + (hits.length === 1 ? ' result' : ' results');
+    body.innerHTML = '';
+    if (!hits.length){ body.innerHTML = '<div class="empty">no matches</div>'; return; }
+    const toks = histTokens();
+    hits.forEach(h => {
+      const b = document.createElement('button');
+      b.className = 'hrow';
+      const when = fmtAge(Math.max(0, Math.round(now - (h.last||now)))) || 'now';
+      const snip = histSnippet(h, toks);
+      b.innerHTML =
+        '<div class="htop"><span class="hrepo">'+esc(h.project||'—')+'</span>'
+        + '<span class="htitle">'+hlHtml(h.title||'', toks)+'</span>'
+        + '<span class="hwhen">'+esc(when)+'</span></div>'
+        + (snip ? '<div class="hsnip">'+hlHtml(snip, toks)+'</div>' : '')
+        + '<div class="hmeta"><span class="hm-model">'+esc(h.model||'')+'</span>'
+        + '<span>'+h.prompts+' msg</span><span>'+fmtTok(h.tokens||0)+'</span>'
+        + '<span>'+fmtUsd(h.cost||0)+'</span></div>';
+      b.onclick = () => resumeSession(h, b);
+      body.appendChild(b);
+    });
+    return;
+  }
+  // group by working directory; display its basename
+  const groups = new Map();
+  HISTORY.forEach(h => {
+    // fold every throwaway cc-scratch-XXXX dir into one "scratch" group
+    const scratch = /^cc-scratch-/.test(h.project || '');
+    const key = scratch ? '__scratch__' : (h.cwd || h.project || '—');
+    let g = groups.get(key);
+    if (!g){ g = {key, name: scratch ? 'scratch' : (h.project || key),
+                  items: [], last: 0, cost: 0}; groups.set(key, g); }
+    g.items.push(h);
+    g.last = Math.max(g.last, h.last || 0);
+    g.cost += h.cost || 0;
+  });
+  const key = HIST_SORTS[histSort];
+  const list = [...groups.values()].sort((a, b) => key(b) - key(a));
+  list.forEach(g => g.items.sort((a, b) => (HIST_ITEM[histSort](b)) - (HIST_ITEM[histSort](a))));
+  document.getElementById('hist-meta').textContent =
+    list.length + ' repos · ' + HISTORY.length + ' agents';
+  body.innerHTML = '';
+  list.forEach(g => {
+    const open = histOpen.has(g.key);
+    const wrap = document.createElement('div');
+    wrap.className = 'hgroup' + (open ? ' open' : '');
+    const head = document.createElement('button');
+    head.className = 'hg-head';
+    head.innerHTML =
+      '<svg class="hg-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+      + 'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<polyline points="9 6 15 12 9 18"/></svg>'
+      + '<span class="hg-name">'+esc(g.name)+'</span>'
+      + '<span class="hg-count">'+g.items.length+'</span>'
+      + '<span class="hg-when">'+esc(fmtAge(Math.max(0, Math.round(now - g.last))) || 'now')+'</span>'
+      + '<span class="hg-cost">'+fmtUsd(g.cost)+'</span>';
+    head.onclick = () => {
+      if (histOpen.has(g.key)) histOpen.delete(g.key); else histOpen.add(g.key);
+      renderHistory();
+    };
+    wrap.appendChild(head);
+    if (open){
+      const items = document.createElement('div');
+      items.className = 'hg-items';
+      g.items.forEach(h => {
+        const b = document.createElement('button');
+        b.className = 'hrow';
+        const when = fmtAge(Math.max(0, Math.round(now - (h.last||now)))) || 'now';
+        b.innerHTML =
+          '<div class="htop"><span class="htitle">'+esc(h.title||'')+'</span>'
+          + '<span class="hwhen">'+esc(when)+'</span></div>'
+          + '<div class="hmeta"><span class="hm-model">'+esc(h.model||'')+'</span>'
+          + '<span>'+h.prompts+' msg</span><span>'+fmtTok(h.tokens||0)+'</span>'
+          + '<span>'+fmtUsd(h.cost||0)+'</span></div>';
+        b.onclick = () => resumeSession(h, b);
+        items.appendChild(b);
+      });
+      wrap.appendChild(items);
+    }
+    body.appendChild(wrap);
+  });
+}
+
+async function resumeSession(h, btn){
+  if (btn.classList.contains('busy')) return;
+  btn.classList.add('busy'); buzz(14);
+  try {
+    const r = await post('/api/resume', {session_id: h.session_id});
+    PENDING_PANE = r.uuid;                  // drop into it once it lands in the fleet
+    toast('resuming ' + (h.project || 'session') + '…');
+    showFleet();
+  } catch(e){ toast(String(e.message), true); btn.classList.remove('busy'); }
+}
+
+async function loadUsage(){
+  const el = document.getElementById('usage-body');
+  try {
+    const r = await fetch('/api/usage');
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.status);
+    USAGE_D = d;
+    // Prefer the server's absolute compute epoch; fall back to (now - age) for
+    // an older server, and finally to now.
+    USAGE_AT = d.computed_at || (d.age != null ? Date.now()/1000 - d.age : Date.now()/1000);
+    renderUsage();
+    paintUsageAge();
+  } catch(e){
+    if (!USAGE_D) el.innerHTML = `<div class="empty">usage failed:\n${esc(String(e.message))}</div>`;
+  }
+}
+
+function renderUsage(){
+  const el = document.getElementById('usage-body');
+  const d = USAGE_D;
+  const lim = LIMITS || (d && d.limits) || {};
+  const fh = lim.five_hour || {}, sd = lim.seven_day || {};
+  paintUsageAge();   // ticks off the client clock, not the frozen d.age snapshot
+
+  // Live fleet, straight off the socket — this screen is about what is running
+  // right now, so nothing here comes from history.
+  const rows = SESSIONS || [];
+  const waiting = rows.filter(r => r.prompt);
+  const working = rows.filter(r => !r.prompt && r.state === 'working');
+  const idle    = rows.filter(r => !r.prompt && r.state !== 'working');
+  const liveCost = rows.reduce((a, r) => a + (r.cost || 0), 0);
+  const act = [...waiting, ...working];   // needs me / needs watching, in that order
+
+  // The socket repaints once a second. Rebuilding the DOM that often eats taps
+  // and flickers, so only rebuild when something on THIS screen actually moved.
+  const sig = JSON.stringify([fh.used_percentage, sd.used_percentage,
+    d && d.today, d && d.all_time, Math.round(liveCost * 100), idle.length,
+    act.map(r => [r.uuid, r.state, r.ctx, !!r.prompt, bubbleText(r),
+                  r.tokens, r.prompts, r.files, r.lines_add, r.lines_del,
+                  Math.floor((r.age || 0) / 5)])]);   // age coarsened to 5s buckets
+  if (sig === USAGE_SIG) return;
+  USAGE_SIG = sig;
+  const at = (d && d.all_time) || null;
+
+  el.innerHTML = `
+    <div class="usec">
+      <h3>rate limits</h3>
+      ${[['5-hour', fh], ['7-day', sd]].map(([n, l]) => `
+        <div class="meter">
+          <div class="top"><span class="k">${n}</span><b>${pct(l.used_percentage)}</b></div>
+          <div class="track tall"><i style="width:${Math.min(100, l.used_percentage||0)}%;
+            background:${limitColor(l.used_percentage||0)}"></i></div>
+          ${resetIn(l.resets_at) ? `<div class="rst">${esc(resetIn(l.resets_at))}</div>` : ''}
+        </div>`).join('')}
+    </div>
+
+    <div class="usec">
+      <h3>spend</h3>
+      <div class="tiles">
+        <div class="tile"><div class="k">today</div>
+          <div class="v">${d ? fmtUsd(d.today.cost) : '—'}</div>
+          <div class="s">${d ? fmtTok(d.today.tokens) + ' tokens' : ''}</div></div>
+        <div class="tile"><div class="k">live fleet</div>
+          <div class="v">${fmtUsd(liveCost)}</div>
+          <div class="s">${act.length} active · ${idle.length} idle</div></div>
+      </div>
+    </div>
+
+    <div class="usec">
+      <h3>all time</h3>
+      <div class="tiles tri">
+        <div class="tile"><div class="k">cost</div>
+          <div class="v">${at ? fmtUsd(at.cost) : '—'}</div>
+          <div class="s">${at ? at.active_days + ' days' : ''}</div></div>
+        <div class="tile"><div class="k">tokens</div>
+          <div class="v">${at ? fmtTok(at.tokens) : '—'}</div></div>
+        <div class="tile"><div class="k">sessions</div>
+          <div class="v">${at ? fmtTok(at.sessions) : '—'}</div></div>
+      </div>
+    </div>
+
+    <div class="usec">
+      <h3><span>${waiting.length ? 'needs you' : 'running'}</span>
+        <em>${act.length} session${act.length === 1 ? '' : 's'}${
+          waiting.length ? ' · ' + waiting.length + ' blocked' : ''}</em></h3>
+      <div class="agents">
+        ${act.length ? act.map(agentCard).join('')
+                     : '<div class="unone">nothing running — the yard is quiet</div>'}
+      </div>
+    </div>`;
+
+  el.querySelectorAll('.ucard').forEach(n =>
+    n.onclick = () => openSession(n.dataset.u));
+}
+
+/* One running-agent card. Working panes show the cc-dashboard metrics (context,
+   tokens, files, +/- lines); a pane blocked on a prompt shows the question big
+   and a tap-to-answer nudge instead. */
+function agentCard(r){
+  const w = !!r.prompt;
+  // Same live timer the fleet uses: ticked off the server's start epoch and the
+  // client clock (see the rAF loop), not the frozen r.age snapshot.
+  const age = r.work_since
+    ? `<span class="age" data-since="${r.work_since}">${
+        fmtDur(Date.now()/1000 - r.work_since)}</span>`
+    : (r.age != null ? `<span class="age">${fmtAge(r.age)}</span>` : '');
+  // No "working" badge: a card only exists because the pane is live, so it would
+  // be redundant. Blocked panes still flag "needs you".
+  const hd = `<div class="hd"><span class="nm">${esc(r.name)}</span>
+      ${w ? '<span class="chip">needs you</span>' : ''}${age}</div>`;
+  if (w){
+    return `<div class="ucard waiting" data-u="${esc(r.uuid)}">
+      ${hd}
+      <div class="act">${esc(r.prompt.question || 'needs an answer')}</div>
+      <div class="answer">tap to answer ›</div>
+    </div>`;
+  }
+  const ctx = r.ctx != null ? `
+    <div class="ctxbar">
+      <div class="track"><i style="width:${Math.min(100, r.ctx)}%;
+        background:${ctxColor(r.ctx)}"></i></div><b>${r.ctx}%</b></div>` : '';
+  const foot = [r.model, r.effort, r.cost ? fmtUsd(r.cost) : null]
+                 .filter(Boolean).join(' · ');
+  return `<div class="ucard working" data-u="${esc(r.uuid)}">
+    ${hd}
+    ${ctx}
+    <div class="stats"><b>${fmtTok(r.tokens || 0)}</b> tok · <b>${
+      r.prompts || 0}</b> prompts · <b>${r.files || 0}</b> files · <span
+      class="add">+${r.lines_add || 0}</span> <span class="del">−${r.lines_del || 0}</span></div>
+    ${foot ? `<div class="foot">${esc(foot)}</div>` : ''}
+  </div>`;
+}
+
+/* one line of what a pane is doing, reusing the yard's activity distiller */
+function bubbleText(r){
+  try { const a = activity(r); return [a.verb, a.rest].filter(Boolean).join(' '); }
+  catch(e){ return ''; }
+}
+
+/* Usage scrolls now — no fit pass needed. */
+
+
+/* ── passkey gate ──────────────────────────────────────
+   The session cookie proves the QR (or the pasted token) arrived over the
+   tailnet; the passkey proves it is still THIS person holding the phone.
+   Everything that writes to a pane sits behind it, and an idle session drops
+   back here rather than staying open on a phone someone else picked up. */
+const b64url = {
+  dec: s => Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')), c => c.charCodeAt(0)),
+  enc: b => btoa(String.fromCharCode(...new Uint8Array(b)))
+              .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''),
+};
+let AUTH = {level:'none', passkey_capable:false, passkey_registered:false};
+
+function lock(why){
+  const t = document.getElementById('lock-title');
+  const m = document.getElementById('lock-msg');
+  const b = document.getElementById('lock-go');
+  const w = document.getElementById('lock-warn');
+  document.getElementById('lock-err').textContent = '';
+  if (why === 'reconnect'){
+    t.textContent = 'Reconnecting…';
+    m.textContent = 'Waking the fleet — this reconnects on its own, no need to reopen.';
+    b.style.display = 'none';
+    document.getElementById('lock').classList.add('on');
+    return;
+  }
+  if (why === 'gone'){
+    t.textContent = 'Session ended';
+    // A registered passkey can mint a brand-new session on its own (login/begin
+    // works with no cookie), so offer Face ID right here — no app restart, no
+    // hunting down the token. Only when no passkey exists is the token the only
+    // way back, and then we say so.
+    if (AUTH.passkey_capable && AUTH.passkey_registered){
+      m.textContent = 'Use Face ID to start a fresh session.';
+      b.style.display = ''; b.textContent = 'Log in with Face ID'; b.onclick = unlock;
+    } else {
+      m.textContent = 'Open the server URL again and paste the token to start a new one.';
+      b.style.display = 'none';
+    }
+  } else if (why === 'enrol'){
+    t.textContent = 'Add this phone';
+    m.textContent = "Register a passkey so only your fingerprint can drive the "
+                  + "fleet. The key never leaves this phone's secure element.";
+    b.style.display = ''; b.textContent = 'Register passkey'; b.onclick = enrol;
+  } else {
+    t.textContent = 'Locked';
+    m.textContent = 'Use Face ID to get back into the yard.';
+    b.style.display = ''; b.textContent = 'Unlock with Face ID'; b.onclick = unlock;
+  }
+  w.textContent = AUTH.passkey_capable ? ''
+    : 'No TLS hostname on this URL, so passkeys are unavailable and the session '
+    + 'cookie is the only thing protecting the fleet. Use the tailnet name.';
+  document.getElementById('lock').classList.add('on');
+}
+const unlockUI = () => document.getElementById('lock').classList.remove('on');
+const lockErr = e => document.getElementById('lock-err').textContent =
+  String((e && e.message) || e).slice(0, 160);
+
+/* ── Device swapper ──────────────────────────────────────────────────────
+   The other Macs on the tailnet, each running its own Dispatch. They are
+   SEPARATE ORIGINS (separate passkeys, separate cookies), so switching device
+   is a full navigation to that host's https origin — we never proxy API calls
+   across hosts. The swapper only appears when there's somewhere to hop to. */
+let DEVICES = null, DEVSELF = '';
+const _esc = s => String(s||'').replace(/[<>&"]/g,
+  c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+
+async function loadDevices(){
+  try{
+    const d = await (await fetch('/api/devices')).json();
+    if(!d || !Array.isArray(d.devices)) return;
+    DEVSELF = d.self || ''; DEVICES = d.devices;
+  }catch(e){ return; }
+  const wrap = document.getElementById('devswap');
+  if(DEVICES.length < 2){ wrap.hidden = true; return; }   // nowhere to switch
+  wrap.hidden = false;
+  const me = DEVICES.find(x => x.self) || {};
+  document.getElementById('devname').textContent = me.name || 'this Mac';
+  renderDevMenu();
+  probePeers();
+}
+function renderDevMenu(){
+  if(!DEVICES) return;
+  document.getElementById('devmenu').innerHTML = DEVICES.map(d => {
+    const cur = d.self;
+    const cls = 'devrow' + (cur ? ' cur on' : (d.online ? '' : ' off'));
+    const tag = cur ? 'here' : (d.online ? '' : 'offline');
+    return `<div class="${cls}" data-url="${_esc(d.url||('https://'+d.host))}" data-self="${cur?1:0}"`
+      + `${cur?' aria-disabled="true"':''} onclick="pickDevice(this)">`
+      + `<span class="nm">${_esc(d.name)}<span class="host">${_esc(d.host)}</span></span>`
+      + `<span class="tag">${tag}</span></div>`;
+  }).join('');
+}
+function toggleDevMenu(ev){
+  ev.stopPropagation();
+  const m = document.getElementById('devmenu'), b = document.getElementById('devbtn');
+  const open = m.hidden;
+  m.hidden = !open;
+  b.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if(open){
+    probePeers();
+    setTimeout(() => document.addEventListener('click', closeDevMenu, {once:true}), 0);
+  }
+}
+function closeDevMenu(){
+  document.getElementById('devmenu').hidden = true;
+  document.getElementById('devbtn').setAttribute('aria-expanded', 'false');
+}
+function pickDevice(el){
+  if(el.dataset.self === '1'){ closeDevMenu(); return; }
+  const url = el.dataset.url;
+  if(url) location.assign(url.replace(/\/+$/, '') + '/');
+}
+/* Real reachability: hit each peer's CORS-open /api/ping at its advertised
+   origin. A peer that isn't actually running Dispatch (asleep, serve down, or
+   a different app squatting the URL) fails the fetch or answers with no
+   `dispatch` flag → stays grey, even if Tailscale says the machine is online.
+   A live peer's ping also returns its authoritative origin, which we adopt. */
+async function probePeers(){
+  if(!DEVICES) return;
+  await Promise.all(DEVICES.filter(d => !d.self).map(async d => {
+    const base = (d.url || 'https://' + d.host).replace(/\/+$/, '');
+    try{
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 2500);
+      const r = await fetch(base + '/api/ping',
+                            {signal: ctl.signal, mode: 'cors', cache: 'no-store'});
+      clearTimeout(t);
+      const j = r.ok ? await r.json().catch(() => null) : null;
+      d.online = !!(j && j.dispatch);
+      if(d.online && j.url) d.url = j.url;   // trust the peer's own origin
+    }catch(e){ d.online = false; }
+  }));
+  renderDevMenu();
+}
+
+async function authState(){
+  try { AUTH = await (await fetch('/auth/whoami')).json(); AUTH._ok = true; }
+  catch(e){ AUTH = {level:'none', _ok:false}; }   // server unreachable ≠ logged out
+  return AUTH;
+}
+
+/* A failed reach (laptop asleep, server restarting, tailnet blip) must NOT dead-end
+   on the token screen. Show "reconnecting", keep retrying, and the moment the server
+   answers, resume — passkey unlock if the session really expired, otherwise straight
+   back into the fleet. This is what kills the close-app / reopen-URL / paste-token ritual. */
+async function revive(){
+  const a = await authState();
+  if (a._ok === false){ scheduleReconnect(); return; }      // still down — keep trying
+  if (a.level === 'verified'){ unlockUI(); started ? connectFleet() : start(); return; }
+  relock(a);                                                // truly expired → Face ID / enrol
+}
+function scheduleReconnect(){
+  clearTimeout(window.__reGate);
+  window.__reGate = setTimeout(revive, 2500);
+}
+
+async function webauthn(url, kind){
+  const r = await fetch(url + '/begin', {method:'POST'});
+  const o = await r.json();
+  if (!r.ok) throw new Error(o.error || r.status);
+  o.challenge = b64url.dec(o.challenge);
+  if (o.user) o.user.id = b64url.dec(o.user.id);
+  (o.excludeCredentials || []).forEach(c => c.id = b64url.dec(c.id));
+  (o.allowCredentials || []).forEach(c => c.id = b64url.dec(c.id));
+  const c = kind === 'create'
+    ? await navigator.credentials.create({publicKey: o})
+    : await navigator.credentials.get({publicKey: o});
+  const rs = c.response;
+  const body = {id: c.id, rawId: b64url.enc(c.rawId), type: c.type,
+                clientExtensionResults: c.getClientExtensionResults(),
+                response: {clientDataJSON: b64url.enc(rs.clientDataJSON)}};
+  for (const k of ['attestationObject','authenticatorData','signature','userHandle'])
+    if (rs[k]) body.response[k] = b64url.enc(rs[k]);
+  const done = await fetch(url + '/complete', {method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  const d = await done.json().catch(()=>({}));
+  if (!done.ok) throw new Error(d.error || done.status);
+  buzz(20); unlockUI(); start();
+}
+const enrol  = () => webauthn('/auth/register', 'create').catch(lockErr);
+const unlock = () => webauthn('/auth/login', 'get').catch(lockErr);
+
+/* Which lock screen (if any) fits the current auth state. Face ID comes FIRST:
+   a registered passkey mints a fresh session on its own, so even a fully expired
+   session (idle, 12h cap, or a server restart) gets back in with a face — never
+   a dead "session ended" with no way forward. Returns true if it showed a lock. */
+function relock(a){
+  a = a || AUTH;
+  if (a._ok === false){ lock('reconnect'); scheduleReconnect(); return true; }
+  if (a.level === 'verified') return false;
+  if (a.passkey_capable && a.passkey_registered){ lock('idle'); return true; }
+  if (!a.session){ lock('gone'); return true; }
+  if (a.passkey_capable){ lock('enrol'); return true; }
+  return false;                 // plain http on a bare IP: cookie only, nothing to unlock
+}
+
+/* A phone that sat in a pocket comes back locked. On the FIRST visit run the full
+   gate; once started, a background nap can still have expired the session server-
+   side, so re-check and drop to the Face ID unlock rather than sitting on a stale
+   "session expired" with no button. */
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  if (!started) return gate();
+  authState().then(a => { if (a.level !== 'verified') relock(a); });
+});
+
+async function gate(){
+  await authState();
+  if (AUTH.level === 'verified'){ unlockUI(); return start(); }
+  if (relock(AUTH)) return;
+  unlockUI(); start();          // plain http on a bare IP: cookie only, and it says so
+}
+
+/* Nothing connects until the passkey gate says so — a locked phone must not be
+   holding an open socket onto the fleet. */
+let started = false;
+function start(){
+  if (started) return;
+  started = true;
+  window.history.replaceState({v:"fleet"}, "");   // base of the in-app back stack
+  loadCommands();
+  initPush();
+  connectFleet();
+  loadUsage();          // warm the usage cache now so the first open never flashes '—'
+  // deep links, for per-target home-screen shortcuts:
+  //   ?screen=usage  → the dashboard
+  //   ?pane=<uuid>   → straight into one session, once the fleet list arrives
+  const dl = new URLSearchParams(location.search);
+  if (dl.get('screen') === 'usage') showUsage();
+  PENDING_PANE = dl.get('pane') || '';
+}
+gate();
+</script>
+
+<div id="lock">
+  <div class="mark"><svg viewBox="0 0 24 24" aria-hidden="true"><rect class="body" x="2.5" y="6.5" width="19" height="14" rx="4.5"/><rect class="body" x="5" y="2" width="2.6" height="5" rx="1.3"/><rect class="body" x="16.4" y="2" width="2.6" height="5" rx="1.3"/><rect class="eye" x="7.4" y="11" width="3.6" height="5" rx="1.4"/><rect class="eye" x="13" y="11" width="3.6" height="5" rx="1.4"/></svg></div>
+  <h2 id="lock-title">Locked</h2>
+  <p id="lock-msg">Unlock with your passkey to reach the yard.</p>
+  <button id="lock-go" onclick="unlock()">Unlock</button>
+  <div class="err" id="lock-err"></div>
+  <div class="warn" id="lock-warn"></div>
+</div>
+</body>
+</html>

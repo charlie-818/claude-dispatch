@@ -1,0 +1,43 @@
+# ── Secrets & per-install state — NEVER commit ──────────────────────────────
+# Encrypted integration vault + its Fernet key (the key decrypts everything)
+.integrations.vault
+.vault.key
+# Owner passkey credentials, sessions, auth grants
+.credentials.json
+.sessions.json
+.grants.json
+# Bootstrap/agent token
+.token
+# Web-push VAPID keypair (private signs, keep both out — regenerated per install)
+vapid_private.pem
+vapid_public.txt
+.push_subs.json
+# Peer/fleet + rolling summary caches (may contain transcript text)
+.peers.json
+.summaries.json
+# Audit + runtime logs
+audit.log
+*.log
+server.out
+
+# ── Local whisper model (large, downloaded once — see README) ────────────────
+models/
+*.bin
+
+# ── Python ───────────────────────────────────────────────────────────────────
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# ── Dev scratch ──────────────────────────────────────────────────────────────
+probe*.py
+prototype/
+*.bak
+*.bak-*
+static/index.html.bak-restyle
+
+# ── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store

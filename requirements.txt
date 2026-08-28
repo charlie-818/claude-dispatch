@@ -1,0 +1,8 @@
+aiohttp==3.14.3
+iterm2==2.22
+cryptography==50.0.1
+webauthn==3.0.0
+pywebpush==2.4.0
+pillow==12.3.0
+# Optional: prints a scan-to-open QR at startup
+qrcode==8.2

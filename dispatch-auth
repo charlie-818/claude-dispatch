@@ -1,0 +1,155 @@
+#!/usr/bin/env python3
+"""dispatch-auth — an agent's line to the CC Dispatch auth broker.
+
+An agent running in a dispatch-spawned pane uses this to ask the owner for a
+service credential and, once granted from the phone, to fetch it just-in-time.
+
+    dispatch-auth request <service> [reason]   # ask the owner (pings their phone)
+    dispatch-auth get <service>                # print the secret once granted (polls)
+    dispatch-auth list                         # what this pane already holds
+    dispatch-auth env <service>                # print `export VAR=secret` for sourcing
+
+Typical use inside an agent:
+
+    export GITHUB_TOKEN=$(dispatch-auth get github)      # blocks until you approve
+
+Auth to the broker is by two env vars injected at spawn: DISPATCH_AGENT_TOKEN (a
+per-pane capability handle) and DISPATCH_URL (the loopback base). The broker only
+answers on loopback and only releases a secret this pane has been granted, so the
+token is a convenience/identity — never the thing that authorizes a release. That
+is always the owner's passkey-gated grant.
+"""
+import json
+import os
+import sys
+import time
+import urllib.error
+import urllib.request
+
+URL = os.environ.get("DISPATCH_URL", "http://127.0.0.1:8788").rstrip("/")
+TOKEN = os.environ.get("DISPATCH_AGENT_TOKEN", "")
+POLL_EVERY = 2.0
+POLL_TIMEOUT = 600          # give the owner 10 minutes to approve before giving up
+
+
+def _post(path, body):
+    data = json.dumps(body).encode()
+    req = urllib.request.Request(URL + path, data=data,
+                                 headers={"Content-Type": "application/json"},
+                                 method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.status, json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.loads(e.read() or b"{}")
+        except Exception:
+            return e.code, {}
+    except Exception as e:
+        return 0, {"error": str(e)}
+
+
+def _need_token():
+    if not TOKEN:
+        sys.stderr.write(
+            "dispatch-auth: no DISPATCH_AGENT_TOKEN in this shell.\n"
+            "This only works inside a pane spawned by CC Dispatch.\n")
+        sys.exit(2)
+
+
+def cmd_request(service, reason=""):
+    _need_token()
+    st, d = _post("/agent/request", {"token": TOKEN, "service": service, "reason": reason})
+    if st == 200:
+        sys.stderr.write(f"Requested '{service}'. Approve it on your phone "
+                         f"(CC Dispatch → auth). Then run: dispatch-auth get {service}\n")
+        return 0
+    sys.stderr.write(f"dispatch-auth: request failed: {d.get('error', st)}\n")
+    return 1
+
+
+def _fetch_once(service):
+    return _post("/agent/fetch", {"token": TOKEN, "service": service})
+
+
+def cmd_get(service, as_env=False, wait=True):
+    _need_token()
+    deadline = time.time() + POLL_TIMEOUT
+    announced = False
+    while True:
+        st, d = _fetch_once(service)
+        if st == 200 and d.get("secret") is not None:
+            if as_env:
+                sys.stdout.write(f"export {d['env_var']}={_shq(d['secret'])}\n")
+            else:
+                sys.stdout.write(d["secret"])       # no newline — clean $(...) capture
+            return 0
+        if st == 202 or d.get("status") == "pending":
+            if not wait:
+                sys.stderr.write(f"'{service}' not granted yet — approve it on your phone.\n")
+                return 3
+            if not announced:
+                sys.stderr.write(f"Waiting for you to approve '{service}' on your phone…\n")
+                announced = True
+            if time.time() > deadline:
+                sys.stderr.write("dispatch-auth: timed out waiting for approval.\n")
+                return 4
+            time.sleep(POLL_EVERY)
+            continue
+        sys.stderr.write(f"dispatch-auth: {d.get('error', st)}\n")
+        return 1
+
+
+def cmd_list():
+    _need_token()
+    st, d = _post("/agent/list", {"token": TOKEN})
+    if st != 200:
+        sys.stderr.write(f"dispatch-auth: {d.get('error', st)}\n")
+        return 1
+    grants = d.get("grants", [])
+    if not grants:
+        sys.stderr.write("No credentials granted to this pane yet.\n")
+        return 0
+    for g in grants:
+        scopes = ",".join(g.get("scopes") or []) or "-"
+        print(f"{g['provider']:10} {g['env_var']:24} …{g['last4']}  [{scopes}]")
+    return 0
+
+
+def _shq(s):
+    """Single-quote for shell so the secret survives `export VAR=…` intact."""
+    return "'" + s.replace("'", "'\\''") + "'"
+
+
+USAGE = __doc__
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        sys.stderr.write(USAGE)
+        return 0
+    cmd, rest = argv[0], argv[1:]
+    if cmd == "request":
+        if not rest:
+            sys.stderr.write("usage: dispatch-auth request <service> [reason]\n")
+            return 2
+        return cmd_request(rest[0], " ".join(rest[1:]))
+    if cmd == "get":
+        if not rest:
+            sys.stderr.write("usage: dispatch-auth get <service>\n")
+            return 2
+        return cmd_get(rest[0], as_env=False)
+    if cmd == "env":
+        if not rest:
+            sys.stderr.write("usage: dispatch-auth env <service>\n")
+            return 2
+        return cmd_get(rest[0], as_env=True)
+    if cmd == "list":
+        return cmd_list()
+    sys.stderr.write(f"dispatch-auth: unknown command '{cmd}'\n")
+    sys.stderr.write(USAGE)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
