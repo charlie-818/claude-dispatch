@@ -64,9 +64,10 @@ repo contains code only.
 - *(Optional, voice input)* **[whisper.cpp](https://github.com/ggerganov/whisper.cpp)**
   (`brew install whisper-cpp`) + a local model — see below.
 - CC Dispatch surfaces panes that publish status to `CC_FLEET_DIR`
-  (default `/tmp/cc-status`). Wire your Claude Code `statusline.sh` hook to drop
-  a small status `.json` per session there; panes without a status file are
-  still driveable when iTerm2 reports Claude as the foreground job.
+  (default `/tmp/cc-status`). Ready-to-use hooks that do this ship in
+  [`examples/`](examples/) — see *Wire up the fleet-status hooks* below. Panes
+  without a status file are still driveable when iTerm2 reports Claude as the
+  foreground job; the hooks just make the fleet view complete.
 
 ## Install
 
@@ -77,6 +78,26 @@ cd claude-dispatch
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
+
+### Wire up the fleet-status hooks
+
+So every Claude Code pane shows up in the fleet, install the two helper scripts
+and point Claude Code at them:
+
+```bash
+cp examples/statusline.sh examples/cc-state.sh ~/.claude/
+chmod +x ~/.claude/statusline.sh ~/.claude/cc-state.sh
+```
+
+Then merge the keys from [`examples/settings.snippet.json`](examples/settings.snippet.json)
+into `~/.claude/settings.json`. They:
+
+- set `statusLine` to `statusline.sh`, which writes each pane's status JSON
+  (tagged with its iTerm2 session id) into `CC_FLEET_DIR`, and
+- add `UserPromptSubmit` / `Stop` / `Notification` hooks that call
+  `cc-state.sh` to record whether the pane is `working` or `idle`.
+
+New panes appear in the app within a couple of seconds of their first repaint.
 
 ### Run
 

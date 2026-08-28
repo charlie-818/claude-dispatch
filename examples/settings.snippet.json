@@ -1,0 +1,20 @@
+{
+  "//": "Merge these keys into ~/.claude/settings.json. They make every Claude Code pane publish status + working/idle state to CC_FLEET_DIR so CC Dispatch can see and drive it. Copy examples/statusline.sh and examples/cc-state.sh into ~/.claude/ and chmod +x both.",
+
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/statusline.sh"
+  },
+
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "~/.claude/cc-state.sh working" } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "~/.claude/cc-state.sh idle" } ] }
+    ],
+    "Notification": [
+      { "hooks": [ { "type": "command", "command": "~/.claude/cc-state.sh idle" } ] }
+    ]
+  }
+}
