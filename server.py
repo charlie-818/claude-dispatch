@@ -209,6 +209,46 @@ def trust_dir(path):
               flush=True)
 
 
+# Claude's live status footer — the spinner line ("· Seasoning… (2m 52s)") and
+# its elapsed timer — re-renders every tick. On a narrow split pane it hard-wraps
+# and each tick scrolls a fresh copy into scrollback, so `pane_history` ships the
+# same rotating-tip / spinner block stacked dozens of times. Strip the ever-
+# changing spinner line (so the surrounding footer copies become byte-identical),
+# then collapse adjacent duplicate blocks. Applied to scrollback ONLY — the live
+# screen (`pane_text`) keeps its footer so the phone still shows real-time status.
+_SPINNER_RE = re.compile(r"…\s*\((?:\d+m(?:\s*\d+s)?|\d+s)\)\s*$")
+
+
+def _is_spinner(line):
+    s = line.strip().lstrip("·⎿✢✳✶✽*⏺ ").strip()
+    return bool(s) and bool(_SPINNER_RE.search(s))
+
+
+def _collapse_repeats(lines, max_block=16):
+    """Drop runs of adjacent identical blocks, keeping one copy. Content-agnostic:
+    only removes a block that exactly repeats the block right before it."""
+    out = lines
+    for blk in range(min(max_block, len(out) // 2), 0, -1):
+        res, i, n = [], 0, len(out)
+        while i < n:
+            if i + 2 * blk <= n and out[i:i + blk] == out[i + blk:i + 2 * blk]:
+                res.extend(out[i:i + blk])          # keep first copy
+                j = i + blk
+                while j + blk <= n and out[j:j + blk] == out[i:i + blk]:
+                    j += blk                        # skip every further repeat
+                i = j
+            else:
+                res.append(out[i])
+                i += 1
+        out = res
+    return out
+
+
+def clean_history(lines):
+    kept = [l for l in lines if not _is_spinner(l)]
+    return _collapse_repeats(kept)
+
+
 async def pane_history(session, max_lines=600):
     """Scrollback above the visible screen, so the phone can read the whole chat.
 
@@ -223,7 +263,8 @@ async def pane_history(session, max_lines=600):
             return []
         first = max(start, end - max_lines)
         lines = await session.async_get_contents(first, end - first)
-        return [l.string.replace("\x00", " ").rstrip() for l in lines]
+        return clean_history(
+            [l.string.replace("\x00", " ").rstrip() for l in lines])
     except Exception as e:
         print(f"  [history] failed: {type(e).__name__}: {e}", flush=True)
         return []
