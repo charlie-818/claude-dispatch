@@ -14,7 +14,7 @@ Safety model
 
 Run:  .venv/bin/python server.py
 """
-import asyncio, json, os, re, secrets, signal, sys, time, glob, pathlib, subprocess
+import asyncio, errno, json, os, re, secrets, signal, sys, time, glob, pathlib, subprocess
 from aiohttp import web, WSMsgType
 import iterm2
 import auth
@@ -2491,6 +2491,7 @@ async def api_ping(request):
 # fresh image rebinds PORT cleanly. Runtime state (sessions, vault, .token) lives
 # on disk and is reloaded on boot, so nothing is lost across the swap.
 PID_FILE = HERE / ".server.pid"
+_SERVING = False        # True once our TCPSite owns PORT — guards reconnect re-entry
 
 
 def _write_pidfile():
@@ -2500,16 +2501,30 @@ def _write_pidfile():
         print(f"  [reload] pidfile write failed: {type(e).__name__}: {e}", flush=True)
 
 
-def _install_hot_reload():
-    def _reexec():
-        print("  [reload] SIGHUP — re-exec in place", flush=True)
+def _install_hot_reload(runner):
+    _reloading = False
+
+    async def _do():
+        nonlocal _reloading
+        if _reloading:
+            return
+        _reloading = True
+        print("  [reload] SIGHUP — draining socket, then re-exec", flush=True)
+        try:
+            await runner.cleanup()      # release the listen socket so the new image binds clean
+        except Exception as e:
+            print(f"  [reload] drain failed (continuing): {type(e).__name__}: {e}", flush=True)
         try:
             sys.stdout.flush(); sys.stderr.flush()
         except Exception:
             pass
         os.execv(sys.executable, [sys.executable, str(HERE / "server.py")])
+
+    def _on_hup():
+        asyncio.ensure_future(_do())
+
     try:
-        asyncio.get_running_loop().add_signal_handler(signal.SIGHUP, _reexec)
+        asyncio.get_running_loop().add_signal_handler(signal.SIGHUP, _on_hup)
         print("  [reload] SIGHUP hot-reload armed", flush=True)
     except (NotImplementedError, RuntimeError) as e:
         print(f"  [reload] hot-reload unavailable: {type(e).__name__}: {e}", flush=True)
@@ -2585,10 +2600,23 @@ async def main(connection):
 
     runner = web.AppRunner(app)
     await runner.setup()
-    await web.TCPSite(runner, BIND, PORT).start()
+    # iTerm2's client re-invokes main() whenever its API socket reconnects. A
+    # second entry finds PORT already held by our first, live runner — that's
+    # expected, not a failure, so swallow EADDRINUSE and let the original keep
+    # serving instead of crashing the reconnect with a traceback.
+    global _SERVING
+    try:
+        await web.TCPSite(runner, BIND, PORT).start()
+    except OSError as e:
+        if e.errno == errno.EADDRINUSE and _SERVING:
+            print("  [reload] iTerm2 reconnect re-entered main(); already serving, "
+                  "keeping the live server", flush=True)
+            return
+        raise
+    _SERVING = True
 
     _write_pidfile()
-    _install_hot_reload()                       # `kill -HUP` re-execs in place (deploy)
+    _install_hot_reload(runner)                 # `kill -HUP` re-execs in place (deploy)
 
     asyncio.create_task(_notify_watcher())     # push when sessions finish / need input
     asyncio.create_task(_rebuild_history())    # warm the history cache so first open is instant
