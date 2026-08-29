@@ -28,7 +28,13 @@ if [ "$before" != "$after" ]; then
   # "server.py"), so match on the script name. This host runs only this server.
   pkill -f "server.py" 2>/dev/null || true
   sleep 1
-  nohup ./.venv/bin/python server.py >> server.out 2>&1 &
+  # Detach into a NEW session before exec. When this script runs under the
+  # launchd poller, launchd reaps the job's whole process group on exit — a
+  # plain nohup child dies with it. os.setsid() makes the server a session
+  # leader outside that group so it survives (macOS has no setsid(1)).
+  nohup ./.venv/bin/python -c \
+    "import os,sys; os.setsid(); os.execv(sys.executable,[sys.executable,'server.py'])" \
+    >> server.out 2>&1 < /dev/null &
   disown 2>/dev/null || true
   sleep 3
   if lsof -iTCP:8788 -sTCP:LISTEN -n -P >/dev/null 2>&1; then
