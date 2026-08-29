@@ -80,6 +80,9 @@
     text-transform:uppercase}
   .devrow.cur .tag{color:var(--green)}
   .devrow .host{display:block;font:400 10px var(--mono);color:var(--dimmer)}
+  /* tapped → hopping: dim + pulse so the cross-origin nav gap reads as "going" */
+  .devrow.going{opacity:.55;animation:goingpulse .8s ease-in-out infinite}
+  @keyframes goingpulse{50%{opacity:.3}}
   /* Two-line session brief under the chat header: overall summary + (while
      running) the condition that ends the task. */
   .sessinfo{padding:11px 14px 12px;border-bottom:1px solid var(--line2);
@@ -208,7 +211,7 @@
     border-radius:var(--r2) var(--r2) 0 0;padding:8px 14px
       calc(env(safe-area-inset-bottom) + 16px);
     transform:translateY(110%);transition:transform .26s cubic-bezier(.2,.9,.3,1);
-    max-height:72vh;overflow-y:auto}
+    max-height:72vh;overflow-y:auto;overscroll-behavior:contain}
   #sheet.on{transform:translateY(0)}
   #sheet .grab{width:36px;height:4px;border-radius:2px;background:var(--line2);
     margin:4px auto 14px}
@@ -229,12 +232,16 @@
   /* ── directory picker (start new clawd) ─────────────────
      Rows scroll; the crumb pins to the top and the back/start bar pins to the
      bottom, so both stay reachable however long the folder list gets. */
-  /* full-bleed gray band so folders can't peek past the crumb as they scroll —
-     it spans the sheet's full width and absorbs the gap down to the first row */
   .dp-crumb{position:sticky;top:0;z-index:2;font:12px/1.4 var(--mono);
-    color:var(--dim);background:var(--panel3);
-    margin:0 -14px 0;padding:11px 14px 12px;word-break:break-all}
+    color:var(--dim);background:var(--panel3);border:1px solid var(--line2);
+    border-radius:var(--r);padding:9px 12px;margin-bottom:9px;word-break:break-all;
+    /* solid block above the pinned crumb so scrolling rows can't peek through the
+       sheet's top padding strip */
+    box-shadow:0 -12px 0 0 var(--panel2)}
   .dp-crumb b{color:var(--fg2);font-weight:600}
+  /* while a folder change is in flight, keep the current view up and just fade
+     it — avoids the blank flash of clearing before the fetch returns */
+  #sheet-body.dp-busy{opacity:.5;transition:opacity .12s;pointer-events:none}
   .dp-list{display:flex;flex-direction:column;gap:6px;padding-bottom:4px}
   .dp-row{display:flex;align-items:center;gap:11px;width:100%;
     background:var(--panel3);border:1px solid var(--line2);border-radius:var(--r);
@@ -1779,9 +1786,13 @@ function connectFleet(){
       document.querySelectorAll('.sb-lim-t').forEach(e => e.textContent = pct(fh.used_percentage));
     }
     if ('pending' in d) setAuthBadge(d.pending);
-    // If the auth screen is open, keep its request list live as agents ask.
-    if (('pending' in d) && document.getElementById('s-auth').classList.contains('on'))
+    // Keep the auth screen's request list live as agents ask — but only refetch
+    // when the pending count actually MOVES. The fleet broadcasts every tick; a
+    // reload per tick hammered /api/* and (with the skeleton) flashed the view.
+    if (('pending' in d) && d.pending !== lastPending
+        && document.getElementById('s-auth').classList.contains('on'))
       loadAuth();
+    if ('pending' in d) lastPending = d.pending;
   };
 }
 
@@ -2194,11 +2205,73 @@ function closeSheet(){
   const wasOpen = openKind !== null;
   openKind = null; pendingModel = null;
   if (typeof deviceTimer !== 'undefined') clearInterval(deviceTimer);
-  document.getElementById('sheet').classList.remove('on', 'dp');
+  const sheet = document.getElementById('sheet');
+  sheet.style.transition = ''; sheet.style.transform = '';   // drop any drag offset; let CSS animate the exit
+  sheet.classList.remove('on', 'dp');
   document.getElementById('sheet-bg').classList.remove('on');
   // pop the sheet's history entry when closed by tap/action (popstate already
   // consumed it when the close came from a back gesture — navPop guards that)
   if (wasOpen && !navPop && window.history.state && window.history.state.v === 'sheet') window.history.back(); }
+
+/* Swipe-down to dismiss the bottom sheet. Uses TOUCH events with a non-passive
+   touchmove so we can preventDefault and stop the browser stealing the gesture for
+   native scroll (pointer events lose this fight — the browser fires pointercancel
+   mid-drag and the sheet just springs back). Engages only on a clear downward pull
+   while the content is scrolled to the top, so it never fights the list's own
+   scroll. Follows the finger 1:1, then flings shut past a threshold or snaps back.
+   A mouse fallback covers desktop. Applies to every sheet, not just the picker. */
+(function sheetSwipe(){
+  const sheet = document.getElementById('sheet');
+  let sy = 0, sx = 0, dragging = false, engaged = false, lastY = 0, lastT = 0, vy = 0;
+
+  function start(y, x){
+    if (!sheet.classList.contains('on')) return;
+    sy = y; sx = x; dragging = true; engaged = false; lastY = y; lastT = Date.now(); vy = 0;
+  }
+  function move(y, x, prevent){
+    if (!dragging) return;
+    const dy = y - sy, dx = x - sx;
+    if (!engaged){
+      // downward, mostly-vertical, and the list can't scroll up any further
+      if (dy > 6 && Math.abs(dy) > Math.abs(dx) && sheet.scrollTop <= 0){
+        engaged = true; sheet.style.transition = 'none';
+      } else if (Math.abs(dy) > 10 || Math.abs(dx) > 10){ dragging = false; return; }
+      else return;
+    }
+    const now = Date.now(), d = Math.max(1, now - lastT);
+    vy = (y - lastY) / d; lastY = y; lastT = now;
+    if (prevent) prevent();                          // block native scroll/rubber-band
+    sheet.style.transform = 'translateY(' + Math.max(0, dy) + 'px)';
+  }
+  function end(){
+    if (!dragging) return;
+    dragging = false;
+    if (!engaged) return;
+    engaged = false;
+    sheet.style.transition = '';                     // restore the CSS spring
+    const dy = lastY - sy;
+    if (dy > 100 || vy > 0.5){ buzz(12); closeSheet(); }
+    else sheet.style.transform = '';                 // snap back up
+  }
+
+  sheet.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1){ dragging = false; return; }
+    start(e.touches[0].clientY, e.touches[0].clientX);
+  }, {passive: true});
+  sheet.addEventListener('touchmove', e => {
+    move(e.touches[0].clientY, e.touches[0].clientX, () => e.preventDefault());
+  }, {passive: false});
+  sheet.addEventListener('touchend', end);
+  sheet.addEventListener('touchcancel', end);
+
+  // desktop mouse fallback — skipped on touch devices to avoid emulated-mouse double-fire
+  if (!('ontouchstart' in window)){
+    let mouse = false;
+    sheet.addEventListener('mousedown', e => { mouse = true; start(e.clientY, e.clientX); });
+    window.addEventListener('mousemove', e => { if (mouse) move(e.clientY, e.clientX, () => e.preventDefault()); });
+    window.addEventListener('mouseup', () => { if (mouse){ mouse = false; end(); } });
+  }
+})();
 
 function opt(label, {desc = '', cur = false, cls = '', dis = false, on}){
   const b = document.createElement('button');
@@ -2384,6 +2457,14 @@ function showFleet(){
    The owner's control room for agent credentials: approve what agents ask for,
    connect new services, and see/revoke what each agent currently holds. */
 let AUTH_PROVIDERS = {}, AUTH_REQS = [], AUTH_INTS = [];
+// True once the first fetch has painted real data. Guards the skeleton so a
+// background refresh (fleet push) never flashes "loading" back over a settled
+// view — on a host with zero integrations `!AUTH_INTS.length` is always true, so
+// keying the skeleton off it flickered skeleton↔"none yet" on every broadcast.
+let AUTH_LOADED = false;
+// Last pending-request count seen on the fleet socket, so a background refresh
+// fires only when it changes rather than on every broadcast tick.
+let lastPending = -1;
 function showAuth(){
   pushNav({v: 'auth'});
   hideScreens();
@@ -2392,7 +2473,7 @@ function showAuth(){
 }
 
 async function loadAuth(){
-  if (!AUTH_INTS.length){
+  if (!AUTH_LOADED){            // first paint only — refreshes render in place, no flash
     const el = document.getElementById('auth-intlist');
     if (el) el.innerHTML = skelList(2);
   }
@@ -2408,6 +2489,7 @@ async function loadAuth(){
     renderRequests(AUTH_REQS);
     renderIntegrations(AUTH_INTS);
     renderGrants(grants.grants || []);
+    AUTH_LOADED = true;
   } catch(e){ /* leave last paint; a 401 will have relocked via post() elsewhere */ }
 }
 
@@ -2677,17 +2759,21 @@ async function openDirPicker(path){
   openKind = 'dir';
   const body = document.getElementById('sheet-body');
   document.getElementById('sheet-title').textContent = 'start new clawd';
-  body.innerHTML = '';
-  const note = document.createElement('div');
-  note.className = 'sheet-note'; note.innerHTML = 'loading' + DOTS;
-  body.appendChild(note);
   const sheet = document.getElementById('sheet');
   sheet.classList.add('dp');                 // flush-bottom footer mode
-  const on = sheet.classList.contains('on');
-  if (!on){
+  const firstOpen = !sheet.classList.contains('on');
+  if (firstOpen){
+    // nothing to keep — show a placeholder while the first list loads
+    body.innerHTML = '';
+    const note = document.createElement('div');
+    note.className = 'sheet-note'; note.innerHTML = 'loading' + DOTS;
+    body.appendChild(note);
     sheet.classList.add('on');
     document.getElementById('sheet-bg').classList.add('on');
     pushNav({v: 'sheet'});
+  } else {
+    // navigating within the picker — keep the current view, just fade it
+    body.classList.add('dp-busy');
   }
   let data;
   try {
@@ -2700,9 +2786,18 @@ async function openDirPicker(path){
     try { data = JSON.parse(txt); }
     catch(_){ throw new Error(r.ok ? 'bad response' : (txt.trim().slice(0,80) || r.status)); }
     if (!r.ok) throw new Error(data.error || r.status);
-  } catch(e){ note.className = 'sheet-note warn'; note.textContent = String(e.message); return; }
-  if (openKind !== 'dir') return;             // sheet changed under us
+  } catch(e){
+    body.classList.remove('dp-busy');
+    if (firstOpen){ body.innerHTML = '';
+      const n = document.createElement('div');
+      n.className = 'sheet-note warn'; n.textContent = String(e.message);
+      body.appendChild(n);
+    } else toast(String(e.message), true);   // keep the working view, flag the error
+    return;
+  }
+  if (openKind !== 'dir'){ body.classList.remove('dp-busy'); return; }  // sheet changed under us
   renderDirPicker(data);
+  body.classList.remove('dp-busy');
 }
 
 // inline stroked icons, same family as the rest of the app (24-grid, currentColor)
@@ -3617,10 +3712,21 @@ function closeDevMenu(){
   document.getElementById('devmenu').hidden = true;
   document.getElementById('devbtn').setAttribute('aria-expanded', 'false');
 }
+/* Keep a warm TLS+DNS path open to each live peer so the hop lands on an already-
+   negotiated connection instead of paying a cold handshake at tap time. The ping
+   probe opens it; this pins it so it doesn't go idle before the tap. Idempotent. */
+function warmPeer(base){
+  if(!base || document.querySelector(`link[rel="preconnect"][href="${base}"]`)) return;
+  const l = document.createElement('link');
+  l.rel = 'preconnect'; l.href = base; l.crossOrigin = '';
+  document.head.appendChild(l);
+}
 function pickDevice(el){
   if(el.dataset.self === '1'){ closeDevMenu(); return; }
   const url = el.dataset.url;
-  if(url) location.assign(url.replace(/\/+$/, '') + '/');
+  if(!url) return;
+  el.classList.add('going');            // instant feedback — the nav gap isn't dead air
+  location.assign(url.replace(/\/+$/, '') + '/');
 }
 /* Real reachability: hit each peer's CORS-open /api/ping at its advertised
    origin. A peer that isn't actually running Dispatch (asleep, serve down, or
@@ -3640,6 +3746,7 @@ async function probePeers(){
       const j = r.ok ? await r.json().catch(() => null) : null;
       d.online = !!(j && j.dispatch);
       if(d.online && j.url) d.url = j.url;   // trust the peer's own origin
+      if(d.online) warmPeer((d.url || 'https://' + d.host).replace(/\/+$/, ''));
     }catch(e){ d.online = false; }
   }));
   renderDevMenu();
