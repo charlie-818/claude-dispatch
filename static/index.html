@@ -239,6 +239,13 @@
        sheet's top padding strip */
     box-shadow:0 -12px 0 0 var(--panel2)}
   .dp-crumb b{color:var(--fg2);font-weight:600}
+  /* filter box — pinned under the crumb, narrows the folder list as you type */
+  .dp-search{margin-bottom:9px}
+  .dp-search input{width:100%;box-sizing:border-box;
+    background:var(--panel3);border:1px solid var(--line2);border-radius:var(--r);
+    padding:11px 12px;color:var(--fg);font:14px var(--ui);outline:none}
+  .dp-search input:focus{border-color:var(--blue)}
+  .dp-search input::placeholder{color:var(--dimmer)}
   /* while a folder change is in flight, keep the current view up and just fade
      it — avoids the blank flash of clearing before the fetch returns */
   #sheet-body.dp-busy{opacity:.5;transition:opacity .12s;pointer-events:none}
@@ -2822,23 +2829,40 @@ function renderDirPicker(data){
     : 'start in <b>' + esc(data.path) + '</b>';
   body.appendChild(crumb);
 
+  const rows = atRoot ? data.roots : data.dirs;
+
+  // filter box — only worth showing once the list is long enough to scan
+  let search;
+  if (rows.length > 6){
+    search = document.createElement('div');
+    search.className = 'dp-search';
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.placeholder = 'filter folders…';
+    inp.autocapitalize = 'off'; inp.autocomplete = 'off'; inp.spellcheck = false;
+    inp.oninput = () => filterDirRows(list, empty, inp.value);
+    search.appendChild(inp);
+    body.appendChild(search);
+  }
+
   // scrolling folder list
   const list = document.createElement('div');
   list.className = 'dp-list';
-  const rows = atRoot ? data.roots : data.dirs;
   rows.forEach((d, i) => {
     const ico = atRoot ? (i === 0 ? DP_ICONS.home : DP_ICONS.drive) : DP_ICONS.folder;
     const r = document.createElement('button');
     r.className = 'dp-row';
+    r.dataset.name = (d.name || '').toLowerCase();
     r.innerHTML = ico + '<span class="dp-name">' + esc(d.name) + '</span>' + DP_ICONS.chev;
     r.onclick = () => openDirPicker(d.path);
     list.appendChild(r);
   });
+  // shared "nothing here" line: covers an empty folder and a no-match filter
+  const empty = document.createElement('div');
+  empty.className = 'dp-empty';
   if (!atRoot && !data.dirs.length){
-    const e = document.createElement('div');
-    e.className = 'dp-empty'; e.textContent = 'no sub-folders here';
-    list.appendChild(e);
-  }
+    empty.textContent = 'no sub-folders here';
+  } else { empty.style.display = 'none'; }
+  list.appendChild(empty);
   body.appendChild(list);
 
   // pinned footer — back + start, reachable no matter how far you scroll
@@ -2856,6 +2880,20 @@ function renderDirPicker(data){
   start.onclick = () => spawnInDir(data.path);
   foot.append(back, start);
   body.appendChild(foot);
+}
+
+/* Client-side filter of the current folder view. Substring match on lowercased
+   names; toggles the shared empty line to "no match" when nothing survives. */
+function filterDirRows(list, empty, q){
+  q = q.trim().toLowerCase();
+  let shown = 0;
+  list.querySelectorAll('.dp-row').forEach(r => {
+    const hit = !q || r.dataset.name.includes(q);
+    r.style.display = hit ? '' : 'none';
+    if (hit) shown++;
+  });
+  if (q && !shown){ empty.textContent = 'no match'; empty.style.display = ''; }
+  else if (empty.textContent === 'no match'){ empty.style.display = 'none'; }
 }
 
 async function spawnInDir(dir){
