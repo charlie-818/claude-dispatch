@@ -330,78 +330,81 @@ async def _set_font(session, family, pts):
 
 
 async def normalize_pane(session):
-    """Grow a too-small Claude pane to at least PANE_COLS×PANE_ROWS. Grow only —
-    never shrink a dimension already at/above target. Returns True if it resized."""
+    """Single grow-only nudge for a freshly spawned pane so it opens near target.
+    Full convergence (multi-pass + font-shrink) is handled by normalize_all."""
     try:
         g = session.grid_size
         w, h = int(g.width), int(g.height)
         nw, nh = max(w, PANE_COLS), max(h, PANE_ROWS)
-        if nw == w and nh == h:
-            return False
-        await session.async_set_grid_size(iterm2.util.Size(nw, nh))
+        if nw != w or nh != h:
+            await session.async_set_grid_size(iterm2.util.Size(nw, nh))
         return True
     except Exception as e:
         print(f"  [normalize] {type(e).__name__}: {e}", flush=True)
         return False
 
 
-async def normalize_all(passes=8):
-    """Bring every known Claude pane to exactly >=PANE_COLS×PANE_ROWS so the phone
+async def normalize_all(passes=14):
+    """Bring every known Claude pane to at least PANE_COLS×PANE_ROWS so the phone
     view matches every host. Runs at startup / after a SIGHUP reload so an
     existing small-pane host (Big Mac) converges without a respawn.
 
-    Two levers, in order:
+    Two levers, applied per pane:
       1. Grow the grid. In a tiled layout, growing one pane squeezes a sibling, so
-         a single sweep leaves stragglers; grow-only keeps each sweep monotonic
-         (the window only expands), so re-sweeping converges.
-      2. When grid growth stalls with a pane still short — the window has hit the
-         screen edge and a deep pane stack can't fit target rows at the current
-         font — shrink THAT pane's font a point and set the grid again. A smaller
-         font makes the same 52×25 grid occupy fewer pixels, so it fits. Font size
-         is local to the terminal and invisible to the phone (which re-fits its
-         own font from the column count), so this changes nothing about how the
-         session renders remotely — only whether the target grid physically fits.
+         one sweep leaves stragglers; grow-only keeps each sweep monotonic (the
+         window only expands), so re-sweeping converges.
+      2. When a short pane's dims DON'T change between sweeps, the window has hit
+         the screen edge and a deep pane stack can't fit target rows at the current
+         font — the grid set clamped. Shrink that pane's font a point and pin the
+         grid to exactly target: the smaller font makes 52×25 occupy fewer pixels
+         so it fits. Font is local to the terminal and invisible to the phone
+         (which re-fits its own font from the column count), so the remote render
+         is unchanged except that it now reaches the target grid.
+
+    Detecting the clamp by measured-dims-unchanged (not by set_grid_size's return)
+    is essential: a clamped set still "succeeds", so only re-measuring reveals it
+    made no progress.
     """
+    prev = {}                              # uuid -> (w,h) measured last sweep
     resizes = fontshrinks = 0
     for _ in range(passes):
         try:
-            sessions = await all_sessions()
+            sessions = await all_sessions()    # refreshes APP, so grid_size is live
         except Exception as e:
             print(f"  [normalize] scan failed: {type(e).__name__}: {e}", flush=True)
             return
-        grew = 0
-        short = []                         # panes still below target rows/cols
+        acted = False
         for uuid in list(KNOWN_CLAUDE):
             s = sessions.get(uuid)
             if s is None:
                 continue
-            if await normalize_pane(s):
-                grew += 1
             g = s.grid_size
-            if int(g.width) < PANE_COLS or int(g.height) < PANE_ROWS:
-                short.append(s)
-        resizes += grew
-        if grew == 0 and short:
-            # grid can't grow further (window at screen edge) — shrink the stuck
-            # panes' fonts so the target grid fits in the pixels available.
-            did = 0
-            for s in short:
+            w, h = int(g.width), int(g.height)
+            if w >= PANE_COLS and h >= PANE_ROWS:
+                continue                   # this pane already at/above target
+            stalled = prev.get(uuid) == (w, h)
+            prev[uuid] = (w, h)
+            if stalled:
+                # grid clamped last sweep — shrink font, then pin exact target
                 fam, pts = await _pane_font(s)
                 if pts > FONT_MIN_PT and await _set_font(s, fam, pts - 1):
-                    # A smaller font reflows the pane to MORE cols/rows in the same
-                    # pixels; pin it back to exactly target so width stays 52 (not
-                    # ballooned) and the shrink buys the rows we needed.
                     try:
                         await s.async_set_grid_size(
                             iterm2.util.Size(PANE_COLS, PANE_ROWS))
                     except Exception:
                         pass
-                    did += 1
-            fontshrinks += did
-            if did == 0:
-                break                      # at font floor; nothing more to try
-        elif grew == 0:
-            break                          # converged: every pane at/above target
+                    fontshrinks += 1
+                    acted = True
+            else:
+                try:                       # grow-only grid attempt
+                    await s.async_set_grid_size(
+                        iterm2.util.Size(max(w, PANE_COLS), max(h, PANE_ROWS)))
+                    resizes += 1
+                    acted = True
+                except Exception as e:
+                    print(f"  [normalize] {type(e).__name__}: {e}", flush=True)
+        if not acted:
+            break                          # every pane at/above target, or nothing left to try
         await asyncio.sleep(0.4)           # let iTerm settle the reflow before re-measuring
     if resizes or fontshrinks:
         print(f"  [normalize] target >={PANE_COLS}x{PANE_ROWS}: "
