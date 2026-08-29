@@ -225,16 +225,21 @@ def _is_spinner(line):
 
 
 def _collapse_repeats(lines, max_block=16):
-    """Drop runs of adjacent identical blocks, keeping one copy. Content-agnostic:
-    only removes a block that exactly repeats the block right before it."""
+    """Drop runs of adjacent identical blocks, keeping one copy. GATED to the
+    leaked status footer: only a block that contains the rotating Tip banner is
+    ever collapsed, so real chat content — double blanks, repeated box borders,
+    two identical code lines — is preserved byte-for-byte and the phone view
+    stays character-identical to the terminal (and to any other host)."""
     out = lines
     for blk in range(min(max_block, len(out) // 2), 0, -1):
         res, i, n = [], 0, len(out)
         while i < n:
-            if i + 2 * blk <= n and out[i:i + blk] == out[i + blk:i + 2 * blk]:
-                res.extend(out[i:i + blk])          # keep first copy
+            block = out[i:i + blk]
+            if (i + 2 * blk <= n and block == out[i + blk:i + 2 * blk]
+                    and any("Tip:" in x for x in block)):
+                res.extend(block)                   # keep first copy
                 j = i + blk
-                while j + blk <= n and out[j:j + blk] == out[i:i + blk]:
+                while j + blk <= n and out[j:j + blk] == block:
                     j += blk                        # skip every further repeat
                 i = j
             else:
@@ -245,6 +250,10 @@ def _collapse_repeats(lines, max_block=16):
 
 
 def clean_history(lines):
+    # Only the ephemeral status footer is touched: the spinner/elapsed line is
+    # dropped, and repeated Tip-banner blocks are collapsed to one. Everything
+    # else is untouched, so scroll length, wrap width and formatting match the
+    # source terminal exactly on every host.
     kept = [l for l in lines if not _is_spinner(l)]
     return _collapse_repeats(kept)
 
