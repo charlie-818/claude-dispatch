@@ -108,9 +108,13 @@ GRID_MAX_COLS = 3    # top row grows to this many columns before rows start fill
 # blows the font past the cap and shows big text in only half the width (the
 # "zoomed" look on a host whose iTerm font is large / window narrow). Widen any
 # pane below this to the target so every host renders at the same column count.
-# WIDEN ONLY, never shrink: a pane already at/above target belongs to a window
-# the user may be physically looking at, and yanking it narrower is hostile.
+# GROW ONLY, never shrink: a pane already at/above target belongs to a window
+# the user may be physically looking at, and yanking it smaller is hostile.
+# Rows matter as much as cols — a short pane (Big Mac's fleet window was only
+# ~456px tall → 11 rows) crushes Claude's TUI vertically, cutting off the top and
+# never reaching the bottom, even when the width already matches.
 PANE_COLS = 52
+PANE_ROWS = 25
 
 
 # ── iTerm helpers ──────────────────────────────────────────────────────────
@@ -296,16 +300,18 @@ async def pane_cols(session):
 
 
 async def normalize_pane(session):
-    """Widen a too-narrow Claude pane to PANE_COLS so the phone view matches every
-    other host. Widen only — leave panes already at/above target alone. Returns
-    True if it actually resized. iTerm grows the enclosing window to fit."""
+    """Grow a too-small Claude pane to at least PANE_COLS×PANE_ROWS so the phone
+    view matches every other host. Grow only — never shrink a dimension already
+    at/above target. Returns True if it actually resized. iTerm grows the
+    enclosing window to fit."""
     try:
         g = session.grid_size
         w, h = int(g.width), int(g.height)
-        if w >= PANE_COLS:
+        nw, nh = max(w, PANE_COLS), max(h, PANE_ROWS)
+        if nw == w and nh == h:
             return False
-        await session.async_set_grid_size(iterm2.util.Size(PANE_COLS, h))
-        print(f"  [normalize] {session.session_id[:8]} {w}->{PANE_COLS} cols",
+        await session.async_set_grid_size(iterm2.util.Size(nw, nh))
+        print(f"  [normalize] {session.session_id[:8]} {w}x{h}->{nw}x{nh}",
               flush=True)
         return True
     except Exception as e:
@@ -328,7 +334,8 @@ async def normalize_all():
         if s is not None and await normalize_pane(s):
             n += 1
     if n:
-        print(f"  [normalize] widened {n} pane(s) to {PANE_COLS} cols", flush=True)
+        print(f"  [normalize] grew {n} pane(s) to >={PANE_COLS}x{PANE_ROWS}",
+              flush=True)
 
 
 async def pane_text(session):
