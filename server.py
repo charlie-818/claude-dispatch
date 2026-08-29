@@ -2642,37 +2642,6 @@ async def api_ping(request):
         headers={"Access-Control-Allow-Origin": "*"})
 
 
-async def api_geometry(request):
-    """TEMP read-only diagnostic: window px + per-pane cols×rows + font, so a
-    remote host's terminal geometry can be compared to the reference machine.
-    Non-sensitive (terminal dimensions only, like /api/ping). Remove after use."""
-    out = {"host": ts_self_host(), "windows": []}
-    try:
-        await APP.async_refresh()
-        for w in APP.terminal_windows:
-            try:
-                f = await w.async_get_frame()
-                win = {"w": int(f.size.width), "h": int(f.size.height), "panes": []}
-            except Exception:
-                win = {"w": None, "h": None, "panes": []}
-            for t in w.tabs:
-                for s in t.sessions:
-                    g = s.grid_size
-                    try:
-                        prof = await s.async_get_profile()
-                        font = prof.normal_font
-                    except Exception:
-                        font = None
-                    win["panes"].append(
-                        {"id": s.session_id[:8], "cols": int(g.width),
-                         "rows": int(g.height), "font": font,
-                         "claude": s.session_id.upper() in KNOWN_CLAUDE})
-            out["windows"].append(win)
-    except Exception as e:
-        out["error"] = f"{type(e).__name__}: {e}"
-    return web.json_response(out, headers={"Access-Control-Allow-Origin": "*"})
-
-
 # ── hot reload ───────────────────────────────────────────────────────────────
 # A code change is deployed by pulling it and sending this process SIGHUP, NOT by
 # an external relaunch: the server holds an iTerm2 API connection authorised by
@@ -2753,7 +2722,6 @@ async def main(connection):
     app.router.add_get("/api/usage", api_usage)
     app.router.add_get("/api/devices", api_devices)
     app.router.add_get("/api/ping", api_ping)
-    app.router.add_get("/api/geometry", api_geometry)   # TEMP diagnostic; remove after
     app.router.add_get("/api/history", api_history)
     app.router.add_post("/api/resume", api_resume)
     app.router.add_get("/api/vapid", api_vapid)
