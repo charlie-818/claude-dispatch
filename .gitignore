@@ -41,3 +41,6 @@ static/index.html.bak-restyle
 
 # ── OS ───────────────────────────────────────────────────────────────────────
 .DS_Store
+
+# Auto-deploy log
+deploy.out
