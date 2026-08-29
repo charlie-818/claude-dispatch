@@ -115,6 +115,8 @@ GRID_MAX_COLS = 3    # top row grows to this many columns before rows start fill
 # never reaching the bottom, even when the width already matches.
 PANE_COLS = 52
 PANE_ROWS = 25
+COL_TOL = 3              # accept 52..55 cols (a tiled window fills to 53/54); only
+                        # a pane outside this band (e.g. font-drift balloon) is reset
 
 
 # ── iTerm helpers ──────────────────────────────────────────────────────────
@@ -299,29 +301,23 @@ async def pane_cols(session):
         return 80
 
 
-FONT_MIN_PT = 8          # don't shrink a pane's terminal font below this
-
-
-def _parse_font(f):
-    """'Monaco 12' / 'SF Mono 11' -> ('Monaco', 12) / ('SF Mono', 11)."""
-    try:
-        fam, size = f.rsplit(" ", 1)
-        return fam, int(float(size))
-    except Exception:
-        return (f or "Monaco"), 12
+CANON_FONT = "Monaco 12"   # reference font; matches MacBook so 52 cols fills a
+                           # pane's width the same way. Font is coupled to BOTH
+                           # cols and rows (same size scales each), so a per-host
+                           # font drift changes the column count — keep it uniform.
 
 
 async def _pane_font(session):
     try:
-        return _parse_font((await session.async_get_profile()).normal_font)
+        return (await session.async_get_profile()).normal_font
     except Exception:
-        return ("Monaco", 12)
+        return CANON_FONT
 
 
-async def _set_font(session, family, pts):
+async def _set_font(session, spec):
     try:
         chg = iterm2.LocalWriteOnlyProfile()
-        chg.set_normal_font(f"{family} {pts}")
+        chg.set_normal_font(spec)
         await session.async_set_profile_properties(chg)
         return True
     except Exception as e:
@@ -330,13 +326,16 @@ async def _set_font(session, family, pts):
 
 
 async def normalize_pane(session):
-    """Single grow-only nudge for a freshly spawned pane so it opens near target.
-    Full convergence (multi-pass + font-shrink) is handled by normalize_all."""
+    """Single nudge for a freshly spawned pane: canonical font, cols pinned to
+    PANE_COLS, rows grown toward PANE_ROWS. Full convergence is normalize_all."""
     try:
+        if await _pane_font(session) != CANON_FONT:
+            await _set_font(session, CANON_FONT)
         g = session.grid_size
         w, h = int(g.width), int(g.height)
-        nw, nh = max(w, PANE_COLS), max(h, PANE_ROWS)
-        if nw != w or nh != h:
+        nw = w if PANE_COLS <= w <= PANE_COLS + COL_TOL else PANE_COLS
+        nh = max(h, PANE_ROWS)
+        if (nw, nh) != (w, h):
             await session.async_set_grid_size(iterm2.util.Size(nw, nh))
         return True
     except Exception as e:
@@ -344,29 +343,24 @@ async def normalize_pane(session):
         return False
 
 
-async def normalize_all(passes=14):
-    """Bring every known Claude pane to at least PANE_COLS×PANE_ROWS so the phone
-    view matches every host. Runs at startup / after a SIGHUP reload so an
-    existing small-pane host (Big Mac) converges without a respawn.
+async def normalize_all(passes=10):
+    """Normalise every known Claude pane toward the reference geometry so the phone
+    view matches across hosts. Runs at startup / after a SIGHUP reload so an
+    existing off-size host (Big Mac) converges without a respawn.
 
-    Two levers, applied per pane:
-      1. Grow the grid. In a tiled layout, growing one pane squeezes a sibling, so
-         one sweep leaves stragglers; grow-only keeps each sweep monotonic (the
-         window only expands), so re-sweeping converges.
-      2. When a short pane's dims DON'T change between sweeps, the window has hit
-         the screen edge and a deep pane stack can't fit target rows at the current
-         font — the grid set clamped. Shrink that pane's font a point and pin the
-         grid to exactly target: the smaller font makes 52×25 occupy fewer pixels
-         so it fits. Font is local to the terminal and invisible to the phone
-         (which re-fits its own font from the column count), so the remote render
-         is unchanged except that it now reaches the target grid.
+    Per pane, each sweep:
+      • restore the canonical font — cols and rows scale with font size, so any
+        drift (e.g. an earlier shrink) throws the column count off;
+      • pin cols to exactly PANE_COLS and grow rows toward PANE_ROWS.
 
-    Detecting the clamp by measured-dims-unchanged (not by set_grid_size's return)
-    is essential: a clamped set still "succeeds", so only re-measuring reveals it
-    made no progress.
-    """
-    prev = {}                              # uuid -> (w,h) measured last sweep
-    resizes = fontshrinks = 0
+    Width (cols) is the parity that matters most — it fixes the "zoomed / half
+    screen" look and makes line-wrapping identical — so it is pinned exactly.
+    Rows are grown as far as the window allows: on a narrower screen a tiled pane
+    is physically shorter than the reference and cannot reach PANE_ROWS without
+    inflating cols (font is shared between the two axes), so height is best-effort,
+    not forced. Re-sweeping converges the tiled squeeze; stop when a sweep is a
+    no-op."""
+    changes = 0
     for _ in range(passes):
         try:
             sessions = await all_sessions()    # refreshes APP, so grid_size is live
@@ -378,37 +372,27 @@ async def normalize_all(passes=14):
             s = sessions.get(uuid)
             if s is None:
                 continue
+            if await _pane_font(s) != CANON_FONT:
+                await _set_font(s, CANON_FONT)
+                acted = True
+                changes += 1
             g = s.grid_size
             w, h = int(g.width), int(g.height)
-            if w >= PANE_COLS and h >= PANE_ROWS:
-                continue                   # this pane already at/above target
-            stalled = prev.get(uuid) == (w, h)
-            prev[uuid] = (w, h)
-            if stalled:
-                # grid clamped last sweep — shrink font, then pin exact target
-                fam, pts = await _pane_font(s)
-                if pts > FONT_MIN_PT and await _set_font(s, fam, pts - 1):
-                    try:
-                        await s.async_set_grid_size(
-                            iterm2.util.Size(PANE_COLS, PANE_ROWS))
-                    except Exception:
-                        pass
-                    fontshrinks += 1
+            nw = w if PANE_COLS <= w <= PANE_COLS + COL_TOL else PANE_COLS
+            nh = max(h, PANE_ROWS)
+            if (nw, nh) != (w, h):
+                try:
+                    await s.async_set_grid_size(iterm2.util.Size(nw, nh))
                     acted = True
-            else:
-                try:                       # grow-only grid attempt
-                    await s.async_set_grid_size(
-                        iterm2.util.Size(max(w, PANE_COLS), max(h, PANE_ROWS)))
-                    resizes += 1
-                    acted = True
+                    changes += 1
                 except Exception as e:
                     print(f"  [normalize] {type(e).__name__}: {e}", flush=True)
         if not acted:
-            break                          # every pane at/above target, or nothing left to try
+            break
         await asyncio.sleep(0.4)           # let iTerm settle the reflow before re-measuring
-    if resizes or fontshrinks:
-        print(f"  [normalize] target >={PANE_COLS}x{PANE_ROWS}: "
-              f"{resizes} resize(s), {fontshrinks} font-shrink(s)", flush=True)
+    if changes:
+        print(f"  [normalize] cols={PANE_COLS}, rows>={PANE_ROWS} best-effort "
+              f"({changes} change(s))", flush=True)
 
 
 async def pane_text(session):
