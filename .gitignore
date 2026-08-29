@@ -44,3 +44,6 @@ static/index.html.bak-restyle
 
 # Auto-deploy log
 deploy.out
+
+# Live server pidfile (for SIGHUP hot-reload)
+.server.pid

@@ -14,7 +14,7 @@ Safety model
 
 Run:  .venv/bin/python server.py
 """
-import asyncio, json, os, re, secrets, sys, time, glob, pathlib, subprocess
+import asyncio, json, os, re, secrets, signal, sys, time, glob, pathlib, subprocess
 from aiohttp import web, WSMsgType
 import iterm2
 import auth
@@ -2481,6 +2481,40 @@ async def api_ping(request):
         headers={"Access-Control-Allow-Origin": "*"})
 
 
+# ── hot reload ───────────────────────────────────────────────────────────────
+# A code change is deployed by pulling it and sending this process SIGHUP, NOT by
+# an external relaunch: the server holds an iTerm2 API connection authorised by
+# the ITERM2_COOKIE it was launched with, and only a process that inherits that
+# cookie can reconnect without a GUI trust prompt. os.execv re-runs the script in
+# the SAME process, so the cookie (and every other inherited env var) carries over
+# and iTerm2 re-authorises silently. The listening socket is close-on-exec, so the
+# fresh image rebinds PORT cleanly. Runtime state (sessions, vault, .token) lives
+# on disk and is reloaded on boot, so nothing is lost across the swap.
+PID_FILE = HERE / ".server.pid"
+
+
+def _write_pidfile():
+    try:
+        PID_FILE.write_text(str(os.getpid()))
+    except Exception as e:
+        print(f"  [reload] pidfile write failed: {type(e).__name__}: {e}", flush=True)
+
+
+def _install_hot_reload():
+    def _reexec():
+        print("  [reload] SIGHUP — re-exec in place", flush=True)
+        try:
+            sys.stdout.flush(); sys.stderr.flush()
+        except Exception:
+            pass
+        os.execv(sys.executable, [sys.executable, str(HERE / "server.py")])
+    try:
+        asyncio.get_running_loop().add_signal_handler(signal.SIGHUP, _reexec)
+        print("  [reload] SIGHUP hot-reload armed", flush=True)
+    except (NotImplementedError, RuntimeError) as e:
+        print(f"  [reload] hot-reload unavailable: {type(e).__name__}: {e}", flush=True)
+
+
 async def main(connection):
     global CONN, APP
     try:
@@ -2552,6 +2586,9 @@ async def main(connection):
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, BIND, PORT).start()
+
+    _write_pidfile()
+    _install_hot_reload()                       # `kill -HUP` re-execs in place (deploy)
 
     asyncio.create_task(_notify_watcher())     # push when sessions finish / need input
     asyncio.create_task(_rebuild_history())    # warm the history cache so first open is instant
