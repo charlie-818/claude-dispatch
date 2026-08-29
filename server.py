@@ -103,6 +103,15 @@ APP = None           # iterm2.App
 # dividers no longer line up.
 GRID_MAX_COLS = 3    # top row grows to this many columns before rows start filling
 
+# Canonical Claude-pane width. The phone renderer sizes its font so `cols`
+# characters fill the screen, capped at 15px — so a pane narrower than this
+# blows the font past the cap and shows big text in only half the width (the
+# "zoomed" look on a host whose iTerm font is large / window narrow). Widen any
+# pane below this to the target so every host renders at the same column count.
+# WIDEN ONLY, never shrink: a pane already at/above target belongs to a window
+# the user may be physically looking at, and yanking it narrower is hostile.
+PANE_COLS = 52
+
 
 # ── iTerm helpers ──────────────────────────────────────────────────────────
 async def all_sessions():
@@ -284,6 +293,42 @@ async def pane_cols(session):
         return int(session.grid_size.width)
     except Exception:
         return 80
+
+
+async def normalize_pane(session):
+    """Widen a too-narrow Claude pane to PANE_COLS so the phone view matches every
+    other host. Widen only — leave panes already at/above target alone. Returns
+    True if it actually resized. iTerm grows the enclosing window to fit."""
+    try:
+        g = session.grid_size
+        w, h = int(g.width), int(g.height)
+        if w >= PANE_COLS:
+            return False
+        await session.async_set_grid_size(iterm2.util.Size(PANE_COLS, h))
+        print(f"  [normalize] {session.session_id[:8]} {w}->{PANE_COLS} cols",
+              flush=True)
+        return True
+    except Exception as e:
+        print(f"  [normalize] {type(e).__name__}: {e}", flush=True)
+        return False
+
+
+async def normalize_all():
+    """One-shot: widen every known Claude pane that's below target. Runs at
+    startup/after a SIGHUP reload, so an existing narrow-pane host (e.g. Big Mac)
+    converges to the same width without a respawn."""
+    try:
+        sessions = await all_sessions()
+    except Exception as e:
+        print(f"  [normalize] scan failed: {type(e).__name__}: {e}", flush=True)
+        return
+    n = 0
+    for uuid in list(KNOWN_CLAUDE):
+        s = sessions.get(uuid)
+        if s is not None and await normalize_pane(s):
+            n += 1
+    if n:
+        print(f"  [normalize] widened {n} pane(s) to {PANE_COLS} cols", flush=True)
 
 
 async def pane_text(session):
@@ -1301,6 +1346,7 @@ async def api_spawn(request):
             {"error": f"could not open pane: {type(e).__name__}: {e}"}, status=500)
     uuid = sess.session_id.upper()
     KNOWN_CLAUDE.add(uuid)
+    await normalize_pane(sess)             # land at the canonical width from birth
 
     # Hand the pane a capability handle for the auth broker, plus any credentials
     # the owner chose to pre-inject. All of it goes through a 0600 file the shell
@@ -1868,6 +1914,7 @@ async def api_resume(request):
             {"error": f"could not open pane: {type(e).__name__}: {e}"}, status=500)
     uuid = sess.session_id.upper()
     KNOWN_CLAUDE.add(uuid)
+    await normalize_pane(sess)             # land at the canonical width from birth
     await sess.async_send_text(
         f"cd {shlex.quote(cwd)} && clear && claude --resume {shlex.quote(session_id)}\n")
     asyncio.create_task(_auto_trust(sess))
@@ -2670,6 +2717,11 @@ async def main(connection):
 
     asyncio.create_task(_notify_watcher())     # push when sessions finish / need input
     asyncio.create_task(_rebuild_history())    # warm the history cache so first open is instant
+
+    async def _normalize_once():
+        await asyncio.sleep(2)                 # let APP settle after (re-)connect
+        await normalize_all()                  # widen existing narrow panes post-deploy
+    asyncio.create_task(_normalize_once())
 
     # Where the phone should actually point: the tailnet name, over TLS, served
     # by `tailscale serve`. Falls back to the raw bind address if the tunnel is
