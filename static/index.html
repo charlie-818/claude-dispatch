@@ -3739,7 +3739,7 @@ async function probePeers(){
     const base = (d.url || 'https://' + d.host).replace(/\/+$/, '');
     try{
       const ctl = new AbortController();
-      const t = setTimeout(() => ctl.abort(), 2500);
+      const t = setTimeout(() => ctl.abort(), 4500);   // a cold peer ping can take a few s
       const r = await fetch(base + '/api/ping',
                             {signal: ctl.signal, mode: 'cors', cache: 'no-store'});
       clearTimeout(t);

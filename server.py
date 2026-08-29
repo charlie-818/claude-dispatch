@@ -2354,13 +2354,28 @@ def _ts_bin():
 _TAILSCALE = _ts_bin()
 
 
+# The tailscale CLI is slow to answer over the tailnet (seconds on some hosts),
+# and /api/ping fans out to it ~4× per request — enough to blow past the swapper's
+# probe timeout so a live peer reads "offline". status/serve state barely moves, so
+# cache each arg-set briefly: the first call pays the cost, the rest are instant.
+_TS_CACHE = {}          # args tuple -> (expiry, value)
+_TS_TTL = 15
+
+
 def _ts_json(*args):
     import shlex
+    now = time.time()
+    hit = _TS_CACHE.get(args)
+    if hit and hit[0] > now:
+        return hit[1]
     cmd = " ".join(shlex.quote(a) for a in (_TAILSCALE, *args))
     try:
-        return json.loads(os.popen(f"{cmd} 2>/dev/null").read())
+        val = json.loads(os.popen(f"{cmd} 2>/dev/null").read())
     except Exception:
-        return {}
+        val = {}
+    if val:             # cache only real answers — never pin an empty/failed read
+        _TS_CACHE[args] = (now + _TS_TTL, val)
+    return val
 
 
 def ts_name():
