@@ -319,23 +319,34 @@ async def normalize_pane(session):
         return False
 
 
-async def normalize_all():
-    """One-shot: widen every known Claude pane that's below target. Runs at
-    startup/after a SIGHUP reload, so an existing narrow-pane host (e.g. Big Mac)
-    converges to the same width without a respawn."""
-    try:
-        sessions = await all_sessions()
-    except Exception as e:
-        print(f"  [normalize] scan failed: {type(e).__name__}: {e}", flush=True)
-        return
-    n = 0
-    for uuid in list(KNOWN_CLAUDE):
-        s = sessions.get(uuid)
-        if s is not None and await normalize_pane(s):
-            n += 1
-    if n:
-        print(f"  [normalize] grew {n} pane(s) to >={PANE_COLS}x{PANE_ROWS}",
-              flush=True)
+async def normalize_all(passes=5):
+    """Grow every known Claude pane to at least PANE_COLS×PANE_ROWS. Runs at
+    startup/after a SIGHUP reload, so an existing small-pane host (e.g. Big Mac)
+    converges without a respawn.
+
+    Multiple passes: in a tiled layout, growing one pane squeezes a sibling, so a
+    single sweep leaves stragglers below target. Grow-only makes each sweep
+    monotonic (the window only expands), so re-sweeping converges — every pane
+    ends at/above target. Stop early once a sweep changes nothing."""
+    total = 0
+    for p in range(passes):
+        try:
+            sessions = await all_sessions()
+        except Exception as e:
+            print(f"  [normalize] scan failed: {type(e).__name__}: {e}", flush=True)
+            return
+        n = 0
+        for uuid in list(KNOWN_CLAUDE):
+            s = sessions.get(uuid)
+            if s is not None and await normalize_pane(s):
+                n += 1
+        total += n
+        if n == 0:
+            break                          # converged: nothing left below target
+        await asyncio.sleep(0.4)           # let iTerm settle the reflow before re-measuring
+    if total:
+        print(f"  [normalize] grew panes to >={PANE_COLS}x{PANE_ROWS} "
+              f"({total} resize(s))", flush=True)
 
 
 async def pane_text(session):
