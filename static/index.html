@@ -2214,11 +2214,39 @@ function closeSheet(){
   if (typeof deviceTimer !== 'undefined') clearInterval(deviceTimer);
   const sheet = document.getElementById('sheet');
   sheet.style.transition = ''; sheet.style.transform = '';   // drop any drag offset; let CSS animate the exit
+  sheet.style.bottom = ''; sheet.style.maxHeight = '';       // drop any keyboard lift
   sheet.classList.remove('on', 'dp');
   document.getElementById('sheet-bg').classList.remove('on');
   // pop the sheet's history entry when closed by tap/action (popstate already
   // consumed it when the close came from a back gesture — navPop guards that)
   if (wasOpen && !navPop && window.history.state && window.history.state.v === 'sheet') window.history.back(); }
+
+/* Keep the bottom sheet above the on-screen keyboard. Focusing a text field
+   inside the sheet (the folder filter) raises the soft keyboard, which shrinks
+   the VISUAL viewport but leaves the LAYOUT viewport put — so a bottom:0 fixed
+   sheet ends up behind the keyboard, hiding the footer and the field being
+   typed into. Track visualViewport and lift the sheet so its bottom rides just
+   above the keyboard, capping its height to the still-visible slice. Resets to
+   the CSS defaults (bottom:0 / max-height:72vh) whenever the keyboard is down. */
+let syncSheetKb = () => {};
+(function sheetKeyboard(){
+  const vv = window.visualViewport;
+  if (!vv) return;                           // desktop / unsupported — CSS handles it
+  const sheet = document.getElementById('sheet');
+  syncSheetKb = () => {
+    if (!sheet.classList.contains('on')){
+      sheet.style.bottom = ''; sheet.style.maxHeight = ''; return;
+    }
+    // keyboard height = layout height minus the visible slice and its top offset
+    const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    if (kb > 40){                            // real keyboard, not rounding noise
+      sheet.style.bottom = kb + 'px';
+      sheet.style.maxHeight = Math.max(180, vv.height - 24) + 'px';
+    } else { sheet.style.bottom = ''; sheet.style.maxHeight = ''; }
+  };
+  vv.addEventListener('resize', syncSheetKb);
+  vv.addEventListener('scroll', syncSheetKb);
+})();
 
 /* Swipe-down to dismiss the bottom sheet. Uses TOUCH events with a non-passive
    touchmove so we can preventDefault and stop the browser stealing the gesture for
@@ -2840,6 +2868,9 @@ function renderDirPicker(data){
     inp.type = 'text'; inp.placeholder = 'filter folders…';
     inp.autocapitalize = 'off'; inp.autocomplete = 'off'; inp.spellcheck = false;
     inp.oninput = () => filterDirRows(list, empty, inp.value);
+    // visualViewport 'resize' usually fires on its own, but iOS is flaky about
+    // it on first focus — nudge the lift a couple times as the keyboard slides in
+    inp.onfocus = () => { syncSheetKb(); setTimeout(syncSheetKb, 150); setTimeout(syncSheetKb, 400); };
     search.appendChild(inp);
     body.appendChild(search);
   }
