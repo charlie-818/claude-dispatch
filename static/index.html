@@ -226,6 +226,43 @@
   .opt:disabled{opacity:.38}
   .sheet-note{font:11px/1.55 var(--ui);color:var(--dim);margin-top:6px}
   .sheet-note.warn{color:var(--red)}
+  /* ── directory picker (start new clawd) ─────────────────
+     Rows scroll; the crumb pins to the top and the back/start bar pins to the
+     bottom, so both stay reachable however long the folder list gets. */
+  /* full-bleed gray band so folders can't peek past the crumb as they scroll —
+     it spans the sheet's full width and absorbs the gap down to the first row */
+  .dp-crumb{position:sticky;top:0;z-index:2;font:12px/1.4 var(--mono);
+    color:var(--dim);background:var(--panel3);
+    margin:0 -14px 0;padding:11px 14px 12px;word-break:break-all}
+  .dp-crumb b{color:var(--fg2);font-weight:600}
+  .dp-list{display:flex;flex-direction:column;gap:6px;padding-bottom:4px}
+  .dp-row{display:flex;align-items:center;gap:11px;width:100%;
+    background:var(--panel3);border:1px solid var(--line2);border-radius:var(--r);
+    padding:12px 13px;cursor:pointer;text-align:left;color:var(--fg);
+    font:600 14px var(--ui)}
+  .dp-row:active{background:var(--line2)}
+  .dp-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dp-ico{width:19px;height:19px;flex:none;color:var(--amber)}
+  .dp-ico.home{color:var(--blue)}
+  .dp-ico.drive{color:var(--violet)}
+  .dp-chev{width:16px;height:16px;flex:none;color:var(--dimmer)}
+  .dp-empty{font:12px var(--ui);color:var(--dim);text-align:center;padding:16px 0}
+  /* zero the sheet's own bottom padding while the picker is up so the bar can
+     sit flush against the very bottom of the screen */
+  #sheet.dp{padding-bottom:0}
+  .dp-foot{position:sticky;bottom:0;z-index:3;display:flex;gap:9px;
+    margin:4px -14px 0;
+    padding:11px 14px calc(env(safe-area-inset-bottom) + 12px);
+    background:var(--panel2);box-shadow:0 -10px 18px -8px var(--panel2)}
+  .dp-btn{display:flex;align-items:center;justify-content:center;gap:8px;
+    border-radius:var(--r);padding:14px;font:700 15px var(--ui);cursor:pointer;
+    border:1px solid var(--line2)}
+  .dp-btn svg{width:18px;height:18px;flex:none}
+  .dp-back{flex:none;padding:14px 20px;background:var(--panel3);color:var(--fg2)}
+  .dp-back:active{background:var(--line2)}
+  .dp-start{flex:1;background:#d77757;border-color:#d77757;color:#2a1206}
+  .dp-start:active{background:#c56b4a}
+  .dp-start:disabled{opacity:.4}
   .c-dim{color:var(--dim)} .c-green{color:var(--green)} .c-red{color:var(--red)}
   .c-amber{color:var(--amber)} .c-blue{color:var(--blue)} .c-violet{color:var(--violet)}
   .c-cyan{color:var(--cyan)} .c-sel{color:var(--fg);font-weight:600}
@@ -289,6 +326,50 @@
   #toast.err{border-color:var(--red);color:var(--red)}
   .empty{padding:36px 20px;text-align:center;color:var(--dim);
     font:13px/1.7 var(--ui);white-space:pre-wrap;word-break:break-all}
+
+  /* ── loading states ───────────────────────────────────
+     Static "loading…" text reads as a hung app. Skeletons + a moving sheen say
+     "content is on its way": the highlight sweeps left→right on a loop, staggered
+     down the list so it ripples instead of flashing in unison. Bare status lines
+     ("connecting", "summarising") get bobbing dots so even a single line is
+     visibly alive. */
+  @keyframes shimmer{100%{background-position:-200% 0}}
+  .sk{position:relative;overflow:hidden;display:flex;gap:12px;
+    padding:14px 14px 14px 15px;background:var(--panel);
+    border-bottom:1px solid var(--line)}
+  .sk-edge{position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--line2)}
+  .sk-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:9px}
+  .sk-line,.sk-tag{border-radius:4px;
+    background:linear-gradient(90deg,var(--panel2) 0%,var(--line2) 35%,var(--panel2) 70%);
+    background-size:200% 100%;animation:shimmer 1.3s linear infinite}
+  .sk-line{height:11px}
+  .sk-line.tall{height:15px}
+  .sk-line.w40{width:40%}.sk-line.w60{width:60%}
+  .sk-line.w75{width:75%}.sk-line.w90{width:90%}
+  .sk-tag{flex:none;width:46px;height:17px;align-self:flex-start}
+  .sk:nth-child(2) .sk-line,.sk:nth-child(2) .sk-tag{animation-delay:.11s}
+  .sk:nth-child(3) .sk-line,.sk:nth-child(3) .sk-tag{animation-delay:.22s}
+  .sk:nth-child(4) .sk-line,.sk:nth-child(4) .sk-tag{animation-delay:.33s}
+  .sk:nth-child(5) .sk-line,.sk:nth-child(5) .sk-tag{animation-delay:.44s}
+  .sk:nth-child(6) .sk-line,.sk:nth-child(6) .sk-tag{animation-delay:.55s}
+
+  .dots{display:inline-flex;gap:4px;vertical-align:baseline;margin-left:3px}
+  .dots i{width:5px;height:5px;border-radius:50%;background:currentColor;
+    display:inline-block;animation:dotbob 1s ease-in-out infinite}
+  .dots i:nth-child(2){animation-delay:.16s}
+  .dots i:nth-child(3){animation-delay:.32s}
+  @keyframes dotbob{0%,75%,100%{opacity:.28;transform:translateY(1px)}
+    38%{opacity:1;transform:translateY(-4px)}}
+  /* brief summary shimmers its own text while the model writes it */
+  .sessinfo.loading .ss-sum{background:linear-gradient(90deg,
+      var(--dim) 0%,var(--fg) 40%,var(--dim) 70%);background-size:200% 100%;
+    -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+    animation:shimmer 1.6s linear infinite}
+  @media(prefers-reduced-motion:reduce){
+    .sk-line,.sk-tag{animation:none;background:var(--panel2)}
+    .sessinfo.loading .ss-sum{animation:none;-webkit-text-fill-color:var(--dim)}
+    .dots i{animation:dotfade 1.2s ease-in-out infinite}
+    @keyframes dotfade{0%,100%{opacity:.3}50%{opacity:1}}}
 
   /* ── fleet terrarium ───────────────────────────────
      Every Claude pane is a "clawd" — the block-guy from cc-dashboard, here as a
@@ -395,16 +476,21 @@
   .idle .wtimer::before{display:none}
   @media (prefers-reduced-motion:reduce){.wtimer::before{animation:none}}
 
-  .bubble{position:absolute;left:50%;bottom:104px;transform:translateX(-50%) scale(.9);
+  /* --bdx: horizontal nudge (set per-frame in JS) that keeps a bubble on-screen
+     when its clawd walks to the far edge. The tail counters it so it still points
+     down at the clawd. */
+  .bubble{position:absolute;left:50%;bottom:104px;
+    transform:translateX(calc(-50% + var(--bdx,0px))) scale(.9);
     min-width:60px;max-width:158px;padding:5px 9px;border-radius:9px;
     background:var(--panel3);border:1px solid var(--line2);
     font:500 10.5px/1.3 var(--mono);color:var(--fg);text-align:center;
     opacity:0;transition:opacity .25s,transform .25s;pointer-events:none;z-index:3;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .bubble::after{content:"";position:absolute;left:50%;bottom:-5px;width:8px;height:8px;
+  .bubble::after{content:"";position:absolute;left:calc(50% - var(--bdx,0px));
+    bottom:-5px;width:8px;height:8px;
     background:var(--panel3);border-right:1px solid var(--line2);
     border-bottom:1px solid var(--line2);transform:translateX(-50%) rotate(45deg)}
-  .bubble.on{opacity:1;transform:translateX(-50%) scale(1)}
+  .bubble.on{opacity:1;transform:translateX(calc(-50% + var(--bdx,0px))) scale(1)}
   .bubble .verb{color:var(--green)}
   .waiting .bubble{border-color:var(--red);color:var(--amber)}
   .waiting .bubble .verb{color:var(--red)}
@@ -450,7 +536,7 @@
      every screen that shows the nav. Holds pane count + usage — moved out of the
      header so the header stays brand + controls. */
   .statusbar{display:flex;align-items:center;justify-content:space-between;gap:12px;
-    flex:none;padding:5px 14px;background:var(--panel2);border-top:1px solid var(--line);
+    flex:none;padding:5px 14px;background:var(--panel2);border-bottom:1px solid var(--line);
     font:11px var(--mono);color:var(--dim)}
   .statusbar .sb-lim{display:flex;align-items:center;gap:6px;flex:none}
   .tabbar{display:flex;flex:none;border-top:1px solid var(--line2);background:var(--panel2)}
@@ -477,6 +563,7 @@
   .icard .pv{flex:none;width:34px;height:34px;border-radius:8px;display:flex;
     align-items:center;justify-content:center;font:700 13px var(--mono);color:#0d0f12;
     background:#fff;overflow:hidden}
+  /* logos sit inset within the white tile — contained, never cropped or blown up */
   .icard .pv img{width:22px;height:22px;object-fit:contain;display:block}
   .icard .pv.pvfallback img{display:none}
   .opt .pv{flex:none;width:24px;height:24px;border-radius:6px;display:inline-flex;
@@ -514,8 +601,7 @@
     -webkit-overflow-scrolling:touch;background:var(--bg);
     padding-bottom:calc(env(safe-area-inset-bottom) + 16px)}
   /* history search bar */
-  .hsearch{flex:none;display:flex;align-items:center;gap:8px;padding:9px 12px;
-    background:var(--panel2);border-bottom:1px solid var(--line)}
+  .hsearch{flex:none;display:flex;align-items:center;gap:8px;padding:9px 12px}
   .hsearch svg{width:16px;height:16px;flex:none;color:var(--dim)}
   .hsearch input{flex:1;min-width:0;background:var(--panel);color:var(--fg);
     border:1px solid var(--line2);border-radius:var(--r);padding:9px 11px;
@@ -524,6 +610,11 @@
   .hsearch input::placeholder{color:var(--dimmer)}
   .hqclear{flex:none;background:none;border:none;color:var(--dim);font:14px var(--ui);
     cursor:pointer;padding:4px 6px}
+  /* sort pill lives inside the search row now, right of the input */
+  .hsort{flex:none;background:var(--panel3);border:1px solid var(--line2);
+    border-radius:var(--r);color:var(--dim);font:600 12px var(--ui);
+    letter-spacing:.02em;padding:9px 12px;cursor:pointer;text-transform:lowercase}
+  .hsort:active{background:var(--line2);color:var(--fg)}
   /* flat result rows when searching — cards, with the repo shown inline */
   #hist-body > .hrow{background:var(--panel2);border:1px solid var(--line2);
     border-radius:var(--r);margin-bottom:9px;padding:11px 12px}
@@ -537,12 +628,13 @@
   /* history grouped by directory: collapsed repo headers, expand to session rows */
   #hist-body{padding:8px 12px 0}
   .hgroup{margin-bottom:8px}
-  .hg-head{display:flex;align-items:center;gap:9px;width:100%;text-align:left;
+  .hg-head{display:flex;flex-direction:column;gap:8px;width:100%;text-align:left;
     cursor:pointer;background:var(--panel2);border:1px solid var(--line2);
-    border-radius:var(--r);padding:12px 12px;color:var(--fg);
+    border-radius:var(--r);padding:11px 12px;color:var(--fg);
     -webkit-tap-highlight-color:transparent}
   .hg-head:active{background:var(--panel3)}
   .hgroup.open .hg-head{border-radius:var(--r) var(--r) 0 0;border-bottom:none}
+  .hg-top{display:flex;align-items:center;gap:9px;min-width:0}
   .hg-chev{width:15px;height:15px;flex:none;color:var(--dim);
     transition:transform .15s}
   .hgroup.open .hg-chev{transform:rotate(90deg);color:var(--blue)}
@@ -551,8 +643,26 @@
   .hg-count{font:700 10px var(--ui);color:var(--dim);background:var(--panel3);
     border-radius:999px;padding:2px 8px;flex:none}
   .hg-when{font:500 11px var(--ui);color:var(--dim);flex:none}
-  .hg-cost{font:600 11px var(--ui);color:var(--dim);flex:none;min-width:44px;
+  .hg-cost{font:600 11px var(--ui);color:var(--fg2);flex:none;min-width:44px;
     text-align:right}
+  /* last-session preview: what was going on the last time this dir ran */
+  .hg-last{font:500 12px/1.35 var(--ui);color:var(--dim);padding-left:24px;
+    display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;
+    overflow:hidden}
+  .hg-last .hg-lk{font:700 9px var(--ui);letter-spacing:.09em;text-transform:uppercase;
+    color:var(--dimmer);margin-right:7px}
+  /* stat footer: model chips · msgs · tokens · 14-day activity sparkline */
+  .hg-foot{display:flex;align-items:center;gap:8px;padding-left:24px;min-width:0}
+  .hg-tags{display:flex;gap:4px;min-width:0;overflow:hidden}
+  .hg-mdl{font:600 9.5px var(--mono);color:var(--violet);background:var(--panel3);
+    border-radius:4px;padding:2px 6px;white-space:nowrap;flex:none}
+  .hg-stat{font:600 10.5px var(--mono);color:var(--dimmer);flex:none}
+  .hg-spark{display:flex;align-items:flex-end;gap:2px;height:16px;margin-left:auto;
+    flex:none}
+  .hg-spark i{width:3px;min-height:2px;border-radius:1px;
+    background:var(--c-blue);opacity:.5}
+  .hg-spark i.on{opacity:1;background:var(--blue)}
+  .hg-spark i.e{background:var(--line2);opacity:.6}
   .hg-items{border:1px solid var(--line2);border-top:none;
     border-radius:0 0 var(--r) var(--r);overflow:hidden}
   /* session row → resumes on tap */
@@ -591,11 +701,33 @@
   .meter .top .k{font:600 10px var(--ui);color:var(--dim);letter-spacing:.09em;
     text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .meter .top b{flex:none;font:700 14px var(--mono);color:var(--fg)}
-  .meter .rst{font:11px/1.4 var(--mono);color:var(--dimmer);margin-top:4px}
+  .meter .rst{font:11px/1.4 var(--mono);color:var(--dimmer)}
+  /* burn-rate + reset line share one baseline row under the bar */
+  .meter .mbot{display:flex;align-items:baseline;justify-content:space-between;
+    gap:10px;margin-top:6px}
+  .meter .mbot:empty{display:none}
+  .pace{font:11px/1.4 var(--mono);color:var(--dim);white-space:nowrap}
+  .pace b{color:var(--fg);font-weight:700}
+  .pace .pc-sep{color:var(--line2);margin:0 5px}
+  .pace .pc-dim{color:var(--dimmer)}
+  .pace .pc-hot{color:var(--st-crit);font-weight:700}
   .track{height:12px;border-radius:2px;background:var(--line2);overflow:hidden;
     max-width:100%;box-sizing:border-box;flex:none}
   .track i{display:block;height:100%;border-radius:2px;transition:width .5s}
-  .track.tall{height:22px;min-height:22px;max-height:22px}
+  .track.tall{height:18px;min-height:18px;max-height:18px}
+
+  /* 30-day spend bars — muted surface, brand blue, today accented */
+  .spendchart{background:var(--panel);border:1px solid var(--line);
+    border-radius:var(--r);padding:10px 12px 11px;margin-bottom:9px}
+  .spendchart .sc-head{display:flex;justify-content:space-between;align-items:baseline;
+    font:600 10px var(--ui);letter-spacing:.09em;text-transform:uppercase;
+    color:var(--dim);margin-bottom:9px}
+  .spendchart .sc-head b{font:700 13px var(--mono);color:var(--fg);letter-spacing:0;
+    text-transform:none}
+  .spendchart .sc-bars{display:flex;align-items:flex-end;gap:2px;height:52px}
+  .spendchart .sb{flex:1;min-width:0;border-radius:1.5px 1.5px 0 0;
+    background:var(--sb,var(--c-blue));opacity:.5}
+  .spendchart .sb-now{opacity:1}
 
   /* running-agent cards — the headline of this screen, so they're roomy */
   .agents{display:flex;flex-direction:column;gap:10px}
@@ -682,14 +814,14 @@
       </svg>
     </button>
   </header>
-  <div id="yard">
-    <div id="yard-status">connecting…</div>
-    <div class="trash" id="trash" aria-hidden="true">✕</div>
-    <button class="fab" id="fab" onclick="spawnSession()" title="new session">+</button>
-  </div>
   <div class="statusbar">
     <span class="sb-panes">—</span>
     <span class="sb-lim"><span class="bar"><i class="sb-lim-fill" style="width:0%"></i></span><span class="sb-lim-t">—</span></span>
+  </div>
+  <div id="yard">
+    <div id="yard-status">connecting<span class="dots"><i></i><i></i><i></i></span></div>
+    <div class="trash" id="trash" aria-hidden="true">✕</div>
+    <button class="fab" id="fab" onclick="spawnSession()" title="new session">+</button>
   </div>
   <div class="tabbar">
     <button class="cur" onclick="showFleet()">fleet</button>
@@ -701,18 +833,17 @@
 
 <div class="screen" id="s-usage">
   <header>
-    <div class="back" onclick="window.history.back()">‹</div>
     <div class="brand"><span class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><rect class="body" x="2.5" y="6.5" width="19" height="14" rx="4.5"/><rect class="body" x="5" y="2" width="2.6" height="5" rx="1.3"/><rect class="body" x="16.4" y="2" width="2.6" height="5" rx="1.3"/><rect class="eye" x="7.4" y="11" width="3.6" height="5" rx="1.4"/><rect class="eye" x="13" y="11" width="3.6" height="5" rx="1.4"/></svg></span>
       <span class="wm">NOW</span></div>
     <div class="meta" id="usage-age"></div>
     <button class="hardref" onclick="hardReload()" title="hard refresh"
       aria-label="hard refresh">⟳</button>
   </header>
-  <div id="usage-body"><div class="empty">loading…</div></div>
   <div class="statusbar">
     <span class="sb-panes">—</span>
     <span class="sb-lim"><span class="bar"><i class="sb-lim-fill" style="width:0%"></i></span><span class="sb-lim-t">—</span></span>
   </div>
+  <div id="usage-body"><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div></div>
   <div class="tabbar">
     <button onclick="showFleet()">fleet</button>
     <button class="cur" onclick="showUsage()">usage</button>
@@ -723,15 +854,16 @@
 
 <div class="screen" id="s-history">
   <header>
-    <div class="back" onclick="window.history.back()">‹</div>
     <div class="brand"><span class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><rect class="body" x="2.5" y="6.5" width="19" height="14" rx="4.5"/><rect class="body" x="5" y="2" width="2.6" height="5" rx="1.3"/><rect class="body" x="16.4" y="2" width="2.6" height="5" rx="1.3"/><rect class="eye" x="7.4" y="11" width="3.6" height="5" rx="1.4"/><rect class="eye" x="13" y="11" width="3.6" height="5" rx="1.4"/></svg></span>
       <span class="wm">PAST</span></div>
     <div class="meta" id="hist-meta"></div>
-    <button class="hardref sortbtn" id="histsort" onclick="cycleHistSort()"
-      title="sort" aria-label="sort">recent</button>
     <button class="hardref" onclick="loadHistory()" title="refresh"
       aria-label="refresh">⟳</button>
   </header>
+  <div class="statusbar">
+    <span class="sb-panes">—</span>
+    <span class="sb-lim"><span class="bar"><i class="sb-lim-fill" style="width:0%"></i></span><span class="sb-lim-t">—</span></span>
+  </div>
   <div class="hsearch">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
       stroke-linecap="round" aria-hidden="true">
@@ -741,12 +873,10 @@
       autocapitalize="none" autocomplete="off" spellcheck="false"
       oninput="onHistSearch()">
     <button id="histqclear" class="hqclear" onclick="clearHistSearch()" hidden aria-label="clear">✕</button>
+    <button class="hsort sortbtn" id="histsort" onclick="cycleHistSort()"
+      title="sort" aria-label="sort">recent</button>
   </div>
-  <div id="hist-body"><div class="empty">loading…</div></div>
-  <div class="statusbar">
-    <span class="sb-panes">—</span>
-    <span class="sb-lim"><span class="bar"><i class="sb-lim-fill" style="width:0%"></i></span><span class="sb-lim-t">—</span></span>
-  </div>
+  <div id="hist-body"><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div></div>
   <div class="tabbar">
     <button onclick="showFleet()">fleet</button>
     <button onclick="showUsage()">usage</button>
@@ -757,12 +887,15 @@
 
 <div class="screen" id="s-auth">
   <header>
-    <div class="back" onclick="window.history.back()">‹</div>
     <div class="brand"><span class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><rect class="body" x="2.5" y="6.5" width="19" height="14" rx="4.5"/><rect class="body" x="5" y="2" width="2.6" height="5" rx="1.3"/><rect class="body" x="16.4" y="2" width="2.6" height="5" rx="1.3"/><rect class="eye" x="7.4" y="11" width="3.6" height="5" rx="1.4"/><rect class="eye" x="13" y="11" width="3.6" height="5" rx="1.4"/></svg></span>
       <span class="wm">AUTH</span></div>
     <div class="meta" id="auth-meta"></div>
     <button class="hardref" onclick="loadAuth()" title="refresh" aria-label="refresh">⟳</button>
   </header>
+  <div class="statusbar">
+    <span class="sb-panes">—</span>
+    <span class="sb-lim"><span class="bar"><i class="sb-lim-fill" style="width:0%"></i></span><span class="sb-lim-t">—</span></span>
+  </div>
   <div id="auth-body">
     <section id="auth-requests" hidden>
       <div class="auth-h">Pending requests</div>
@@ -771,16 +904,12 @@
     <section>
       <div class="auth-h">Connected integrations
         <button class="auth-add" onclick="openAddIntegration()">+ Add</button></div>
-      <div id="auth-intlist"><div class="empty">loading…</div></div>
+      <div id="auth-intlist"><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div></div>
     </section>
     <section>
       <div class="auth-h">Agent grants</div>
       <div id="auth-grantlist"></div>
     </section>
-  </div>
-  <div class="statusbar">
-    <span class="sb-panes">—</span>
-    <span class="sb-lim"><span class="bar"><i class="sb-lim-fill" style="width:0%"></i></span><span class="sb-lim-t">—</span></span>
   </div>
   <div class="tabbar">
     <button onclick="showFleet()">fleet</button>
@@ -933,6 +1062,15 @@ let paneWantUuid = null, paneReconnectT = null;
 
 const esc = s => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 
+/* Shimmering placeholder rows shaped like the cards that are about to land, so a
+   slow fetch reads as "loading" not "stuck". n = how many rows to fake. */
+const skelList = (n = 5) => Array.from({length: n}, () =>
+  '<div class="sk"><span class="sk-edge"></span><div class="sk-body">' +
+  '<div class="sk-line tall w60"></div><div class="sk-line w90"></div>' +
+  '<div class="sk-line w40"></div></div><span class="sk-tag"></span></div>').join('');
+/* animated three-dot loader, e.g. `loading${DOTS}` */
+const DOTS = '<span class="dots"><i></i><i></i><i></i></span>';
+
 /* Claude's TUI has a small, stable vocabulary of line prefixes. Colouring on
    those is cheaper and more robust than shipping full ANSI over the wire. */
 function colorizeLine(l){
@@ -992,7 +1130,11 @@ let tries = 0;
 function status(msg){
   if (SESSIONS.length) return;
   const st = document.getElementById('yard-status');
-  st.textContent = msg; st.style.display = 'flex';
+  // a trailing "…" becomes live bobbing dots — the connect screen never freezes
+  const i = msg.indexOf('…');
+  if (i >= 0) st.innerHTML = esc(msg.slice(0, i)) + DOTS + esc(msg.slice(i + 1));
+  else st.textContent = msg;
+  st.style.display = 'flex';
 }
 
 /* ── clawd sprite + engine ─────────────────────────────
@@ -1540,6 +1682,17 @@ function tick(t){
     const show = c._okB;
     if (show && st === 'waiting' && !c.bubbleOn) c.bubble.innerHTML = bubbleHTML(s);
     if (show !== c.bubbleOn){ c.bubble.classList.toggle('on', show); c.bubbleOn = show; }
+    // Keep a shown bubble inside the viewport: it's centred on the 80px clawd box,
+    // so near either edge its half-width spills off-screen and gets clipped. Nudge
+    // it back by --bdx (the tail counter-shifts in CSS so it still points at him).
+    if (show){
+      const half = (c.bubble.offsetWidth || 120) / 2, margin = 8;
+      const center = c.x + 40;                       // bubble's natural centre (box = 80)
+      const lo = margin + half, hi = W - margin - half;
+      const bdx = lo <= hi ? Math.max(lo, Math.min(hi, center)) - center : 0;
+      const bpx = bdx.toFixed(1) + 'px';
+      if (bpx !== c._bdx){ c.bubble.style.setProperty('--bdx', bpx); c._bdx = bpx; }
+    }
 
     // live timer off the server's state epoch, ticking between the ~1s updates:
     // for a working pane it's how long it's run, for an idle pane how long it's
@@ -1775,7 +1928,7 @@ async function loadSummary(uuid, first){
   const goalRow = document.getElementById('ss-goalrow');
   if (first){
     box.classList.add('loading');
-    sum.textContent = 'summarising session…';
+    sum.innerHTML = 'summarising session' + DOTS;
     goalRow.hidden = true;
     briefHasContent = true;               // loading placeholder is worth showing
     applyBrief();
@@ -2041,7 +2194,7 @@ function closeSheet(){
   const wasOpen = openKind !== null;
   openKind = null; pendingModel = null;
   if (typeof deviceTimer !== 'undefined') clearInterval(deviceTimer);
-  document.getElementById('sheet').classList.remove('on');
+  document.getElementById('sheet').classList.remove('on', 'dp');
   document.getElementById('sheet-bg').classList.remove('on');
   // pop the sheet's history entry when closed by tap/action (popstate already
   // consumed it when the close came from a back gesture — navPop guards that)
@@ -2117,7 +2270,7 @@ function renderSheet(){
       on: () => { runCmd(c.id); closeSheet(); }})));
     if (!COMMANDS.length){
       const n = document.createElement('div');
-      n.className = 'sheet-note'; n.textContent = 'loading…';
+      n.className = 'sheet-note'; n.innerHTML = 'loading' + DOTS;
       body.appendChild(n);
     }
   }
@@ -2239,6 +2392,10 @@ function showAuth(){
 }
 
 async function loadAuth(){
+  if (!AUTH_INTS.length){
+    const el = document.getElementById('auth-intlist');
+    if (el) el.innerHTML = skelList(2);
+  }
   try {
     const [ints, reqs, grants] = await Promise.all([
       fetch('/api/integrations').then(r=>r.json()),
@@ -2256,16 +2413,48 @@ async function loadAuth(){
 
 const provColor = p => (AUTH_PROVIDERS[p]||{}).color || 'var(--dim)';
 const provDomain = p => (AUTH_PROVIDERS[p]||{}).domain;
-// Real brand mark, resolved from the provider's domain favicon. Falls back to a
-// coloured letter tile if the domain is unknown (custom) or the icon won't load.
-const provIcon = p => { const d = provDomain(p);
-  return d ? `https://icons.duckduckgo.com/ip3/${d}.ico` : ''; };
-function pvHTML(p){
-  const ic = provIcon(p), letter = esc((provLabel(p)[0]||'?'));
-  if (ic) return `<span class="pv"><img src="${ic}" alt="" loading="lazy"`
-    + ` onerror="this.parentNode.classList.add('pvfallback');`
-    + `this.parentNode.style.background='${provColor(p)}';this.parentNode.textContent='${letter}'"></span>`;
-  return `<span class="pv pvfallback" style="background:${provColor(p)}">${letter}</span>`;
+// Real brand mark resolved from the provider's domain favicon, high-res first,
+// through a chain of sources so one host's 403/404 doesn't blank the tile.
+const iconSrcs = d => d ? [
+  `https://icons.duckduckgo.com/ip3/${d}.ico`,
+  `https://www.google.com/s2/favicons?domain=${d}&sz=128`,
+  `https://${d}/apple-touch-icon.png`,
+  `https://${d}/apple-touch-icon-precomposed.png`,
+  `https://${d}/favicon.ico`,
+] : [];
+// Once a domain's icon is resolved (or known-failed) we remember it, so later
+// re-renders paint the final src directly — no re-fetch, no fallback churn, no
+// flashing. Value: a working src, or '' meaning "failed → letter tile".
+const ICON_CACHE = {};
+function pvHTML(p, domain){
+  const d = domain || provDomain(p), letter = esc((provLabel(p)[0]||'?'));
+  if (!d) return `<span class="pv pvfallback" style="background:${provColor(p)}">${letter}</span>`;
+  if (d in ICON_CACHE){
+    const src = ICON_CACHE[d];
+    if (!src) return `<span class="pv pvfallback" style="background:${provColor(p)}">${letter}</span>`;
+    // resolved earlier — stable, no load/error handlers, so it never re-fetches
+    return `<span class="pv"><img src="${src}" alt=""></span>`;
+  }
+  const srcs = iconSrcs(d);
+  return `<span class="pv"><img src="${srcs[0]}" data-d="${esc(d)}" data-i="0"`
+    + ` data-c="${provColor(p)}" data-l="${letter}" alt="" loading="lazy"`
+    + ` onload="pvLoaded(this)" onerror="pvFallback(this)"></span>`;
+}
+// A host's "no icon" answer is a 1×1 pixel — treat as failure and try the next
+// source. A real icon → cache its src so it never reloads.
+function pvLoaded(img){
+  if (img.naturalWidth <= 2 || img.naturalHeight <= 2){ pvFallback(img); return; }
+  ICON_CACHE[img.dataset.d] = img.currentSrc || img.src;
+}
+// Advance to the next icon source; after all fail, cache the miss + letter tile.
+function pvFallback(img){
+  const s = iconSrcs(img.dataset.d), i = (+img.dataset.i||0)+1;
+  if (i < s.length){ img.dataset.i = i; img.src = s[i]; return; }
+  ICON_CACHE[img.dataset.d] = '';
+  const pn = img.parentNode;
+  pn.classList.add('pvfallback');
+  pn.style.background = img.dataset.c || 'var(--dim)';
+  pn.textContent = img.dataset.l || '?';
 }
 const provLabel = p => (AUTH_PROVIDERS[p]||{}).label || p;
 
@@ -2298,16 +2487,16 @@ function renderIntegrations(ints){
   if (!ints.length){ el.innerHTML = '<div class="empty">none yet — tap + Add</div>'; return; }
   el.innerHTML = ints.map(i => {
     const dl = daysLeft(i.expires);
-    let exp = i.expires ? `expires ${esc(i.expires)}` : 'no expiry';
+    let exp = i.expires ? `expires ${esc(i.expires)}` : '';
     if (dl != null && dl < 0) exp = `<span class="bad">expired</span>`;
     else if (dl != null && dl < 7) exp = `<span class="warn">expires in ${dl}d</span>`;
     const scopes = (i.scopes||[]).map(s=>`<span class="scchip">${esc(s)}</span>`).join('');
-    const mask = i.live ? '<span class="mask">live</span>' : `<span class="mask">…${esc(i.last4)}</span>`;
+    const mask = i.live ? '' : `<span class="mask">…${esc(i.last4)}</span>`;
     return `<div class="icard">
-      ${pvHTML(i.provider)}
+      ${pvHTML(i.provider, i.domain)}
       <div class="ib">
-        <div class="il">${esc(i.label)} ${mask}</div>
-        <div class="im">${esc(i.env_var)} · ${exp}</div>
+        <div class="il">${esc(i.label)}${mask ? ' ' + mask : ''}</div>
+        <div class="im">${esc(i.env_var)}${exp ? ' · ' + exp : ''}</div>
         <div>${scopes}</div></div>
       <button class="ix" title="disconnect" onclick="deleteInt('${i.id}')">✕</button>
     </div>`;
@@ -2320,7 +2509,7 @@ function renderGrants(grants){
   el.innerHTML = grants.map(g => {
     const pane = (SESSIONS.find(s=>s.uuid===g.uuid)||{}).name || g.uuid.slice(0,8);
     return `<div class="icard">
-      ${pvHTML(g.provider)}
+      ${pvHTML(g.provider, g.domain)}
       <div class="ib"><div class="il">${esc(pane)}</div>
         <div class="im">${esc(g.label)} …${esc(g.last4)} → ${esc(g.env_var)}</div></div>
       <button class="ix" title="revoke" onclick="revokeGrant('${g.id}')">✕</button></div>`;
@@ -2474,18 +2663,114 @@ async function post(path, body){
   return d;
 }
 
-/* Spawn a fresh Claude pane on the Mac. The server splits a new iTerm pane in a
-   scratch dir; we arm PENDING_PANE with its UUID so the moment it lands in the
-   fleet we drop straight into it — you answer its first-run trust prompt there. */
-async function spawnSession(){
-  const fab = document.getElementById('fab');
-  fab.disabled = true; buzz(14);
+/* Spawn a fresh Claude pane on the Mac. Tapping the FAB opens a directory picker
+   sheet — you click through from the roots (home, mounted volumes) to the folder
+   you want, then hit "Start here". The server splits a new iTerm pane in that dir;
+   we arm PENDING_PANE with its UUID so the moment it lands in the fleet we drop
+   straight into it — you answer its first-run trust prompt there. */
+function spawnSession(){ buzz(14); openDirPicker(''); }
+
+/* Directory picker, rendered into the shared sheet. `path === ''` shows the roots;
+   any other path lists its sub-directories. Descend by tapping a folder; go up
+   with the ⬆ row; commit with "Start here" to launch the pane in the shown dir. */
+async function openDirPicker(path){
+  openKind = 'dir';
+  const body = document.getElementById('sheet-body');
+  document.getElementById('sheet-title').textContent = 'start new clawd';
+  body.innerHTML = '';
+  const note = document.createElement('div');
+  note.className = 'sheet-note'; note.innerHTML = 'loading' + DOTS;
+  body.appendChild(note);
+  const sheet = document.getElementById('sheet');
+  sheet.classList.add('dp');                 // flush-bottom footer mode
+  const on = sheet.classList.contains('on');
+  if (!on){
+    sheet.classList.add('on');
+    document.getElementById('sheet-bg').classList.add('on');
+    pushNav({v: 'sheet'});
+  }
+  let data;
   try {
-    const r = await post('/api/spawn', {});
+    const r = await fetch('/api/browse?path=' + encodeURIComponent(path));
+    if (r.status === 401){ authState().then(relock); closeSheet(); return; }
+    // read text first so a non-JSON error body (e.g. a 404/500 from an old
+    // server that lacks this route) surfaces as a clean message, never a raw
+    // JSON.parse "unexpected character" throw
+    const txt = await r.text();
+    try { data = JSON.parse(txt); }
+    catch(_){ throw new Error(r.ok ? 'bad response' : (txt.trim().slice(0,80) || r.status)); }
+    if (!r.ok) throw new Error(data.error || r.status);
+  } catch(e){ note.className = 'sheet-note warn'; note.textContent = String(e.message); return; }
+  if (openKind !== 'dir') return;             // sheet changed under us
+  renderDirPicker(data);
+}
+
+// inline stroked icons, same family as the rest of the app (24-grid, currentColor)
+const DP_ICONS = {
+  folder: '<svg class="dp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.5l-1.7-1.9A2 2 0 0 0 9.3 3.4H4a2 2 0 0 0-2 2V18a2 2 0 0 0 2 2Z"/></svg>',
+  home: '<svg class="dp-ico home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5 12 3l9 6.5"/><path d="M5 10.5V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-9.5"/><path d="M9.5 21v-6h5v6"/></svg>',
+  drive: '<svg class="dp-ico drive" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" x2="2" y1="12" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11Z"/><line x1="6" x2="6.01" y1="16" y2="16"/><line x1="10" x2="10.01" y1="16" y2="16"/></svg>',
+  chev: '<svg class="dp-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>',
+  back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>',
+  start: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>',
+};
+
+function renderDirPicker(data){
+  const body = document.getElementById('sheet-body');
+  body.innerHTML = '';
+  const atRoot = !data.path;
+
+  // pinned crumb — where this clawd will start
+  const crumb = document.createElement('div');
+  crumb.className = 'dp-crumb';
+  crumb.innerHTML = atRoot ? 'pick where this clawd starts'
+    : 'start in <b>' + esc(data.path) + '</b>';
+  body.appendChild(crumb);
+
+  // scrolling folder list
+  const list = document.createElement('div');
+  list.className = 'dp-list';
+  const rows = atRoot ? data.roots : data.dirs;
+  rows.forEach((d, i) => {
+    const ico = atRoot ? (i === 0 ? DP_ICONS.home : DP_ICONS.drive) : DP_ICONS.folder;
+    const r = document.createElement('button');
+    r.className = 'dp-row';
+    r.innerHTML = ico + '<span class="dp-name">' + esc(d.name) + '</span>' + DP_ICONS.chev;
+    r.onclick = () => openDirPicker(d.path);
+    list.appendChild(r);
+  });
+  if (!atRoot && !data.dirs.length){
+    const e = document.createElement('div');
+    e.className = 'dp-empty'; e.textContent = 'no sub-folders here';
+    list.appendChild(e);
+  }
+  body.appendChild(list);
+
+  // pinned footer — back + start, reachable no matter how far you scroll
+  const foot = document.createElement('div');
+  foot.className = 'dp-foot';
+  const back = document.createElement('button');
+  back.className = 'dp-btn dp-back';
+  back.innerHTML = DP_ICONS.back + '<span>back</span>';
+  // up a level; at a root (or top of a tree) back cancels the whole picker
+  back.onclick = () => atRoot ? closeSheet() : openDirPicker(data.parent || '');
+  const start = document.createElement('button');
+  start.className = 'dp-btn dp-start';
+  start.innerHTML = DP_ICONS.start + '<span>Start here</span>';
+  start.disabled = atRoot;                    // no real dir chosen yet
+  start.onclick = () => spawnInDir(data.path);
+  foot.append(back, start);
+  body.appendChild(foot);
+}
+
+async function spawnInDir(dir){
+  buzz(18);
+  try {
+    const r = await post('/api/spawn', {dir});
     PENDING_PANE = r.uuid;
     toast('new clawd hatching…');
   } catch(e){ toast(String(e.message), true); }
-  finally { setTimeout(() => fab.disabled = false, 1500); }
+  finally { closeSheet(); }
 }
 
 async function key(k){
@@ -2695,6 +2980,81 @@ function resetIn(ts){
   return m >= 60 ? `resets in ${Math.floor(m/60)}h ${m%60}m` : `resets in ${m}m`;
 }
 
+/* short duration for cap-ETA labels: 40m · 2h 10m · 3d */
+function hrs(h){
+  if (h == null) return '';
+  const mins = Math.round(h*60);
+  if (mins < 60) return `${mins}m`;
+  if (h < 24) return `${Math.floor(h)}h${mins%60 ? ' '+(mins%60)+'m' : ''}`;
+  const d = Math.floor(h/24), rh = Math.round(h%24);
+  return `${d}d${rh ? ' '+rh+'h' : ''}`;
+}
+
+/* Burn-rate + projected cap, mirrored from cc-dashboard's pace(). A limit window
+   is a fixed wall-clock box [resets_at - span, resets_at]; elapsed time and the %
+   already spent give the average pace directly — exact on the first frame, no
+   sampling. The 5-hour limit paces per active hour, the week per elapsed day
+   (extrapolating a week from one morning swings wildly otherwise). Without the
+   per-request events the phone can't know when work first started in the window,
+   so it paces off the window's own start — matching the dashboard's no-data
+   fallback. Returns null when there's nothing to project. */
+function paceLimit(pct, resetsAt, spanH, perDay){
+  if (pct == null || !resetsAt) return null;
+  const now = Date.now()/1000;
+  const winStart = resetsAt - spanH*3600;
+  const left = Math.max(0, (resetsAt - now)/3600);        // hours to reset
+  let rate, etaH, unit;
+  if (perDay){
+    const days = Math.max(1, (now - winStart)/86400);
+    rate = pct/days;                                       // %/day
+    etaH = rate > 0 ? (100-pct)/rate*24 : null;
+    unit = rate.toFixed(1)+'%/d';
+  } else {
+    const elapsed = Math.max(60, now - winStart);
+    rate = pct/(elapsed/3600);                             // %/hour
+    etaH = rate > 0 ? (100-pct)/rate : null;
+    unit = rate.toFixed(1)+'%/h';
+  }
+  return { unit, etaH, left };
+}
+// one "3.2%/h · cap in 2h" line under a limit meter; cap warns red if it lands
+// before the window resets. Fully spent → nothing to project.
+function paceLine(pct, resetsAt, spanH, perDay){
+  const p = paceLimit(pct, resetsAt, spanH, perDay);
+  if (!p) return '';
+  let tail;
+  if ((pct||0) >= 100)          tail = '<span class="pc-dim">at cap</span>';
+  else if (p.etaH == null)      tail = '<span class="pc-dim">idle</span>';
+  else if (p.etaH < p.left)     tail = `<span class="pc-hot">⚠ cap in ${hrs(p.etaH)}</span>`;
+  else                          tail = `<span class="pc-dim">cap in ${hrs(p.etaH)}</span>`;
+  return `<div class="pace"><b>${p.unit}</b><span class="pc-sep">·</span>${tail}</div>`;
+}
+
+/* 30-day bar chart — one column per day, height ∝ the chosen metric, today
+   accented. Mirrors the TUI's 30-day graph; brand blue on the app's muted
+   surface. `metric` is 'cost' or 'tokens'; `fmt` formats the value/total. */
+function dayChart(daily, metric, fmt, label, hue){
+  if (!daily || !daily.length) return '';
+  const max = Math.max(...daily.map(d => d[metric] || 0), metric === 'cost' ? 0.01 : 1);
+  const total = daily.reduce((a, d) => a + (d[metric] || 0), 0);
+  const bars = daily.map((d, i) => {
+    const h = Math.max(2, Math.round(((d[metric]||0)/max)*100));
+    const last = i === daily.length-1;
+    return `<span class="sb${last ? ' sb-now' : ''}" style="height:${h}%;--sb:${hue}"
+      title="${esc(d.d)}: ${fmt(d[metric]||0)}"></span>`;
+  }).join('');
+  return `<div class="spendchart">
+      <div class="sc-head"><span>${esc(label)}</span><b>${fmt(total)}</b></div>
+      <div class="sc-bars">${bars}</div>
+    </div>`;
+}
+// spend (cost) + tokens, stacked. Both read the same 30-day series.
+function usageCharts(daily){
+  if (!daily || !daily.length) return '';
+  return dayChart(daily, 'cost', fmtUsd, 'spend · last 30 days', 'var(--c-blue)')
+       + dayChart(daily, 'tokens', fmtTok, 'tokens · last 30 days', 'var(--c-orange)');
+}
+
 let USAGE_D = null, usageTimer = null, USAGE_SIG = '';
 // Absolute server epoch (unix seconds) the usage data was computed at. Same idea
 // as the fleet's s.work_since: fixed reference the client subtracts its own clock
@@ -2768,7 +3128,7 @@ function showHistory(){
 
 async function loadHistory(){
   const body = document.getElementById('hist-body');
-  if (!HISTORY.length) body.innerHTML = '<div class="empty">loading…</div>';
+  if (!HISTORY.length) body.innerHTML = skelList(6);
   try {
     const r = await fetch('/api/history');
     const d = await r.json();
@@ -2852,6 +3212,32 @@ function histSnippet(h, tokens){
   return (start > 0 ? '…' : '') + s.slice(start, end).trim() + (end < s.length ? '…' : '');
 }
 
+// local YYYY-MM-DD for an epoch (seconds); '' when there's no timestamp
+function dayKey(sec){
+  if (!sec) return '';
+  const d = new Date(sec*1000);
+  const p = n => String(n).padStart(2, '0');
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());
+}
+/* 14-day activity sparkline for a directory group: one bar per day, height ∝
+   that day's spend, the current day accented. Empty days render as flat stubs so
+   gaps read as gaps. Returns '' when the group has no dated activity. */
+function sparkline(byDay, now){
+  const days = 14, out = [];
+  let max = 0;
+  for (const k in byDay) if (byDay[k] > max) max = byDay[k];
+  if (max <= 0) return '';
+  const base = now - (days-1)*86400;
+  for (let i = 0; i < days; i++){
+    const k = dayKey(base + i*86400);
+    const v = byDay[k] || 0;
+    const h = v > 0 ? Math.max(14, Math.round((v/max)*100)) : 0;
+    const cls = v <= 0 ? ' class="e"' : (i === days-1 ? ' class="on"' : '');
+    out.push('<i style="height:'+h+'%"'+cls+'></i>');
+  }
+  return '<span class="hg-spark" title="last 14 days">'+out.join('')+'</span>';
+}
+
 function renderHistory(){
   const body = document.getElementById('hist-body');
   if (!HISTORY.length){
@@ -2894,10 +3280,19 @@ function renderHistory(){
     const key = scratch ? '__scratch__' : (h.cwd || h.project || '—');
     let g = groups.get(key);
     if (!g){ g = {key, name: scratch ? 'scratch' : (h.project || key),
-                  items: [], last: 0, cost: 0}; groups.set(key, g); }
+                  items: [], last: 0, first: Infinity, cost: 0, tokens: 0,
+                  prompts: 0, models: new Set(), byDay: {}, lastTitle: ''};
+             groups.set(key, g); }
     g.items.push(h);
-    g.last = Math.max(g.last, h.last || 0);
+    if ((h.last || 0) >= g.last){ g.last = h.last || 0; g.lastTitle = h.title || ''; }
+    if (h.first) g.first = Math.min(g.first, h.first);
     g.cost += h.cost || 0;
+    g.tokens += h.tokens || 0;
+    g.prompts += h.prompts || 0;
+    if (h.model) g.models.add(h.model);
+    // bucket spend by local day for the activity sparkline
+    const dk = dayKey(h.last || 0);
+    if (dk) g.byDay[dk] = (g.byDay[dk] || 0) + (h.cost || 0);
   });
   const key = HIST_SORTS[histSort];
   const list = [...groups.values()].sort((a, b) => key(b) - key(a));
@@ -2911,14 +3306,26 @@ function renderHistory(){
     wrap.className = 'hgroup' + (open ? ' open' : '');
     const head = document.createElement('button');
     head.className = 'hg-head';
+    const models = [...g.models].slice(0, 3)
+      .map(m => '<span class="hg-mdl">'+esc(m)+'</span>').join('');
     head.innerHTML =
-      '<svg class="hg-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+      '<div class="hg-top">'
+      + '<svg class="hg-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
       + 'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
       + '<polyline points="9 6 15 12 9 18"/></svg>'
       + '<span class="hg-name">'+esc(g.name)+'</span>'
       + '<span class="hg-count">'+g.items.length+'</span>'
       + '<span class="hg-when">'+esc(fmtAge(Math.max(0, Math.round(now - g.last))) || 'now')+'</span>'
-      + '<span class="hg-cost">'+fmtUsd(g.cost)+'</span>';
+      + '<span class="hg-cost">'+fmtUsd(g.cost)+'</span>'
+      + '</div>'
+      + (g.lastTitle ? '<div class="hg-last"><span class="hg-lk">last</span>'
+          + esc(g.lastTitle)+'</div>' : '')
+      + '<div class="hg-foot">'
+      + '<div class="hg-tags">'+models+'</div>'
+      + '<span class="hg-stat">'+g.prompts+' msg</span>'
+      + '<span class="hg-stat">'+fmtTok(g.tokens)+'</span>'
+      + sparkline(g.byDay, now)
+      + '</div>';
     head.onclick = () => {
       if (histOpen.has(g.key)) histOpen.delete(g.key); else histOpen.add(g.key);
       renderHistory();
@@ -2959,6 +3366,7 @@ async function resumeSession(h, btn){
 
 async function loadUsage(){
   const el = document.getElementById('usage-body');
+  if (!USAGE_D) el.innerHTML = skelList(3);
   try {
     const r = await fetch('/api/usage');
     const d = await r.json();
@@ -2993,6 +3401,7 @@ function renderUsage(){
   // The socket repaints once a second. Rebuilding the DOM that often eats taps
   // and flickers, so only rebuild when something on THIS screen actually moved.
   const sig = JSON.stringify([fh.used_percentage, sd.used_percentage,
+    fh.resets_at, sd.resets_at, d && d.daily && d.daily.length && d.daily[d.daily.length-1],
     d && d.today, d && d.all_time, Math.round(liveCost * 100), idle.length,
     act.map(r => [r.uuid, r.state, r.ctx, !!r.prompt, bubbleText(r),
                   r.tokens, r.prompts, r.files, r.lines_add, r.lines_del,
@@ -3004,17 +3413,21 @@ function renderUsage(){
   el.innerHTML = `
     <div class="usec">
       <h3>rate limits</h3>
-      ${[['5-hour', fh], ['7-day', sd]].map(([n, l]) => `
+      ${[['5-hour', fh, 5, false], ['7-day', sd, 24*7, true]].map(([n, l, span, pd]) => `
         <div class="meter">
           <div class="top"><span class="k">${n}</span><b>${pct(l.used_percentage)}</b></div>
           <div class="track tall"><i style="width:${Math.min(100, l.used_percentage||0)}%;
             background:${limitColor(l.used_percentage||0)}"></i></div>
-          ${resetIn(l.resets_at) ? `<div class="rst">${esc(resetIn(l.resets_at))}</div>` : ''}
+          <div class="mbot">
+            ${paceLine(l.used_percentage, l.resets_at, span, pd)}
+            ${resetIn(l.resets_at) ? `<div class="rst">${esc(resetIn(l.resets_at))}</div>` : ''}
+          </div>
         </div>`).join('')}
     </div>
 
     <div class="usec">
       <h3>spend</h3>
+      ${usageCharts(d && d.daily)}
       <div class="tiles">
         <div class="tile"><div class="k">today</div>
           <div class="v">${d ? fmtUsd(d.today.cost) : '—'}</div>
@@ -3038,15 +3451,13 @@ function renderUsage(){
       </div>
     </div>
 
+    ${act.length ? `
     <div class="usec">
       <h3><span>${waiting.length ? 'needs you' : 'running'}</span>
         <em>${act.length} session${act.length === 1 ? '' : 's'}${
           waiting.length ? ' · ' + waiting.length + ' blocked' : ''}</em></h3>
-      <div class="agents">
-        ${act.length ? act.map(agentCard).join('')
-                     : '<div class="unone">nothing running — the yard is quiet</div>'}
-      </div>
-    </div>`;
+      <div class="agents">${act.map(agentCard).join('')}</div>
+    </div>` : ''}`;
 
   el.querySelectorAll('.ucard').forEach(n =>
     n.onclick = () => openSession(n.dataset.u));
@@ -3118,7 +3529,7 @@ function lock(why){
   const w = document.getElementById('lock-warn');
   document.getElementById('lock-err').textContent = '';
   if (why === 'reconnect'){
-    t.textContent = 'Reconnecting…';
+    t.innerHTML = 'Reconnecting' + DOTS;
     m.textContent = 'Waking the fleet — this reconnects on its own, no need to reopen.';
     b.style.display = 'none';
     document.getElementById('lock').classList.add('on');

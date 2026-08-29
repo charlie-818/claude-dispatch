@@ -1052,10 +1052,25 @@ async def api_upload(request):
 # ── voice → text (local whisper.cpp) ───────────────────────────────────────
 # All local: the browser records audio, we ffmpeg it to 16k mono wav and run
 # whisper-cli. Nothing leaves the machine. Model is downloaded once to models/.
-WHISPER_BIN = os.environ.get("WHISPER_BIN", "whisper-cli")
+# Resolve the media tools by hand: a nohup/launchd start inherits a bare PATH
+# without /opt/homebrew/bin, so a plain "whisper-cli"/"ffmpeg" would not be found
+# even when installed. Same reasoning as _ts_bin above.
+def _find_bin(name):
+    import shutil
+    onpath = shutil.which(name)
+    if onpath:
+        return onpath
+    for d in ("/opt/homebrew/bin", "/usr/local/bin"):
+        cand = os.path.join(d, name)
+        if os.path.exists(cand):
+            return cand
+    return name
+
+
+WHISPER_BIN = os.environ.get("WHISPER_BIN") or _find_bin("whisper-cli")
 WHISPER_MODEL = os.environ.get(
     "WHISPER_MODEL", str(HERE / "models" / "ggml-base.en.bin"))
-FFMPEG_BIN = os.environ.get("FFMPEG_BIN", "ffmpeg")
+FFMPEG_BIN = os.environ.get("FFMPEG_BIN") or _find_bin("ffmpeg")
 WHISPER_MAX_BYTES = 25 * 1024 * 1024      # ~25 MB of recorded audio is plenty
 
 
@@ -1206,7 +1221,20 @@ async def api_spawn(request):
     """
     import tempfile, shlex
     await APP.async_refresh()
-    scratch = tempfile.mkdtemp(prefix="cc-scratch-")
+    body = request.get("_body") or {}
+    # Chosen dir from the picker: cd straight there. Absent → throwaway scratch, so
+    # nothing real is touched until the owner picks a folder. Either way the launch
+    # dir is trusted up front so Claude's first-run trust prompt never fires.
+    chosen = (body.get("dir") or "").strip()
+    if chosen:
+        chosen = os.path.abspath(os.path.expanduser(chosen))
+        if not os.path.isdir(chosen):
+            return web.json_response({"error": "not a directory"}, status=400)
+        workdir = chosen
+    else:
+        workdir = tempfile.mkdtemp(prefix="cc-scratch-")
+    scratch = workdir
+    is_scratch = not chosen
     trust_dir(scratch)                     # skip Claude's first-run trust prompt
     # Grow the fleet's own tab into a grid instead of opening a new tab. Panes are
     # placed row-major (see GRID_MAX_COLS) so the split lands in an aligned column
@@ -1229,7 +1257,6 @@ async def api_spawn(request):
     # sources and deletes — the raw values are NEVER keystroked, so they can't land
     # in the pane's scrollback or shell history. DISPATCH_AGENT_TOKEN + DISPATCH_URL
     # are capability handles (not secrets); pre-injected service tokens are secrets.
-    body = request.get("_body") or {}
     tok = secrets.token_urlsafe(24)
     PANE_TOKENS[tok] = uuid
     lines = [f'export PATH={shlex.quote(str(HERE))}:"$PATH"',
@@ -1247,11 +1274,13 @@ async def api_spawn(request):
     fd = os.open(envfile, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     os.write(fd, ("\n".join(lines) + "\n").encode())
     os.close(fd)
-    # Teach the agent the protocol so it knows it can ask for what it lacks.
-    try:
-        (pathlib.Path(scratch) / "CLAUDE.md").write_text(_AGENT_NOTE)
-    except Exception:
-        pass
+    # Teach the agent the protocol so it knows it can ask for what it lacks. Only
+    # in a scratch dir — never drop a CLAUDE.md into a real repo the owner picked.
+    if is_scratch:
+        try:
+            (pathlib.Path(scratch) / "CLAUDE.md").write_text(_AGENT_NOTE)
+        except Exception:
+            pass
 
     q = shlex.quote(scratch)
     await sess.async_send_text(
@@ -1281,6 +1310,54 @@ Once they approve it on their phone, load it just-in-time:
 `dispatch-auth list` shows what this pane already holds. Treat any secret you
 receive as sensitive: use it, but never write it into a file you might commit.
 """
+
+
+def _browse_roots():
+    """Top-level entries the dir picker starts from: the owner's home, then any
+    mounted volume (external drives, other Macs) under /Volumes. `HOME` first so
+    "Charlie BC" (the home dir) is the default landing spot."""
+    home = os.path.expanduser("~")
+    roots = [{"name": os.path.basename(home.rstrip("/")) or home, "path": home}]
+    try:
+        for name in sorted(os.listdir("/Volumes")):
+            p = os.path.join("/Volumes", name)
+            if os.path.isdir(p) and not name.startswith("."):
+                roots.append({"name": name, "path": p})
+    except OSError:
+        pass
+    return roots
+
+
+@guard
+async def api_browse(request):
+    """List directories under `path` so the phone can click through the filesystem
+    and pick where a new pane starts. No path → the roots (home + volumes). Read
+    only; never returns files, only sub-directories."""
+    path = request.query.get("path", "")
+    if not path:
+        return web.json_response({"path": "", "parent": None,
+                                  "roots": _browse_roots(), "dirs": []})
+    path = os.path.abspath(os.path.expanduser(path))
+    if not os.path.isdir(path):
+        return web.json_response({"error": "not a directory"}, status=404)
+    dirs = []
+    try:
+        for name in sorted(os.listdir(path), key=str.lower):
+            if name.startswith("."):
+                continue                       # hide dotfiles/dirs
+            full = os.path.join(path, name)
+            try:
+                if os.path.isdir(full):
+                    dirs.append({"name": name, "path": full})
+            except OSError:
+                continue
+    except OSError as e:
+        return web.json_response({"error": str(e)}, status=403)
+    parent = os.path.dirname(path.rstrip("/"))
+    if parent == path or not parent:
+        parent = None
+    return web.json_response({"path": path, "parent": parent,
+                              "roots": _browse_roots(), "dirs": dirs})
 
 
 @writes("kill")
@@ -1504,9 +1581,18 @@ def _compute_usage():
     cost = HIST.series(agg, "cost")
     today = time.strftime("%Y-%m-%d")
     tot = agg.get("tot") or {}
+    # last 30 days of cost/tokens for the phone spend chart (oldest → newest, gaps
+    # filled with 0 so the bar chart has one column per calendar day). Same series
+    # the TUI's 30-day graph reads, so the shapes line up.
+    from datetime import date as _date, timedelta as _td
+    _t = _date.today()
+    days = [( _t - _td(days=i)).isoformat() for i in range(29, -1, -1)]
+    daily = [{"d": dd, "cost": round(cost.get(dd, 0.0), 2),
+              "tokens": tokens.get(dd, 0)} for dd in days]
     return {
         "today": {"tokens": tokens.get(today, 0),
                   "cost": round(cost.get(today, 0.0), 2)},
+        "daily": daily,
         # all-time roll-up: tokens counts in+out+cache-create (cache reads are the
         # replayed context, not new work), matching cc-dashboard's totals line.
         "all_time": {
@@ -1835,47 +1921,104 @@ async def api_push_test(request):
     return web.json_response({"ok": True, "subs": len(_push_subs)})
 
 
-_notify_state = {}      # uuid -> (state, had_prompt)
+# Per-uuid notifier bookkeeping. The raw `state` a pane reports flaps: a Claude
+# session bounces working↔idle many times inside one task (subagents, repeated Stop
+# events), and a momentary fleet-file read miss makes read_fleet_files() default to
+# "idle" (server.py ~L445) even while work continues. Firing on every raw edge spams
+# "done" for a chat where nothing actually happened. So we debounce: a raw state must
+# hold for CONFIRM_SECS before it becomes the *confirmed* state, and we only notify on
+# confirmed transitions — never on the raw flapping.
+_notify_state = {}      # uuid -> dict (see _new_track)
+
+_POLL_SECS      = 2.5   # fleet poll interval
+_CONFIRM_SECS   = 8.0   # a raw state must persist this long to be believed (~3 polls)
+_PROMPT_CONFIRM = 4.0   # prompts are stable while blocking; confirm faster
+_DONE_COOLDOWN  = 30.0  # backstop: never re-fire "done" for a uuid within this window
+_DROP_GRACE     = 45.0  # keep debounce state this long after a uuid stops being seen,
+                        # so a transient stale/missing file doesn't reset the machine
+
+
+def _new_track(now, st, has_prompt):
+    return {
+        "raw": st, "raw_since": now, "confirmed": st,   # working/idle debounce
+        "praw": has_prompt, "praw_since": now, "prompt_conf": has_prompt,
+        "prompt_sent": False,       # rising-edge guard for the current prompt block
+        "armed": True,              # may a "done" fire? re-armed by a confirmed working
+        "last_done": 0.0,           # when we last pushed "done" (cooldown backstop)
+        "seen": now,                # last poll this uuid appeared in the fleet
+    }
 
 
 async def _notify_watcher():
-    """Watch the fleet; push when a pane finishes or starts needing input."""
+    """Watch the fleet; push when a pane finishes or starts needing input.
+
+    Notifications fire off *confirmed* (debounced) state, not the raw per-poll
+    reading, so a flapping session no longer spams "done" for the same chat."""
     print(f"  [notify] watcher running (push {'ON' if _VAPID_PUB else 'DISABLED'}, "
           f"{len(_push_subs)} subscriber(s))", flush=True)
     await asyncio.sleep(5)
     while True:
         try:
             rows, _ = await build_fleet()
+            now = time.time()
             live = set()
             for r in rows:
                 uuid = r.get("uuid"); live.add(uuid)
                 st = r.get("state"); prm = r.get("prompt"); has_prompt = bool(prm)
-                prev = _notify_state.get(uuid)
-                _notify_state[uuid] = (st, has_prompt)
-                if prev is None:
-                    continue                # first sighting — don't fire on startup
-                pst, pprompt = prev
                 name = r.get("name") or "A session"
-                if has_prompt and not pprompt:
-                    # say what it's actually asking: the question, else its options
-                    q = (prm.get("question") or "").strip()
-                    if not q:
-                        opts = [o.get("label", "") for o in prm.get("options") or []]
-                        q = " / ".join(o for o in opts[:3] if o) or "waiting on a choice"
-                    await _push_all({
-                        "title": f"{name} needs you",
-                        "body": q[:180],
-                        "tag": f"prompt-{uuid}", "uuid": uuid})
-                elif pst == "working" and st == "idle" and not has_prompt:
-                    await _push_all({
-                        "title": "Session finished",
-                        "body": f"{name} is done — ready for your next prompt.",
-                        "tag": f"done-{uuid}", "uuid": uuid})
-            for u in [u for u in _notify_state if u not in live]:
+                t = _notify_state.get(uuid)
+                if t is None:
+                    # First sighting — seed confirmed = current, never fire on startup.
+                    _notify_state[uuid] = _new_track(now, st, has_prompt)
+                    continue
+                t["seen"] = now
+
+                # ── working/idle debounce ──────────────────────────────────
+                if st != t["raw"]:
+                    t["raw"] = st; t["raw_since"] = now      # raw changed — restart clock
+                if st == t["raw"] and now - t["raw_since"] >= _CONFIRM_SECS \
+                        and st != t["confirmed"]:
+                    prior = t["confirmed"]
+                    t["confirmed"] = st
+                    if st == "working":
+                        t["armed"] = True                    # re-arm for the next finish
+                    elif prior == "working" and st == "idle" and not has_prompt \
+                            and t["armed"] and now - t["last_done"] >= _DONE_COOLDOWN:
+                        t["armed"] = False                   # one "done" per work cycle
+                        t["last_done"] = now
+                        await _push_all({
+                            "title": "Session finished",
+                            "body": f"{name} is done — ready for your next prompt.",
+                            "tag": f"done-{uuid}", "uuid": uuid})
+
+                # ── prompt (needs-input) debounce ──────────────────────────
+                if has_prompt != t["praw"]:
+                    t["praw"] = has_prompt; t["praw_since"] = now
+                if has_prompt == t["praw"] and now - t["praw_since"] >= _PROMPT_CONFIRM \
+                        and has_prompt != t["prompt_conf"]:
+                    t["prompt_conf"] = has_prompt
+                    if not has_prompt:
+                        t["prompt_sent"] = False             # block cleared — re-arm
+                    elif not t["prompt_sent"]:
+                        t["prompt_sent"] = True
+                        q = (prm.get("question") or "").strip()
+                        if not q:
+                            opts = [o.get("label", "") for o in prm.get("options") or []]
+                            q = " / ".join(o for o in opts[:3] if o) or "waiting on a choice"
+                        await _push_all({
+                            "title": f"{name} needs you",
+                            "body": q[:180],
+                            "tag": f"prompt-{uuid}", "uuid": uuid})
+
+            # Drop debounce state only after a grace window of not being seen, so a
+            # one-poll stale/missing fleet file doesn't reset the machine and let the
+            # next reappearance re-fire.
+            for u in [u for u, t in _notify_state.items()
+                      if u not in live and now - t["seen"] > _DROP_GRACE]:
                 _notify_state.pop(u, None)
         except Exception as e:
             print(f"  [notify] {type(e).__name__}: {e}", flush=True)
-        await asyncio.sleep(2.5)
+        await asyncio.sleep(_POLL_SECS)
 
 
 async def serve_sw(request):
@@ -2344,6 +2487,7 @@ async def main(connection):
     app.router.add_post("/api/upload", api_upload)
     app.router.add_post("/api/submit", api_submit)
     app.router.add_post("/api/spawn", api_spawn)
+    app.router.add_get("/api/browse", api_browse)
     app.router.add_post("/api/kill", api_kill)
     app.router.add_post("/api/effort", api_effort)
     app.router.add_post("/api/mode", api_mode)
@@ -2400,18 +2544,17 @@ async def main(connection):
     # Where the phone should actually point: the tailnet name, over TLS, served
     # by `tailscale serve`. Falls back to the raw bind address if the tunnel is
     # not up yet — and says so, loudly, because that path has no passkey.
-    ts_host = ts_name()
-    if ts_host:
-        base = f"https://{ts_host}"
-    else:
-        base = f"http://{BIND}:{PORT}"
+    # Use the full serve origin — port included — so a device published on a
+    # non-443 port (e.g. :8443 when its root is taken) hands out a URL that works.
+    serve_origin = ts_serve_origin()
+    base = serve_origin or f"http://{BIND}:{PORT}"
     phone_url = f"{base}/?t={TOKEN}"
     print(f"\n  CC Dispatch — bound to {BIND}:{PORT}\n")
     if BIND not in ("127.0.0.1", "::1", "localhost"):
         print("  !! WARNING: not bound to loopback. Anyone who can reach this\n"
               "     address can attempt the bootstrap token. Prefer loopback +\n"
               "     `tailscale serve`.\n")
-    if not ts_host:
+    if not serve_origin:
         print("  !! `tailscale serve` is not running — no TLS, and passkeys\n"
               "     cannot be registered over a bare IP. Start it with:\n"
               f"       tailscale serve --bg {PORT}\n")

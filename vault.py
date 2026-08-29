@@ -21,7 +21,7 @@ The trust anchor is the grant: an agent can *ask* freely, but a secret is
 released only after the owner approves a grant through the passkey-gated phone UI
 (see server.py `/api/requests/{id}/approve`).
 """
-import base64, json, os, pathlib, secrets, subprocess, time
+import base64, json, os, pathlib, re, secrets, subprocess, time
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -66,6 +66,57 @@ PROVIDERS = {
     "custom":   {"label": "Custom",   "color": "#a8b2bf", "domain": None,
                  "env_var": None, "help": "", "scopes": [], "device_flow": False},
 }
+
+# Broader roster so any tool the sweep discovers renders a real brand logo (the UI
+# resolves the mark from `domain`) and lands under a sensible env var. Compact
+# table → merged into PROVIDERS with defaults; explicit entries above win.
+#   provider: (label, domain, env_var)
+_EXTRA = {
+    "npm":         ("npm",           "npmjs.com",          "NPM_TOKEN"),
+    "resend":      ("Resend",        "resend.com",         "RESEND_API_KEY"),
+    "sendgrid":    ("SendGrid",      "sendgrid.com",       "SENDGRID_API_KEY"),
+    "postmark":    ("Postmark",      "postmarkapp.com",    "POSTMARK_SERVER_TOKEN"),
+    "mailgun":     ("Mailgun",       "mailgun.com",        "MAILGUN_API_KEY"),
+    "loops":       ("Loops",         "loops.so",           "LOOPS_API_KEY"),
+    "twilio":      ("Twilio",        "twilio.com",         "TWILIO_AUTH_TOKEN"),
+    "openai":      ("OpenAI",        "openai.com",         "OPENAI_API_KEY"),
+    "anthropic":   ("Anthropic",     "anthropic.com",      "ANTHROPIC_API_KEY"),
+    "groq":        ("Groq",          "groq.com",           "GROQ_API_KEY"),
+    "perplexity":  ("Perplexity",    "perplexity.ai",      "PERPLEXITY_API_KEY"),
+    "mistral":     ("Mistral",       "mistral.ai",         "MISTRAL_API_KEY"),
+    "cohere":      ("Cohere",        "cohere.com",         "COHERE_API_KEY"),
+    "elevenlabs":  ("ElevenLabs",    "elevenlabs.io",      "ELEVENLABS_API_KEY"),
+    "replicate":   ("Replicate",     "replicate.com",      "REPLICATE_API_TOKEN"),
+    "stripe":      ("Stripe",        "stripe.com",         "STRIPE_API_KEY"),
+    "slack":       ("Slack",         "slack.com",          "SLACK_BOT_TOKEN"),
+    "linear":      ("Linear",        "linear.app",         "LINEAR_API_KEY"),
+    "notion":      ("Notion",        "notion.so",          "NOTION_API_KEY"),
+    "gcloud":      ("Google Cloud",  "cloud.google.com",   "GOOGLE_OAUTH_TOKEN"),
+    "aws":         ("AWS",           "aws.amazon.com",     "AWS_ACCESS_KEY_ID"),
+    "fly":         ("Fly.io",        "fly.io",             "FLY_API_TOKEN"),
+    "heroku":      ("Heroku",        "heroku.com",         "HEROKU_API_KEY"),
+    "digitalocean":("DigitalOcean",  "digitalocean.com",   "DIGITALOCEAN_TOKEN"),
+    "cloudflare":  ("Cloudflare",    "cloudflare.com",     "CLOUDFLARE_API_TOKEN"),
+    "firebase":    ("Firebase",      "firebase.google.com","FIREBASE_TOKEN"),
+    "huggingface": ("Hugging Face",  "huggingface.co",     "HF_TOKEN"),
+    "neon":        ("Neon",          "neon.tech",          "NEON_API_KEY"),
+    "planetscale": ("PlanetScale",   "planetscale.com",    "PLANETSCALE_TOKEN"),
+    "turso":       ("Turso",         "turso.tech",         "TURSO_API_TOKEN"),
+    "upstash":     ("Upstash",       "upstash.com",        "UPSTASH_REDIS_REST_TOKEN"),
+    "expo":        ("Expo / EAS",    "expo.dev",           "EXPO_TOKEN"),
+    "gitlab":      ("GitLab",        "gitlab.com",         "GITLAB_TOKEN"),
+    "sentry":      ("Sentry",        "sentry.io",          "SENTRY_AUTH_TOKEN"),
+    "ngrok":       ("ngrok",         "ngrok.com",          "NGROK_AUTHTOKEN"),
+    "circleci":    ("CircleCI",      "circleci.com",       "CIRCLECI_TOKEN"),
+    "datadog":     ("Datadog",       "datadoghq.com",      "DD_API_KEY"),
+    "mongodb":     ("MongoDB Atlas", "mongodb.com",        "MONGODB_API_KEY"),
+    "posthog":     ("PostHog",       "posthog.com",        "POSTHOG_API_KEY"),
+    "docker":      ("Docker Hub",    "docker.com",         "DOCKER_TOKEN"),
+}
+for _p, (_lbl, _dom, _env) in _EXTRA.items():
+    PROVIDERS.setdefault(_p, {"label": _lbl, "color": "#2b3140", "domain": _dom,
+                              "env_var": _env, "help": "", "scopes": [],
+                              "device_flow": False})
 
 
 def providers_public():
@@ -213,6 +264,20 @@ def add_source_cred(provider, label, env_var, source, scopes=None):
     return cid
 
 
+def _api_get(url, bearer, params=None):
+    """Minimal GET → parsed json (or None). Bearer auth, short timeout, no deps."""
+    import urllib.parse, urllib.request
+    if params:
+        url = url + "?" + urllib.parse.urlencode({k: v for k, v in params.items() if v})
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {bearer}"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return json.loads(r.read().decode())
+    except Exception as e:
+        print(f"  [vault] api get failed: {type(e).__name__}: {e}", flush=True)
+        return None
+
+
 def resolve_source(source):
     """Return the current value a reference points at, or None."""
     try:
@@ -232,6 +297,71 @@ def resolve_source(source):
                 if t:
                     return t
             return None
+        if kind == "env":
+            return os.environ.get(source["name"]) or None
+        if kind == "file":
+            return (open(os.path.expanduser(source["path"])).read().strip() or None)
+        if kind == "yaml":
+            # small dependency-free reader for flat `key: value` yaml configs
+            want = (source.get("keys") or [None])[-1]
+            for line in open(os.path.expanduser(source["path"])):
+                s = line.strip()
+                if want and s.startswith(want + ":"):
+                    val = s.split(":", 1)[1].strip().strip('"').strip("'")
+                    return val or None
+            return None
+        if kind == "netrc":
+            import netrc as _netrc
+            auth = _netrc.netrc(os.path.expanduser(source.get("file", "~/.netrc"))).authenticators(source["machine"])
+            return (auth[2] if auth else None) or None
+        if kind == "npmrc":
+            for line in open(os.path.expanduser(source["path"])):
+                if "_authToken" in line and "=" in line:
+                    return line.split("=", 1)[1].strip() or None
+            return None
+        if kind == "dotenv":
+            # value of one key inside a specific .env file, read on demand.
+            key = source["key"]
+            for line in open(os.path.expanduser(source["path"])):
+                s = line.strip()
+                if not s or s.startswith("#") or "=" not in s:
+                    continue
+                n, _, v = s.partition("=")
+                if n.strip().replace("export ", "").strip() == key:
+                    v = v.strip()
+                    if v and v[0] in "\"'" and v[-1:] == v[0]:
+                        v = v[1:-1]
+                    return v or None
+            return None
+        if kind == "vercel_env":
+            # value of a project env var, decrypted live via the Vercel API using
+            # the account token already on disk. Sensitive-typed vars return null.
+            tok = resolve_source({"kind": "json",
+                                  "path": "~/Library/Application Support/com.vercel.cli/auth.json",
+                                  "keys": ["token"]})
+            if not tok:
+                return None
+            params = {"decrypt": "true"}
+            if source.get("team"):
+                params["teamId"] = source["team"]
+            data = _api_get(f"https://api.vercel.com/v9/projects/{source['project']}/env",
+                            tok, params)
+            for e in (data or {}).get("envs", []):
+                if e.get("key") == source["key"]:
+                    return e.get("value") or None
+            return None
+        if kind == "netlify_env":
+            tok = resolve_source({"kind": "json_user",
+                                  "path": "~/Library/Preferences/netlify/config.json"})
+            if not tok:
+                return None
+            data = _api_get(
+                f"https://api.netlify.com/api/v1/accounts/{source['account']}/env/{source['key']}",
+                tok, {"site_id": source.get("site", "")})
+            for v in (data or {}).get("values", []):
+                if v.get("value"):
+                    return v["value"]
+            return None
     except Exception as e:
         print(f"  [vault] source resolve failed: {type(e).__name__}: {e}", flush=True)
     return None
@@ -246,12 +376,130 @@ def secret_of(cred):
     return cred.get("secret")
 
 
+# env-var name → real service (slug, label, domain), so a key that landed as
+# "custom" can be reassigned to its actual provider and paint a real favicon.
+# Substring match, most-specific first. A wrong guess just yields no logo, never harm.
+#   (keyword-in-NAME, slug, label, domain)
+_SERVICES = [
+    ("ALPHA_VANTAGE", "alphavantage", "Alpha Vantage", "alphavantage.co"),
+    ("ALCHEMY", "alchemy", "Alchemy", "alchemy.com"),
+    ("ALPACA", "alpaca", "Alpaca", "alpaca.markets"),
+    ("APOLLO", "apollo", "Apollo", "apollo.io"),
+    ("APPSFLYER", "appsflyer", "AppsFlyer", "appsflyer.com"),
+    ("ARBISCAN", "arbiscan", "Arbiscan", "arbiscan.io"),
+    ("ATTOM", "attom", "ATTOM Data", "attomdata.com"),
+    ("BLOCKSCAN", "blockscan", "Blockscan", "blockscan.com"),
+    ("COINGECKO", "coingecko", "CoinGecko", "coingecko.com"),
+    ("COINMARKETCAP", "coinmarketcap", "CoinMarketCap", "coinmarketcap.com"),
+    ("COINBASE", "coinbase", "Coinbase", "coinbase.com"),
+    ("CORELOGIC", "corelogic", "CoreLogic", "corelogic.com"),
+    ("CROWDIN", "crowdin", "Crowdin", "crowdin.com"),
+    ("CRYPTO_PANIC", "cryptopanic", "CryptoPanic", "cryptopanic.com"),
+    ("CRYPTOPANIC", "cryptopanic", "CryptoPanic", "cryptopanic.com"),
+    ("CURSOR", "cursor", "Cursor", "cursor.com"),
+    ("DOCUSIGN", "docusign", "DocuSign", "docusign.com"),
+    ("ESRI", "esri", "Esri", "esri.com"),
+    ("ETHERSCAN", "etherscan", "Etherscan", "etherscan.io"),
+    ("FEMA", "fema", "FEMA", "fema.gov"),
+    ("FIRST_AMERICAN", "firstam", "First American", "firstam.com"),
+    ("GEMINI", "gemini", "Gemini", "gemini.com"),
+    ("GOOGLE_MAPS", "googlemaps", "Google Maps", "mapsplatform.google.com"),
+    ("GOOGLE_DRIVE", "googledrive", "Google Drive", "drive.google.com"),
+    ("GOOGLE", "google", "Google", "google.com"),
+    ("HELLOSIGN", "hellosign", "HelloSign", "hellosign.com"),
+    ("HOME_DEPOT", "homedepot", "Home Depot", "homedepot.com"),
+    ("HUNTER", "hunter", "Hunter", "hunter.io"),
+    ("INFURA", "infura", "Infura", "infura.io"),
+    ("IPFS", "ipfs", "IPFS", "ipfs.io"),
+    ("JUMIO", "jumio", "Jumio", "jumio.com"),
+    ("LEMONADE", "lemonade", "Lemonade", "lemonade.com"),
+    ("LOWES", "lowes", "Lowe's", "lowes.com"),
+    ("MAILCHIMP", "mailchimp", "Mailchimp", "mailchimp.com"),
+    ("MAPBOX", "mapbox", "Mapbox", "mapbox.com"),
+    ("MARKETDATA", "marketdata", "MarketData", "marketdata.app"),
+    ("MARKET_DATA", "marketdata", "MarketData", "marketdata.app"),
+    ("MENTRAOS", "mentra", "Mentra", "mentra.glass"),
+    ("MENTRA", "mentra", "Mentra", "mentra.glass"),
+    ("METAMASK", "metamask", "MetaMask", "metamask.io"),
+    ("MIXPANEL", "mixpanel", "Mixpanel", "mixpanel.com"),
+    ("MORALIS", "moralis", "Moralis", "moralis.io"),
+    ("NAMECHEAP", "namecheap", "Namecheap", "namecheap.com"),
+    ("NEWSAPI", "newsapi", "NewsAPI", "newsapi.org"),
+    ("NEWS_WEBHOOK", "newsapi", "NewsAPI", "newsapi.org"),
+    ("NOAA", "noaa", "NOAA", "noaa.gov"),
+    ("OPENROUTER", "openrouter", "OpenRouter", "openrouter.ai"),
+    ("PLAID", "plaid", "Plaid", "plaid.com"),
+    ("POLYGONSCAN", "polygonscan", "PolygonScan", "polygonscan.com"),
+    ("POLYGON_NODE", "polygon", "Polygon", "polygon.technology"),
+    ("POLYMARKET", "polymarket", "Polymarket", "polymarket.com"),
+    ("POLY_API", "polymarket", "Polymarket", "polymarket.com"),
+    ("QUICKNODE", "quicknode", "QuickNode", "quicknode.com"),
+    ("RECAPTCHA", "recaptcha", "reCAPTCHA", "google.com"),
+    ("REDFIN", "redfin", "Redfin", "redfin.com"),
+    ("REDDIT", "reddit", "Reddit", "reddit.com"),
+    ("RENTCAST", "rentcast", "RentCast", "rentcast.io"),
+    ("SIMPLEHASH", "simplehash", "SimpleHash", "simplehash.com"),
+    ("STATE_FARM", "statefarm", "State Farm", "statefarm.com"),
+    ("STATSIG", "statsig", "Statsig", "statsig.com"),
+    ("STOCKDATA", "stockdata", "StockData", "stockdata.org"),
+    ("SUBGRAPH", "thegraph", "The Graph", "thegraph.com"),
+    ("THE_GRAPH", "thegraph", "The Graph", "thegraph.com"),
+    ("GRAPH_API", "thegraph", "The Graph", "thegraph.com"),
+    ("TELEGRAM", "telegram", "Telegram", "telegram.org"),
+    ("TWITTERAPI_IO", "twitterapi", "TwitterAPI.io", "twitterapi.io"),
+    ("TWITTER", "twitterapi", "TwitterAPI.io", "twitterapi.io"),
+    ("UNISWAP", "uniswap", "Uniswap", "uniswap.org"),
+    ("UNIV3", "uniswap", "Uniswap", "uniswap.org"),
+    ("VERIFF", "veriff", "Veriff", "veriff.com"),
+    ("ZILLOW", "zillow", "Zillow", "zillow.com"),
+    ("XAI", "xai", "xAI", "x.ai"),
+    ("GROK", "xai", "xAI", "x.ai"),
+    ("PRIVY", "privy", "Privy", "privy.io"),
+    ("R2_", "cloudflare", "Cloudflare R2", "cloudflare.com"),
+    ("VAULTO", "vaulto", "Vaulto", "vaulto.finance"),
+    ("PERPLEXITY", "perplexity", "Perplexity", "perplexity.ai"),
+    ("AWS", "aws", "AWS", "aws.amazon.com"),
+    ("OPENCLAW", "openclaw", "OpenClaw", "openclaw.ai"),
+]
+# register each inferred service so its slug carries a label/domain everywhere
+for _kw, _slug, _lbl, _dom in _SERVICES:
+    PROVIDERS.setdefault(_slug, {"label": _lbl, "color": "#2b3140", "domain": _dom,
+                                 "env_var": None, "help": "", "scopes": [],
+                                 "device_flow": False})
+
+_SUFFIX = re.compile(r"_(API_)?(ACCESS_)?(SECRET_)?(KEYS?|TOKENS?|SECRETS?|IDS?|"
+                     r"PASSWORD|HASH|SID|AUTH|APIKEY|CLIENT)$", re.I)
+
+
+def infer_provider(env_var):
+    """(slug, label, domain) for an env-var name, or None if unrecognised."""
+    if not env_var:
+        return None
+    u = env_var.upper()
+    for kw, slug, lbl, dom in _SERVICES:
+        if kw in u:
+            return slug, lbl, dom
+    return None
+
+
+def guess_domain(env_var):
+    """Best-effort service domain from an env-var name (for the favicon)."""
+    got = infer_provider(env_var)
+    if got:
+        return got[2]
+    core = _SUFFIX.sub("", (env_var or "").upper())
+    core = re.split(r"[_]", core)[0]
+    return f"{core.lower()}.com" if len(core) >= 3 and core.isalpha() else None
+
+
 def redact(cid, rec):
     """The only shape the browser ever sees — everything but the secret."""
     out = {k: rec.get(k) for k in
            ("provider", "label", "env_var", "scopes", "created", "expires", "last4")}
     out["id"] = cid
     out["live"] = bool(rec.get("source"))
+    out["domain"] = ((PROVIDERS.get(rec.get("provider")) or {}).get("domain")
+                     or guess_domain(rec.get("env_var")))
     return out
 
 
@@ -365,6 +613,8 @@ def list_grants():
         out.append({"id": gid, "uuid": gr["uuid"], "cred_id": gr["cred_id"],
                     "provider": cred["provider"], "label": cred["label"],
                     "env_var": cred["env_var"], "last4": cred["last4"],
+                    "domain": ((PROVIDERS.get(cred["provider"]) or {}).get("domain")
+                               or guess_domain(cred["env_var"])),
                     "scopes": gr["scopes"], "granted_at": gr["granted_at"],
                     "expires": gr.get("expires")})
     return out

@@ -386,6 +386,11 @@ async def whoami(request):
         "level": s["level"] if s else "none",
         "passkey_capable": passkey_capable(request),
         "passkey_registered": has_passkey(rp_id(request)),
+        # The WebAuthn RP id (host, no port) and full origin (with port) the
+        # server derives from the request — surfaced so a device published on a
+        # non-443 port can be checked for correct passkey binding.
+        "rp_id": rp_id(request),
+        "origin": origin(request),
         "idle_ttl": IDLE_TTL,
     })
 
