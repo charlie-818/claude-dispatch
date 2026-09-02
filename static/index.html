@@ -1002,7 +1002,7 @@
         <button class="auth-add" onclick="openAddIntegration()">+ Add</button></div>
       <div id="auth-intlist"><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div></div>
     </section>
-    <section>
+    <section id="auth-grants" hidden>
       <div class="auth-h">Agent grants</div>
       <div id="auth-grantlist"></div>
     </section>
@@ -2893,8 +2893,12 @@ function renderIntegrations(ints){
 }
 
 function renderGrants(grants){
+  const sec = document.getElementById('auth-grants');
   const el = document.getElementById('auth-grantlist');
-  if (!grants.length){ el.innerHTML = '<div class="empty">no agent holds a credential right now</div>'; return; }
+  // No grants is the normal resting state, not something worth a heading and a
+  // line of prose — hide the whole section, the way pending requests do.
+  sec.hidden = grants.length === 0;
+  if (!grants.length){ el.innerHTML = ''; return; }
   el.innerHTML = grants.map(g => {
     const pane = (SESSIONS.find(s=>s.uuid===g.uuid)||{}).name || g.uuid.slice(0,8);
     return `<div class="icard">
