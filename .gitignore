@@ -15,6 +15,7 @@ vapid_public.txt
 # Peer/fleet + rolling summary caches (may contain transcript text)
 .peers.json
 .summaries.json
+.churn.json
 # Audit + runtime logs
 audit.log
 *.log

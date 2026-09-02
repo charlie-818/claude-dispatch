@@ -43,6 +43,13 @@
   header .title{font:700 13px var(--ui);letter-spacing:.1em;flex:1;min-width:0;
     text-transform:uppercase;color:var(--fg);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* Chat header: the directory name with its live state (mode · effort · ctx)
+     stacked directly beneath it, so the whole right edge is free for the two
+     icon buttons. Both lines truncate rather than crowding them. */
+  .sesshead{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+  .sesshead .title{flex:none}
+  .sesshead .meta{max-width:100%;overflow:hidden;text-overflow:ellipsis;
+    white-space:nowrap;letter-spacing:.04em}
   /* Brand lockup: the clawd head as a mark, then the wordmark. Same block-guy
      geometry as the yard sprite, so the icon and the critters are one family. */
   .brand{display:flex;align-items:center;gap:8px;flex:1;min-width:0}
@@ -179,16 +186,32 @@
      terminal is what you came for; the controls are a deliberate second tap. */
   .hdrbtn{flex:none;background:var(--panel3);border:1px solid var(--line2);
     border-radius:var(--r);color:var(--dim);font:700 13px/1 var(--ui);
-    letter-spacing:.06em;padding:8px 11px;cursor:pointer;margin:-2px -2px -2px 0}
+    letter-spacing:.06em;padding:8px 11px;cursor:pointer;margin:0}
   .hdrbtn:active{background:var(--line2)}
   .hdrbtn.on{background:var(--blue);border-color:var(--blue);color:#06172e}
-  .hdrbtn.ico{padding:6px;display:flex;align-items:center;margin-left:6px}
-  .hdrbtn.ico.lead{margin-left:0;margin-right:4px}   /* leftmost, where back was */
+  /* The summary and controls buttons sit side by side at the right edge — one
+     square, one border, one icon size between them, so they read as a pair. */
+  .hdracts{flex:none;display:flex;align-items:center;gap:6px}
+  /* Context gauge: a 3px rule pinned under the chat header, always present so
+     the number never has to be. Width is context used; it crosses to amber at
+     60% and red at 85% — the same thresholds as the yard rings, so the colour
+     means the same thing everywhere. */
+  .ctxrule{flex:none;height:3px;background:var(--line);overflow:hidden}
+  .ctxrule i{display:block;height:100%;width:0;background:var(--c-blue);
+    transition:width .35s ease, background-color .35s ease}
+  .hdrbtn.ico{width:32px;height:32px;padding:0;
+    display:flex;align-items:center;justify-content:center}
   .hdrbtn.ico svg{width:17px;height:17px;display:block}
 
-  /* one compact row, itself collapsed behind the header toggle */
-  .chips{display:none;gap:6px;flex:none;padding:7px 10px;background:var(--panel2);
-    border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+  /* One compact row, collapsed behind the header toggle. It hangs off a
+     zero-height dock so it floats OVER the terminal instead of pushing it down.
+     The strip is painted in the pane's own --bg — the exact terminal colour, no
+     shadow, no border — so it is fully opaque (no scrollback shows through
+     between or above the buttons) yet reads as bare pills on the terminal. */
+  .chipsdock{position:relative;height:0;flex:none;z-index:35}
+  .chips{display:none;gap:6px;position:absolute;top:0;left:0;right:0;
+    padding:8px 10px 9px;background:var(--bg);border:0;
+    overflow-x:auto;scrollbar-width:none}
   .chips.on{display:flex}
   .chips::-webkit-scrollbar{display:none}
   .chips button{flex:0 0 auto;font:600 12px var(--ui);color:var(--fg);
@@ -983,7 +1006,12 @@
 
 <div class="screen" id="s-session">
   <header>
-    <button class="hdrbtn ico lead" id="briefbtn" onclick="toggleBrief()"
+    <div class="sesshead">
+      <div class="title" id="st">—</div>
+      <div class="meta" id="sm"></div>
+    </div>
+    <div class="hdracts">
+    <button class="hdrbtn ico" id="briefbtn" onclick="toggleBrief()"
             aria-label="summary" aria-expanded="false">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -991,11 +1019,17 @@
         <circle cx="12" cy="12" r="3"/>
       </svg>
     </button>
-    <div class="title" id="st">—</div>
-    <div class="meta" id="sm"></div>
-    <button class="hdrbtn" id="ctrlbtn" onclick="toggleChips()"
-            aria-label="controls" aria-expanded="false">•••</button>
+    <button class="hdrbtn ico" id="ctrlbtn" onclick="toggleChips()"
+            aria-label="controls" aria-expanded="false">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/>
+        <circle cx="19" cy="12" r="1.9"/>
+      </svg>
+    </button>
+    </div>
   </header>
+  <div class="ctxrule" id="ctxrule" role="progressbar" aria-label="context used"
+       aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>
   <div class="sessinfo" id="sessinfo" hidden>
     <div class="ss-row">
       <div class="ss-head">
@@ -1021,6 +1055,7 @@
       <div class="ss-goal" id="ss-goal"></div>
     </div>
   </div>
+  <div class="chipsdock">
   <div class="chips" id="chips">
     <button id="chip-mode" onclick="openSheet('mode')" aria-label="permission mode">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -1057,6 +1092,7 @@
         <polyline points="4 15 4 20 9 20"/><polyline points="20 15 20 20 15 20"/>
       </svg>
     </button>
+  </div>
   </div>
   <pre class="pane" id="pane"></pre>
   <div class="actionbar" id="actionbar"></div>
@@ -1234,7 +1270,10 @@ const reduceMotion = matchMedia('(prefers-reduced-motion:reduce)').matches;
 const CRITTERS = new Map();                            // uuid → critter
 
 const stateOf = s => s.prompt ? 'waiting' : (s.state || 'idle');
-const ctxColor = p => p >= 85 ? 'var(--c-red)' : p >= 60 ? 'var(--c-amber)' : 'var(--c-blue)';
+/* --c-red/--c-amber were never defined, so every reading over 60% resolved to an
+   invalid colour (transparent fill, no ring stroke). Use the reserved status
+   hues, which are: blue under 60, amber to 85, red above. */
+const ctxColor = p => p >= 85 ? 'var(--st-crit)' : p >= 60 ? 'var(--st-warn)' : 'var(--c-blue)';
 
 /* what a pane is doing, distilled from its screen tail into {verb, rest} */
 // Skip Claude's chrome: mode/keybind footers AND the status line (model name,
@@ -2005,7 +2044,9 @@ function openSession(uuid){
   updateMeta();
   document.querySelectorAll('.chips button:not(.ghost)').forEach(b => b.disabled = !current.sendable);
   document.getElementById('sendbtn').disabled = !current.sendable;
+  clearSuggest();
   document.getElementById('input').placeholder = basePlaceholder();
+  autosize();
   hideScreens();
   document.getElementById('s-session').classList.add('on');
   const pane = document.getElementById('pane');
@@ -2244,8 +2285,7 @@ function applyChips(){
 function toggleChips(){
   chipsOpen = !chipsOpen;
   localStorage.setItem('chips', chipsOpen ? '1' : '0');
-  applyChips();
-  paint();                       // pane height changed; keep it pinned to bottom
+  applyChips();                  // floats over the pane, so no reflow to repaint
 }
 applyChips();
 
@@ -2265,7 +2305,12 @@ function cycleFit(){
   applyFit();
   fitFont(cols); paint();
 }
-window.addEventListener('resize', () => { if (current){ fitFont(cols); paint(); } });
+window.addEventListener('resize', () => {
+  if (!current) return;
+  fitFont(cols); paint();
+  const raw = suggestRaw; suggestRaw = '';   // width changed: re-cut the hint
+  if (raw) applySuggest(liveSuggest);
+});
 
 /* Reconnect a dead/zombie pane socket. Safe to call any time — no-op if the
    socket is already open. */
@@ -2281,13 +2326,28 @@ document.addEventListener('visibilitychange', () => {
 window.addEventListener('focus', ensurePaneLive);
 window.addEventListener('pageshow', ensurePaneLive);
 
-/* With the chip row collapsed the header is the only place mode/effort/context
-   still show, so keep it current on every state change. */
+/* With the chip row collapsed the header is the only place model/mode/effort
+   still show, so keep it current on every state change. Model leads — it's the
+   thing you most want confirmed at a glance. Context is the rule underneath
+   rather than a number in the line. */
 function updateMeta(){
   if (!current) return;
   document.getElementById('sm').textContent =
-    [current.mode, EFFORT_LABEL[current.effort],
-     current.ctx != null ? current.ctx + '%' : null].filter(Boolean).join(' · ');
+    [shortModel(current.model), current.mode,
+     EFFORT_LABEL[current.effort]].filter(Boolean).join(' · ');
+  paintCtxBar(current.ctx);
+}
+
+/* The gauge is always on screen, so an unknown context reads as an empty track
+   (0%) rather than a hidden element that would shift the terminal when it
+   appears. */
+function paintCtxBar(ctx){
+  const bar = document.getElementById('ctxrule');
+  if (!bar) return;
+  const pct = Math.max(0, Math.min(100, ctx || 0));
+  bar.firstElementChild.style.width = pct + '%';
+  bar.firstElementChild.style.background = ctxColor(pct);
+  bar.setAttribute('aria-valuenow', pct);
 }
 
 /* chips just mirror state; the options live in the sheet */
@@ -2311,10 +2371,16 @@ function markMode(mode){
   updateMeta();
   if (openKind === 'mode') renderSheet();
 }
-function markModel(name){
+/* "claude-opus-5[1m]" → "opus". Empty in, empty out — the header meta line
+   drops the slot entirely rather than printing a placeholder. */
+function shortModel(name){
   const m = (name || '').toLowerCase();
-  const short = ['opus','sonnet','haiku','fable'].find(x => m.includes(x)) || (name || 'model');
-  chipVal('chip-model', short);
+  return ['opus','sonnet','haiku','fable'].find(x => m.includes(x)) || name || '';
+}
+function markModel(name){
+  if (current) current.model = name;
+  chipVal('chip-model', shortModel(name) || 'model');
+  updateMeta();
   if (openKind === 'model') renderSheet();
 }
 
@@ -3145,7 +3211,11 @@ const input = document.getElementById('input'), sendbtn = document.getElementByI
    clear after send) goes through here, or the box keeps a stale height. */
 function autosize(){
   input.style.height = 'auto';
-  input.style.height = Math.min(input.scrollHeight, 132) + 'px';
+  // An empty box is still as tall as the suggestion it is showing — the
+  // placeholder is real content here, not a hint you can clip.
+  const need = input.value ? input.scrollHeight
+                           : Math.max(input.scrollHeight, suggestH);
+  input.style.height = Math.min(need, 132) + 'px';
 }
 input.addEventListener('input', () => {
   // Enabled whenever the pane can take input — an empty box still submits
@@ -3219,10 +3289,55 @@ function basePlaceholder(){
   return (current && current.sendable) ? greeting() : 'read-only';
 }
 
+/* The suggestion IS the placeholder, so the box has to grow to hold it: its own
+   line plus at most three more. Anything longer is cut with an ellipsis — the
+   full text still submits, since an empty-box send retypes it server-side. */
+const SUGGEST_LINES = 4;
+let suggestH = 0, suggestRaw = '';   // px the box needs, and the untruncated hint
+
+/* Height this textarea would take with `text` in it. Measured on the real
+   element, so font, padding and wrap width never have to be duplicated. */
+function textH(text){
+  const keep = input.value;
+  input.value = text;
+  input.style.height = 'auto';
+  const h = input.scrollHeight;
+  input.value = keep;
+  input.style.height = 'auto';
+  return h;
+}
+
+/* Longest prefix of `text` that still fits SUGGEST_LINES lines. Binary search —
+   the wrap point depends on the glyphs, so counting characters can't find it. */
+function fitSuggest(text){
+  const one = textH('x'), lh = textH('x\nx') - one;
+  const max = one + lh * (SUGGEST_LINES - 1);
+  const full = textH(text);
+  if (full <= max) return {text, h: full};
+  let lo = 0, hi = text.length;
+  while (lo < hi){
+    const mid = (lo + hi + 1) >> 1;
+    if (textH(text.slice(0, mid).trimEnd() + '\u2026') <= max) lo = mid; else hi = mid - 1;
+  }
+  return {text: text.slice(0, lo).trimEnd() + '\u2026', h: max};
+}
+
+function clearSuggest(){ liveSuggest = null; suggestRaw = ''; suggestH = 0; }
+
 function applySuggest(s){
   liveSuggest = s;
   // Claude's own ghost suggestion wins — it's what an empty-box send submits.
-  input.placeholder = (s && s.text) ? s.text : basePlaceholder();
+  const raw = (s && s.text) ? s.text : '';
+  if (raw === suggestRaw) return;      // same hint: don't re-measure on every frame
+  suggestRaw = raw;
+  if (!raw){ suggestH = 0; input.placeholder = basePlaceholder(); autosize(); return; }
+  // A hidden or zero-width box can't be measured; show it raw and let the next
+  // frame (or the resize handler) size it properly.
+  if (!input.clientWidth){ suggestH = 0; input.placeholder = raw; return; }
+  const fit = fitSuggest(raw);
+  input.placeholder = fit.text;
+  suggestH = fit.h;
+  autosize();
 }
 
 /* Upload image/video from the device. The server saves it in the pane's working

@@ -409,22 +409,64 @@ OPTION_RE = re.compile(r"^\s*[❯>]?\s*(\d)\.\s+(\S.*?)\s*$")
 SELECT_RE = re.compile(r"^\s*[❯>]\s")
 
 
+# The input box is fenced by a horizontal rule above and below; long input
+# hard-wraps onto the rows in between, which carry no caret of their own.
+BOX_RULE_RE = re.compile(r"^[─━╌╍—_-]{4,}$")
+
+
+def read_input_box(text):
+    """(ghost, text) for Claude's ❯ box — "" when it is empty.
+
+    Reading only the caret row silently truncated anything wider than the pane
+    (39 columns on a phone-sized session), both for the composer hint and for
+    the retype-and-submit path. So walk DOWN from the caret to the box's closing
+    rule and rejoin the wrapped rows.
+
+    A row the terminal filled to the edge was split mid-token and is rejoined
+    with no space; a shorter row ended on a word boundary and gets its space
+    back. Without a closing rule we are not looking at the box at all (most
+    likely the ❯ caret of a select dialog), so only the caret row is taken.
+    """
+    lines = text.splitlines()
+    for n in range(len(lines) - 1, -1, -1):
+        i = lines[n].find("❯")
+        if i == -1:
+            continue
+        rest = lines[n][i + 1:]
+        ghost = rest[:1] == "\xa0"                 # ❯\xa0… = suggestion, ❯ … = typed
+        out = rest.replace("\xa0", " ").strip(" │╎")
+        # Collect the wrapped rows, but only as far as a closing rule: a blank
+        # line or a numbered option means this caret was never an input box.
+        cont, width = [], None
+        for l in lines[n + 1:]:
+            body = l.replace("\xa0", " ").strip(" │╎")
+            if BOX_RULE_RE.match(body):
+                width = len(l)                     # the rule spans the box
+                break
+            if not body or OPTION_RE.match(l):
+                break
+            cont.append(l)
+        if width:
+            prev = lines[n]
+            for l in cont:
+                # >= width - 1 leaves a column of slack for a wide glyph that
+                # could not fit in the last cell.
+                out += ("" if len(prev) >= width - 1 else " ")
+                out += l.replace("\xa0", " ").strip(" │╎")
+                prev = l
+        return ghost, out.strip()
+    return False, ""
+
+
 def detect_input(text):
     """The text sitting in Claude's ❯ input box — a greyed ghost suggestion
     (rendered after a NON-breaking space) or already-typed/queued text. We strip
     the box from the phone's pane view, so surface this so it still shows in the
     mobile composer. Returns {"text","ghost"} or None."""
-    for l in reversed(text.splitlines()):
-        i = l.find("❯")
-        if i == -1:
-            continue
-        rest = l[i + 1:]
-        ghost = rest[:1] == "\xa0"                 # ❯\xa0… = suggestion, ❯ … = typed
-        s = rest.replace("\xa0", " ").strip(" │╎")
-        if not s:
-            return None
-        return {"text": s[:200], "ghost": ghost}
-    return None
+    ghost, s = read_input_box(text)
+    if not s:
+        return None
+    return {"text": s[:600], "ghost": ghost}
 
 
 def detect_prompt(text):
@@ -746,6 +788,159 @@ def latest_cwd(path):
     return cwd
 
 
+# ── file churn (what a chat actually changed on disk) ──────────────────────
+# The statusline's cost.total_lines_added/removed counts only Claude's OWN
+# Edit/Write applications, and session_ops() counts only its Edit/Write tool
+# calls. Measured on this machine: 658 Bash calls against 7 Edits across the
+# last 40 transcripts — nearly every change here is a shell redirect, sed or
+# heredoc, so both counters sat at 0 and the usage cards showed "0 files · +0
+# −0" for sessions that had rewritten hundreds of lines. Ask git instead: it
+# sees the file, not the tool that wrote it.
+_GIT_TTL = 12                # seconds a repo reading is reused across panes
+_GIT_MAX_UNTRACKED = 200     # line-count at most this many new files per repo
+_GIT_MAX_BYTES = 2_000_000   # ...and skip any single one bigger than this
+_git_cache = {}              # cwd -> (ts, {path: (add, del)} | None)
+_churn = {}                  # session -> {"add", "del", "files", "last"}
+# Totals outlive the process: this server hot-reloads on every deploy, and a
+# chat that has been running for an hour must not have its counters zeroed
+# (which would look exactly like the bug this replaced). Only the running
+# totals persist — the per-file "last" snapshot is rebuilt on first reading
+# after a restart, which re-bases silently and so cannot double-count.
+_CHURN_FILE = HERE / ".churn.json"
+_CHURN_KEEP = 14 * 86400     # forget a session untouched for two weeks
+_churn_saved = 0.0
+
+
+def _load_churn():
+    try:
+        raw = json.loads(_CHURN_FILE.read_text())
+    except Exception:
+        return
+    cutoff = time.time() - _CHURN_KEEP
+    for key, v in (raw or {}).items():
+        if not isinstance(v, dict) or (v.get("ts") or 0) < cutoff:
+            continue
+        _churn[key] = {"add": v.get("add") or 0, "del": v.get("del") or 0,
+                       "files": set(v.get("files") or []), "last": None,
+                       "ts": v.get("ts")}
+
+
+def _save_churn():
+    global _churn_saved
+    _churn_saved = time.time()
+    try:
+        tmp = _CHURN_FILE.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(
+            {k: {"add": v["add"], "del": v["del"],
+                 "files": sorted(v["files"]), "ts": v.get("ts") or _churn_saved}
+             for k, v in _churn.items()}))
+        tmp.replace(_CHURN_FILE)
+        _CHURN_FILE.chmod(0o600)     # holds file paths, like the summary cache
+    except Exception as e:
+        print(f"  [churn] save failed: {type(e).__name__}: {e}", flush=True)
+
+
+async def _git(cwd, *args):
+    """stdout of a git command in cwd, or None if it fails or isn't a repo."""
+    try:
+        p = await asyncio.create_subprocess_exec(
+            "git", "-C", cwd, *args,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+        out, _ = await asyncio.wait_for(p.communicate(), 5)
+    except (OSError, ValueError, asyncio.TimeoutError):
+        return None
+    return out.decode("utf-8", "ignore") if p.returncode == 0 else None
+
+
+def _count_untracked(cwd, paths):
+    """{path: (lines, 0)} for new files — the whole file is added work."""
+    out = {}
+    for path in paths:
+        full = os.path.join(cwd, path)
+        try:
+            if os.path.getsize(full) > _GIT_MAX_BYTES:
+                out[path] = (0, 0)
+                continue
+            body = open(full, "rb").read()
+        except OSError:
+            continue
+        if b"\0" in body:                       # binary: a touched path, no lines
+            out[path] = (0, 0)
+        else:
+            out[path] = (body.count(b"\n") + (0 if body.endswith(b"\n") or not body else 1), 0)
+    return out
+
+
+async def git_snapshot(cwd):
+    """{path: (added, removed)} for everything uncommitted in cwd, or None.
+
+    Tracked files come from --numstat; a binary one reports "-" and counts as a
+    touched path with no lines. Untracked files count every line as added, since
+    the whole file is new work. Cached per repo — several panes share one cwd.
+    """
+    if not cwd or not os.path.isdir(cwd):
+        return None
+    hit = _git_cache.get(cwd)
+    if hit and time.time() - hit[0] < _GIT_TTL:
+        return hit[1]
+    snap = None
+    # vs HEAD covers staged + unstaged; a repo with no commits yet has no HEAD,
+    # so fall back to the index-only diff rather than reporting nothing.
+    numstat = await _git(cwd, "diff", "--numstat", "HEAD")
+    if numstat is None:
+        numstat = await _git(cwd, "diff", "--numstat")
+    if numstat is not None:
+        snap = {}
+        for line in numstat.splitlines():
+            parts = line.split("\t")
+            if len(parts) != 3:
+                continue
+            a, d, path = parts
+            snap[path] = (int(a) if a.isdigit() else 0,
+                          int(d) if d.isdigit() else 0)
+        others = (await _git(cwd, "ls-files", "--others", "--exclude-standard") or "")
+        # Reading the new files is the slow half (290ms in one of this fleet's
+        # repos) and it is plain blocking IO, so it goes to a thread — the pane
+        # stream shares this loop and must not stutter every refresh.
+        snap.update(await asyncio.to_thread(
+            _count_untracked, cwd, others.splitlines()[:_GIT_MAX_UNTRACKED]))
+    _git_cache[cwd] = (time.time(), snap)
+    return snap
+
+
+_load_churn()
+
+
+def churn_for(key, snap):
+    """Per-chat {add, del, files} accumulated from repo snapshots, or None.
+
+    Reporting the raw working-tree diff would be wrong twice over: it credits a
+    chat with dirt that was already there, and a commit would wipe the numbers
+    back to zero mid-session. So accumulate GROWTH per file — what went up since
+    the last reading — and re-base silently when a path shrinks or disappears
+    (committed, reverted, stashed). Never double-counts, never goes negative.
+    First sight only records the baseline, so pre-existing changes stay out.
+    """
+    if not key or snap is None:
+        return None
+    c = _churn.setdefault(key, {"add": 0, "del": 0, "files": set(), "last": None})
+    grew = False
+    if c["last"] is not None:
+        for path, (a, d) in snap.items():
+            pa, pd = c["last"].get(path, (0, 0))
+            if a > pa or d > pd:
+                c["add"] += max(0, a - pa)
+                c["del"] += max(0, d - pd)
+                c["files"].add(path)
+                grew = True
+    c["last"] = snap
+    if grew:
+        c["ts"] = time.time()
+        if c["ts"] - _churn_saved > 15:      # throttle: a small file, but every poll is silly
+            _save_churn()
+    return {"add": c["add"], "del": c["del"], "files": len(c["files"])}
+
+
 async def build_fleet():
     sessions = await all_sessions()
     files = read_fleet_files()
@@ -766,6 +961,11 @@ async def build_fleet():
         # live working dir: the transcript's current cwd (follows `cd`s), then the
         # statusline's launch-pinned dir, then the iTerm pane path — same order as ccdash
         live_cwd = latest_cwd((f or {}).get("transcript")) or (f or {}).get("cwd") or cwd
+        # What this chat has changed on disk. Keyed on the Claude session id so
+        # a /clear starts fresh; the pane uuid only stands in when no statusline
+        # dump has landed yet. Falls back to the statusline/transcript counters
+        # when the pane is not in a git repo.
+        ch = churn_for((f or {}).get("sid") or uuid, await git_snapshot(live_cwd))
         rows.append({
             "uuid": uuid,
             "job": job,
@@ -780,9 +980,9 @@ async def build_fleet():
             "prompt": prompt,
             "sendable": is_claude_pane(uuid, job, txt),
             "tokens": (f or {}).get("tokens"),
-            "lines_add": (f or {}).get("lines_add"),
-            "lines_del": (f or {}).get("lines_del"),
-            "files": (f or {}).get("files"),
+            "lines_add": ch["add"] if ch else (f or {}).get("lines_add"),
+            "lines_del": ch["del"] if ch else (f or {}).get("lines_del"),
+            "files": ch["files"] if ch else (f or {}).get("files"),
             "prompts": (f or {}).get("prompts"),
             "age": (f or {}).get("age"),
             "dur_ms": (f or {}).get("dur_ms"),
@@ -1301,19 +1501,14 @@ def _input_suggestion(text):
 
     kind: "ghost" with the suggested text, "typed" if there's real typed text,
     or "empty". Ghosts can't be committed by a keystroke over the API (Tab/→ do
-    nothing), so the caller retypes the suggestion as a real prompt instead.
+    nothing), so the caller retypes the suggestion as a real prompt instead —
+    which is why it has to be the WHOLE suggestion, wrapped rows included, or we
+    submit a command cut off at the pane's width. read_input_box does that.
     """
-    for line in reversed(text.splitlines()):
-        st = line.strip()
-        if not st.startswith(_PROMPT_CARET):
-            continue
-        rest = st[len(_PROMPT_CARET):]
-        if rest.startswith("\xa0"):
-            return "ghost", rest[1:].strip()
-        if rest.strip():
-            return "typed", rest.strip()
+    ghost, s = read_input_box(text)
+    if not s:
         return "empty", ""
-    return "empty", ""
+    return ("ghost" if ghost else "typed"), s
 
 
 @writes("send")
