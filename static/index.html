@@ -2005,15 +2005,14 @@ function openSession(uuid){
   updateMeta();
   document.querySelectorAll('.chips button:not(.ghost)').forEach(b => b.disabled = !current.sendable);
   document.getElementById('sendbtn').disabled = !current.sendable;
-  document.getElementById('input').placeholder =
-    current.sendable ? '' : 'read-only';
+  document.getElementById('input').placeholder = basePlaceholder();
   hideScreens();
   document.getElementById('s-session').classList.add('on');
   const pane = document.getElementById('pane');
   pane.textContent = '';
-  // Always enter in fit mode — a stale `wrap` class (added by shrinkToFit's
-  // last-resort soft-wrap in a prior session) is the 13px "big" state that
-  // flashes before fit kicks in. Clear it so fit is the guaranteed default.
+  // In fit mode, clear any stale `wrap` class (added by shrinkToFit's last-resort
+  // soft-wrap in a prior session) — it's the 13px "big" state that would flash
+  // before fit kicks in. In wrap mode the class is what we want, so leave it.
   if (fitMode === 0) pane.classList.remove('wrap');
   // Hide until the first frame is sized+shrunk — the reveal in the socket
   // handler shows it already-fitted, so no big→small resize is ever visible.
@@ -2090,7 +2089,12 @@ function toggleBrief(){
 /* history (scrollback, sent once) sits above the live screen */
 // cols seeds from the last fitted width so a fresh chat sizes small on the first
 // frame instead of flashing big and snapping down when the socket's cols lands.
-let history = [], live = '', cols = +localStorage.getItem('cols') || 80, fitMode = 0;   // 0 = fit cols, 1 = wrap
+// fitMode 0 shrinks the font until all `cols` fit (as small as 4px on a phone);
+// 1 soft-wraps at a readable 13px. 1 is the default — the zoomed-in view is what
+// you can actually read on a phone; fit is the deliberate opt-out. Remembered
+// across opens, so a toggle sticks.
+let history = [], live = '', cols = +localStorage.getItem('cols') || 80,
+    fitMode = localStorage.getItem('fit') === '0' ? 0 : 1;   // 0 = fit cols, 1 = wrap
 // Pin the view to the bottom (newest output). True on open so a fresh chat lands
 // at the live prompt, not the top of scrollback. User scrolling up unpins;
 // scrolling back to the bottom re-pins. Maintained by the pane scroll listener.
@@ -2245,11 +2249,20 @@ function toggleChips(){
 }
 applyChips();
 
-function cycleFit(){
-  fitMode = fitMode ? 0 : 1;
+/* Button state + pane class for the current mode. Runs at load too, so the
+   remembered mode is reflected before the first pane is opened. */
+function applyFit(){
   const b = document.getElementById('fitbtn');
   b.classList.toggle('on', fitMode === 1);        // wrap mode active
   b.setAttribute('aria-label', fitMode ? 'wrap' : 'fit');
+  document.getElementById('pane').classList.toggle('wrap', fitMode === 1);
+}
+applyFit();
+
+function cycleFit(){
+  fitMode = fitMode ? 0 : 1;
+  try { localStorage.setItem('fit', fitMode); } catch(e){}
+  applyFit();
   fitFont(cols); paint();
 }
 window.addEventListener('resize', () => { if (current){ fitFont(cols); paint(); } });
@@ -3192,10 +3205,24 @@ async function transcribe(blob){
    composer placeholder so it still shows now that we hide the box from the pane.
    An empty-box send already retypes+submits it server-side (api/submit). */
 let liveSuggest = null;
+
+/* What the empty box says when Claude has nothing queued. Time-of-day greeting
+   rather than a blank line — the composer is the first thing you look at. */
+function greeting(){
+  const h = new Date().getHours();
+  if (h < 5)  return "Still up? What's next?";
+  if (h < 12) return "Good morning — what's next?";
+  if (h < 18) return "Good afternoon — what's next?";
+  return "Good evening — what's next?";
+}
+function basePlaceholder(){
+  return (current && current.sendable) ? greeting() : 'read-only';
+}
+
 function applySuggest(s){
   liveSuggest = s;
-  const base = (current && current.sendable) ? '' : 'read-only';
-  input.placeholder = (s && s.text) ? s.text : base;
+  // Claude's own ghost suggestion wins — it's what an empty-box send submits.
+  input.placeholder = (s && s.text) ? s.text : basePlaceholder();
 }
 
 /* Upload image/video from the device. The server saves it in the pane's working
