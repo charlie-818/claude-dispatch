@@ -8,6 +8,9 @@
 .grants.json
 # Bootstrap/agent token
 .token
+# Passphrase-encrypted auth bundle in transit between Macs (export/import_auths)
+auths_bundle.enc
+*.enc
 # Web-push VAPID keypair (private signs, keep both out — regenerated per install)
 vapid_private.pem
 vapid_public.txt
@@ -19,7 +22,7 @@ vapid_public.txt
 # Audit + runtime logs
 audit.log
 *.log
-server.out
+server.out*
 
 # ── Local whisper model (large, downloaded once — see README) ────────────────
 models/
