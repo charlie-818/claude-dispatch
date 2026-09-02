@@ -116,8 +116,6 @@
     border-radius:6px;color:var(--dim);font:15px/1 var(--ui);width:30px;height:30px;
     cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center}
   header .hardref:active{transform:scale(.92);color:var(--fg)}
-  header .sortbtn{width:auto;padding:0 10px;font:600 11px var(--ui);
-    letter-spacing:.02em;margin-right:8px}
   header .bell{flex:none;background:none;border:1px solid var(--line);
     border-radius:6px;color:var(--dim);width:30px;height:30px;cursor:pointer;
     padding:0;display:flex;align-items:center;justify-content:center;margin-left:8px}
@@ -685,21 +683,37 @@
   #usage-body,#hist-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;
     -webkit-overflow-scrolling:touch;background:var(--bg);
     padding-bottom:calc(env(safe-area-inset-bottom) + 16px)}
-  /* history search bar */
-  .hsearch{flex:none;display:flex;align-items:center;gap:8px;padding:9px 12px}
-  .hsearch svg{width:16px;height:16px;flex:none;color:var(--dim)}
-  .hsearch input{flex:1;min-width:0;background:var(--panel);color:var(--fg);
-    border:1px solid var(--line2);border-radius:var(--r);padding:9px 11px;
-    font:14px var(--ui);outline:none;-webkit-appearance:none}
-  .hsearch input:focus{border-color:var(--blue)}
+  /* History search + sort. The icon used to float loose beside the field and
+     the sort was a pill that cycled through modes you could not see — two
+     idioms this app uses nowhere else. Now: ONE box holds icon, field and
+     clear (the composer's rule), and the sort is a small segmented control
+     that shows all three modes, echoing the tab bar underneath it. */
+  .hsearch{flex:none;display:flex;flex-direction:column;gap:8px;padding:9px 12px 10px}
+  .hqbox{display:flex;align-items:center;gap:9px;background:var(--panel);
+    border:1px solid var(--line2);border-radius:var(--r3);padding:0 11px;
+    transition:border-color .15s}
+  .hqbox:focus-within{border-color:var(--blue)}
+  .hqbox > svg{width:15px;height:15px;flex:none;color:var(--dimmer);
+    transition:color .15s}
+  .hqbox:focus-within > svg{color:var(--blue)}
+  .hsearch input{flex:1;min-width:0;background:none;color:var(--fg);border:none;
+    border-radius:0;padding:10px 0;font:14px var(--ui);outline:none;
+    -webkit-appearance:none}
+  .hsearch input::-webkit-search-cancel-button{display:none}  /* we ship our own */
   .hsearch input::placeholder{color:var(--dimmer)}
-  .hqclear{flex:none;background:none;border:none;color:var(--dim);font:14px var(--ui);
-    cursor:pointer;padding:4px 6px}
-  /* sort pill lives inside the search row now, right of the input */
-  .hsort{flex:none;background:var(--panel3);border:1px solid var(--line2);
-    border-radius:var(--r);color:var(--dim);font:600 12px var(--ui);
-    letter-spacing:.02em;padding:9px 12px;cursor:pointer;text-transform:lowercase}
-  .hsort:active{background:var(--line2);color:var(--fg)}
+  .hqclear{flex:none;background:none;border:none;color:var(--dim);
+    font:13px/1 var(--ui);cursor:pointer;padding:5px 2px}
+  .hqclear:active{color:var(--fg)}
+  /* every mode visible, current one lit — same micro-label type as the section
+     headings and the tab bar */
+  .hsorts{display:flex;gap:2px;background:var(--panel);border:1px solid var(--line2);
+    border-radius:var(--r);padding:2px}
+  .hs{flex:1;background:none;border:none;border-radius:4px;color:var(--dim);
+    font:700 10px var(--ui);letter-spacing:.12em;text-transform:uppercase;
+    padding:7px 0;cursor:pointer;-webkit-tap-highlight-color:transparent}
+  .hs:active{color:var(--fg)}
+  /* blue marks the live choice here exactly as it does in the tab bar below */
+  .hs.on{background:var(--panel3);color:var(--blue)}
   /* ── history ─────────────────────────────────────────────────────────
      Grouped by working directory. A COLLAPSED group is identity + recency +
      spend on one line and activity on the next — no session-preview text,
@@ -961,16 +975,22 @@
     <span class="sb-lim"><span class="bar"><i class="sb-lim-fill" style="width:0%"></i></span><span class="sb-lim-t">—</span></span>
   </div>
   <div class="hsearch">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-      stroke-linecap="round" aria-hidden="true">
-      <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/>
-    </svg>
-    <input id="histq" type="search" placeholder="search prompts, repos…"
-      autocapitalize="none" autocomplete="off" spellcheck="false"
-      oninput="onHistSearch()">
-    <button id="histqclear" class="hqclear" onclick="clearHistSearch()" hidden aria-label="clear">✕</button>
-    <button class="hsort sortbtn" id="histsort" onclick="cycleHistSort()"
-      title="sort" aria-label="sort">recent</button>
+    <div class="hqbox">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/>
+      </svg>
+      <input id="histq" type="search" placeholder="search prompts, repos…"
+        autocapitalize="none" autocomplete="off" spellcheck="false"
+        oninput="onHistSearch()">
+      <button id="histqclear" class="hqclear" onclick="clearHistSearch()" hidden
+        aria-label="clear search">✕</button>
+    </div>
+    <div class="hsorts" id="histsort" role="group" aria-label="sort">
+      <button class="hs" onclick="setHistSort('recent')">recent</button>
+      <button class="hs" onclick="setHistSort('cost')">cost</button>
+      <button class="hs" onclick="setHistSort('busy')">busy</button>
+    </div>
   </div>
   <div id="hist-body"><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div></div>
   <div class="tabbar">
@@ -3632,7 +3652,7 @@ function showHistory(){
   pushNav({v: 'history'});
   hideScreens();
   document.getElementById('s-history').classList.add('on');
-  document.getElementById('histsort').textContent = histSort;   // reflect saved sort
+  paintHistSort();                         // reflect the saved sort mode
   if (HISTORY.length) renderHistory();     // instant from cache
   loadHistory();                           // refresh in the background
 }
@@ -3660,10 +3680,19 @@ const HIST_SORTS = { recent: g => g.last, cost: g => g.cost,
 const HIST_ITEM  = { recent: h => h.last, cost: h => h.cost || 0,
                      busy: h => h.prompts || 0 };
 let histSort = localStorage.getItem('histSort') || 'recent';
-function cycleHistSort(){
-  histSort = HIST_ORDER[(HIST_ORDER.indexOf(histSort) + 1) % HIST_ORDER.length];
+if (!HIST_ORDER.includes(histSort)) histSort = 'recent';   // stale value in storage
+/* Light the current mode. Buttons are in HIST_ORDER order, so the index lines
+   up with the segment — no per-button ids to keep in sync. */
+function paintHistSort(){
+  const segs = document.querySelectorAll('#histsort .hs');
+  segs.forEach((b, i) => b.classList.toggle('on', HIST_ORDER[i] === histSort));
+}
+function setHistSort(k){
+  if (k === histSort || !HIST_ORDER.includes(k)) return;
+  histSort = k;
   localStorage.setItem('histSort', histSort);
-  const b = document.getElementById('histsort'); if (b) b.textContent = histSort;
+  paintHistSort();
+  buzz(8);
   renderHistory();
 }
 
