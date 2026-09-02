@@ -1260,7 +1260,8 @@ function renderFleet(rows){
   syncCritters(rows);
 }
 
-let tries = 0;
+let tries = 0, fleetWS = null, fleetT = null;
+let lastContact = 0;          // last time the server answered anything at all
 function status(msg){
   if (SESSIONS.length) return;
   const st = document.getElementById('yard-status');
@@ -1935,28 +1936,47 @@ function tick(t){
 }
 requestAnimationFrame(tick);
 
+/* Back off fast, not politely: 300ms, 600, 1.2s, 2.4s, then every 5s. A drop
+   you cause by switching apps is over the moment you switch back, so the first
+   retries have to be quick — the old flat 2s (paid AFTER a /auth/whoami round
+   trip) is most of why coming back meant watching "reconnecting". */
+function scheduleFleet(){
+  clearTimeout(fleetT);
+  fleetT = setTimeout(connectFleet, Math.min(300 * Math.pow(2, Math.max(0, tries - 1)), 5000));
+}
+
 function connectFleet(){
+  if (!started) return;
+  clearTimeout(fleetT);
+  // Replacing a socket: mute the old one first or its close event schedules a
+  // second reconnect and the two race.
+  if (fleetWS){ try { fleetWS.onclose = null; fleetWS.close(); } catch(e){} fleetWS = null; }
   const url = `${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/fleet${Q}`;
   tries++;
   status(`connecting… (try ${tries})\n${url}`);
   let ws;
   try { ws = new WebSocket(url); }
   catch(e){ status('WebSocket ctor failed: ' + e.message); return; }
-  ws.onopen  = () => { tries = 0; unlockUI(); document.getElementById('brand').classList.add('live');
+  fleetWS = ws;
+  let opened = false;
+  ws.onopen  = () => { opened = true; tries = 0; lastContact = Date.now();
+                       unlockUI(); document.getElementById('brand').classList.add('live');
                        loadDevices(); status('connected, waiting for data…'); };
   ws.onerror = () => status(`socket error — cannot reach ${location.host}`);
   ws.onclose = ev => {
+    if (fleetWS === ws) fleetWS = null;
     document.getElementById('brand').classList.remove('live');
-    // 1008/1006 right after open with no data almost always means auth refused
     status(`disconnected (code ${ev.code}${ev.reason ? ' ' + ev.reason : ''})`);
-    // A socket refused because the session went stale must land on the lock
-    // screen, not retry forever against a server that will keep saying no.
-    authState().then(a => {
-      if (relock(a)) return;             // Face ID / token screen, whichever fits
-      setTimeout(connectFleet, 2000);
-    }).catch(() => setTimeout(connectFleet, 2000));
+    // A socket that OPENED and then dropped is a network event — just redial.
+    // Only one that never opened can be the server refusing us (this one
+    // answers an unauthorised handshake with a 401, so there is no auth close
+    // code to read), and even then not until a few quick retries have failed,
+    // so a blip on wake never reaches the lock screen.
+    if (opened || tries < 4){ scheduleFleet(); return; }
+    authState().then(a => { if (!relock(a)) scheduleFleet(); }).catch(scheduleFleet);
   };
   ws.onmessage = e => {
+    lastContact = Date.now();
     let d;
     try { d = JSON.parse(e.data); }
     catch(err){ status('bad JSON from server: ' + err.message); return; }
@@ -2350,12 +2370,40 @@ function ensurePaneLive(){
   if (!paneWS || paneWS.readyState > 1)   // 2 CLOSING, 3 CLOSED
     connectPane(paneWantUuid);
 }
-// Phone wakes / tab refocuses: the socket may be a zombie — force a fresh one.
+/* Coming back from another app. iOS suspends the page AND its sockets, and a
+   suspended socket can keep reporting readyState OPEN while nothing will ever
+   arrive on it again — so checking the state is not enough. After a real
+   background gap we drop both sockets and dial fresh ones immediately. That
+   costs one handshake and means the app is live by the time you have looked at
+   it, instead of after a close event that may take the server's 25s heartbeat
+   to provoke. Neither socket sends on a timer (both push only on change), so
+   there is no traffic to watch for staleness — the resume itself is the
+   signal. */
+let hiddenAt = 0;
+const RESUME_GAP = 1500;      // below this the sockets cannot have been culled
+
+function ensureFleetLive(){
+  if (!started) return;
+  if (fleetWS && fleetWS.readyState <= 1) return;   // 0 connecting, 1 open
+  tries = 0; connectFleet();
+}
+function onResume(){
+  const gap = hiddenAt ? Date.now() - hiddenAt : 0;
+  hiddenAt = 0;
+  if (gap > RESUME_GAP){
+    tries = 0;
+    connectFleet();
+    if (paneWantUuid) connectPane(paneWantUuid);
+    return;
+  }
+  ensureFleetLive(); ensurePaneLive();
+}
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') ensurePaneLive();
+  if (document.visibilityState === 'hidden'){ hiddenAt = Date.now(); return; }
+  onResume();
 });
-window.addEventListener('focus', ensurePaneLive);
-window.addEventListener('pageshow', ensurePaneLive);
+window.addEventListener('focus', onResume);
+window.addEventListener('pageshow', onResume);
 
 /* With the chip row collapsed the header is the only place model/mode/effort
    still show, so keep it current on every state change. Model leads — it's the
@@ -4199,8 +4247,18 @@ async function probePeers(){
 }
 
 async function authState(){
-  try { AUTH = await (await fetch('/auth/whoami')).json(); AUTH._ok = true; }
+  // A phone waking its radio can leave this fetch hanging for tens of seconds.
+  // Everything downstream waits on it, so cap it: an unanswered probe is the
+  // same as an unreachable server, and the retry loop will ask again shortly.
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), 4000);
+  try {
+    AUTH = await (await fetch('/auth/whoami', {signal: ac.signal})).json();
+    AUTH._ok = true;
+    lastContact = Date.now();
+  }
   catch(e){ AUTH = {level:'none', _ok:false}; }   // server unreachable ≠ logged out
+  finally { clearTimeout(t); }
   return AUTH;
 }
 
@@ -4251,7 +4309,17 @@ const unlock = () => webauthn('/auth/login', 'get').catch(lockErr);
    a dead "session ended" with no way forward. Returns true if it showed a lock. */
 function relock(a){
   a = a || AUTH;
-  if (a._ok === false){ lock('reconnect'); scheduleReconnect(); return true; }
+  if (a._ok === false){
+    // Unreachable for a moment is the normal cost of coming back from the
+    // background — it is not a reason to throw a modal over a fleet we can
+    // still draw. Keep retrying underneath; only take the screen when there
+    // is nothing to show, or when contact has been gone long enough that
+    // something is genuinely wrong.
+    if (started && SESSIONS.length && Date.now() - lastContact < 8000){
+      scheduleReconnect(); return true;
+    }
+    lock('reconnect'); scheduleReconnect(); return true;
+  }
   if (a.level === 'verified') return false;
   if (a.passkey_capable && a.passkey_registered){ lock('idle'); return true; }
   if (!a.session){ lock('gone'); return true; }
@@ -4266,6 +4334,9 @@ function relock(a){
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
   if (!started) return gate();
+  // Runs alongside the socket redial above, never in front of it: the answer
+  // only matters if the session really did expire, and relock() now keeps a
+  // momentary "server unreachable" from covering the app.
   authState().then(a => { if (a.level !== 'verified') relock(a); });
 });
 
