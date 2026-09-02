@@ -580,8 +580,7 @@ def session_ops(path):
         return ((st or {}).get("fn", 0), (st or {}).get("pn", 0))
     if st is None or size < st["off"]:            # new, or shrank (compaction/clear)
         st = {"off": max(0, size - 4_000_000), "files": set(),
-              "seen": set(), "prompts": 0, "fn": 0, "pn": 0, "action": None,
-              "tasks": {}}
+              "seen": set(), "prompts": 0, "fn": 0, "pn": 0, "action": None}
     if size > st["off"]:
         try:
             with open(path, "rb") as fh:
@@ -613,25 +612,11 @@ def session_ops(path):
             m = o.get("message")
             if not isinstance(m, dict):
                 continue
-            tasks = st.setdefault("tasks", {})   # in-flight Task subagents: id -> type
             for b in (m.get("content") or []):
-                if not isinstance(b, dict):
-                    continue
-                # A finished subagent: its Task tool_use gets a matching tool_result
-                # (carried on a later user turn). Clear it so the pane stops showing
-                # that pet.
-                if b.get("type") == "tool_result":
-                    tasks.pop(b.get("tool_use_id"), None)
-                    continue
-                if b.get("type") != "tool_use":
+                if not (isinstance(b, dict) and b.get("type") == "tool_use"):
                     continue
                 name = b.get("name")
                 inp = b.get("input") or {}
-                # A Task tool_use spawns a subagent — track it as in-flight until its
-                # result lands. Skip sidechain lines (the subagent's own transcript
-                # entries) so we count real spawns, not a subagent's inner tools.
-                if name == "Task" and not o.get("isSidechain"):
-                    tasks[b.get("id")] = inp.get("subagent_type") or "agent"
                 if name in _EDIT_TOOLS:
                     fp = inp.get("file_path") or inp.get("notebook_path")
                     if fp:
@@ -707,9 +692,47 @@ def read_fleet_files():
         out[uuid]["files"] = fcount
         out[uuid]["prompts"] = pcount
         out[uuid]["action"] = (_OPS.get(tp) or {}).get("action") if tp else None
-        # subagent types currently in flight for this pane — one pet each on the yard
-        out[uuid]["subs"] = list(((_OPS.get(tp) or {}).get("tasks") or {}).values()) if tp else []
+        # subagents currently alive for this pane — one pet each on the yard
+        out[uuid]["subs"] = live_subagents(tp, now) if tp else []
     return out
+
+
+# A subagent (Task/Agent tool call) gets its own transcript under
+# <session>/subagents/agent-*.jsonl while it runs; it keeps appending as the agent
+# works and goes quiet the moment it finishes. So "alive" = the file was written
+# within the last few seconds. This catches both foreground and background spawns
+# (a backgrounded agent's launch is acked instantly in the main transcript, so it
+# leaves no in-flight marker there) and self-clears when the agent stops.
+SUB_ACTIVE = 15   # seconds since last write to still count a subagent as running
+
+
+def live_subagents(transcript_path, now):
+    """agentTypes of subagents still writing under this session, newest first."""
+    sdir = os.path.splitext(transcript_path)[0] + "/subagents"
+    out = []
+    try:
+        entries = os.listdir(sdir)
+    except OSError:
+        return out
+    for fn in entries:
+        if not fn.endswith(".jsonl"):
+            continue
+        fp = os.path.join(sdir, fn)
+        try:
+            mt = os.path.getmtime(fp)
+        except OSError:
+            continue
+        if now - mt >= SUB_ACTIVE:
+            continue
+        kind = "agent"
+        try:
+            meta = json.load(open(fp[:-6] + ".meta.json"))
+            kind = meta.get("agentType") or kind
+        except Exception:
+            pass
+        out.append((mt, kind))
+    out.sort(reverse=True)          # freshest first
+    return [k for _, k in out]
 
 
 def fleet_limits(files):
