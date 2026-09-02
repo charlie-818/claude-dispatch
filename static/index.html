@@ -284,8 +284,13 @@
   /* Contextual: Claude's own options when it asks something, interrupt keys
      while it works, nothing at all when idle. */
   .actionbar{flex:none;background:var(--panel2);border-top:1px solid var(--line2);
-    padding:0;display:none}
-  .actionbar.on{display:block;padding:10px}
+    padding:0;display:none;touch-action:pan-x;
+    transition:transform .18s ease, opacity .18s ease}
+  .actionbar.on{display:block;padding:4px 10px 10px}
+  /* Same grab handle as the bottom sheet — the swipe-down-to-dismiss gesture is
+     shared, so the affordance is too. */
+  .actionbar .grab{width:36px;height:4px;border-radius:2px;background:var(--line2);
+    margin:2px auto 8px}
   .actionbar .q{font:600 12px/1.4 var(--ui);color:var(--amber);
     margin:0 2px 9px;display:block}
   .actionbar .opts{display:flex;flex-direction:column;gap:6px}
@@ -2007,7 +2012,7 @@ function openSession(uuid){
   }, 1200);
 
   markEffort(current.effort); markMode(current.mode); markModel(current.model);
-  livePrompt = current.prompt || null; renderActions();
+  livePrompt = current.prompt || null; promptDismissed = null; renderActions();
   history = []; live = ''; pinBottom = true;   // land at newest output
   briefOpen = false; briefHasContent = false; applyBrief();   // brief hidden until the eye is tapped
   connectPane(uuid);
@@ -2393,6 +2398,66 @@ let syncSheetKb = () => {};
   }
 })();
 
+/* Swipe-down to dismiss the answer bar — the same gesture, thresholds and feel
+   as the bottom sheet above. The prompt detector reads Claude's own pane, so it
+   can still occasionally latch onto something that only LOOKS like a choice; a
+   pull down from the grab handle gets the bar out of the way without answering.
+   The dismissal is remembered per prompt, so the next frame doesn't re-show it
+   while a genuinely new question still does. */
+(function actionbarSwipe(){
+  const bar = document.getElementById('actionbar');
+  let sy = 0, sx = 0, dragging = false, engaged = false, lastY = 0, lastT = 0, vy = 0;
+
+  function start(y, x){
+    if (!bar.classList.contains('on')) return;
+    sy = y; sx = x; dragging = true; engaged = false; lastY = y; lastT = Date.now(); vy = 0;
+  }
+  function move(y, x, prevent){
+    if (!dragging) return;
+    const dy = y - sy, dx = x - sx;
+    if (!engaged){
+      if (dy > 6 && Math.abs(dy) > Math.abs(dx)){
+        engaged = true; bar.style.transition = 'none';
+      } else if (Math.abs(dy) > 10 || Math.abs(dx) > 10){ dragging = false; return; }
+      else return;
+    }
+    const now = Date.now(), d = Math.max(1, now - lastT);
+    vy = (y - lastY) / d; lastY = y; lastT = now;
+    if (prevent) prevent();                          // block native scroll/rubber-band
+    const off = Math.max(0, dy);
+    bar.style.transform = 'translateY(' + off + 'px)';
+    bar.style.opacity = String(Math.max(0, 1 - off / 180));
+  }
+  function end(){
+    if (!dragging) return;
+    dragging = false;
+    if (!engaged) return;
+    engaged = false;
+    bar.style.transition = '';                       // restore the CSS spring
+    const dy = lastY - sy;
+    if (dy > 60 || vy > 0.5){ buzz(12); dismissPrompt(); }
+    else { bar.style.transform = ''; bar.style.opacity = ''; }   // snap back
+  }
+
+  bar.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1){ dragging = false; return; }
+    start(e.touches[0].clientY, e.touches[0].clientX);
+  }, {passive: true});
+  bar.addEventListener('touchmove', e => {
+    move(e.touches[0].clientY, e.touches[0].clientX, () => e.preventDefault());
+  }, {passive: false});
+  bar.addEventListener('touchend', end);
+  bar.addEventListener('touchcancel', end);
+
+  // desktop mouse fallback — skipped on touch devices to avoid emulated-mouse double-fire
+  if (!('ontouchstart' in window)){
+    let mouse = false;
+    bar.addEventListener('mousedown', e => { mouse = true; start(e.clientY, e.clientX); });
+    window.addEventListener('mousemove', e => { if (mouse) move(e.clientY, e.clientX, () => e.preventDefault()); });
+    window.addEventListener('mouseup', () => { if (mouse){ mouse = false; end(); } });
+  }
+})();
+
 function opt(label, {desc = '', cur = false, cls = '', dis = false, on}){
   const b = document.createElement('button');
   b.className = 'opt' + (cur ? ' cur' : '') + (cls ? ' ' + cls : '');
@@ -2478,16 +2543,34 @@ const KEYSET = [
 ];
 
 let livePrompt = null;
+/* A swiped-away prompt, identified by its own text. The pane re-sends the same
+   prompt on every frame, so a dismissal has to remember WHAT was dismissed — a
+   genuinely new question (or a different session) brings the bar straight back. */
+let promptDismissed = null;
+
+const promptKey = p => !p ? '' :
+  (current ? current.uuid : '') + '|' + (p.question || '') + '|' +
+  (p.options || []).map(o => o.key + o.label).join('|');
+
+function dismissPrompt(){
+  promptDismissed = promptKey(livePrompt);
+  renderActions();
+}
 
 function renderActions(){
   const bar = document.getElementById('actionbar');
   const send = current && current.sendable;
   bar.innerHTML = '';
+  bar.style.transform = ''; bar.style.opacity = '';   // drop any drag offset
   if (!send){ bar.className = 'actionbar'; return; }
 
-  if (livePrompt && livePrompt.options && livePrompt.options.length){
+  if (livePrompt && livePrompt.options && livePrompt.options.length
+      && promptKey(livePrompt) !== promptDismissed){
     // Claude is asking. Show ITS options verbatim, one tap each.
     bar.className = 'actionbar on';
+    const grab = document.createElement('div');
+    grab.className = 'grab';
+    bar.appendChild(grab);
     if (livePrompt.question){
       const q = document.createElement('span');
       q.className = 'q'; q.textContent = livePrompt.question;

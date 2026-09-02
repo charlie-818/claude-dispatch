@@ -404,6 +404,9 @@ async def pane_text(session):
 
 
 OPTION_RE = re.compile(r"^\s*[❯>]?\s*(\d)\.\s+(\S.*?)\s*$")
+# The caret Claude parks on the highlighted row of a select dialog. Its presence
+# is what separates a live prompt from a numbered list Claude merely printed.
+SELECT_RE = re.compile(r"^\s*[❯>]\s")
 
 
 def detect_input(text):
@@ -436,7 +439,7 @@ def detect_prompt(text):
     label_col = 0                      # column where the current run's labels start
 
     def opt(i, l, m):
-        return [i, m.group(1), m.group(2), "❯" in l]
+        return [i, m.group(1), m.group(2), bool(SELECT_RE.match(l))]
 
     def close():
         if cur:
@@ -467,7 +470,11 @@ def detect_prompt(text):
             continue                   # blank gutter between options is fine
         close()
     close()
-    runs = [r for r in runs if len(r) >= 2]
+    # A real dialog is a run of at least two options with the caret parked on
+    # exactly one of them. A numbered list Claude simply wrote out — the tail of
+    # a plan, a summary ending in bullets — carries no caret, and used to be read
+    # here as a question the phone then flagged and pushed a notification about.
+    runs = [r for r in runs if len(r) >= 2 and sum(1 for o in r if o[3]) == 1]
     if not runs:
         return None
     run = runs[-1]
