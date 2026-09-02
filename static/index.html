@@ -23,7 +23,7 @@
     --mono:ui-monospace,"SF Mono",Menlo,monospace;
     --ui:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
     /* Squared off. Nothing rounder than a control needs to be. */
-    --r:6px; --r2:8px;
+    --r:6px; --r2:8px; --r3:14px;
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   /* Chrome Android "font boosting" silently inflates text in wide blocks and
@@ -309,35 +309,44 @@
   .act.slim{flex:1;justify-content:center;padding:12px 8px;font-size:13px}
   .act.stop{color:var(--red);border-color:rgba(255,107,97,.4)}
 
-  .composer{flex:none;padding:9px 10px 11px;background:transparent;
-    display:flex;gap:8px;align-items:flex-end}
-  .composer textarea{flex:1;resize:none;min-height:46px;max-height:132px;
-    background:var(--panel);color:var(--fg);border:1px solid var(--line2);
-    border-radius:var(--r);padding:12px 13px;
-    font:15px/1.4 var(--ui);outline:none}
-  .composer textarea:focus{border-color:var(--blue)}
+  /* One box holds everything: the text on top, a fixed row of icons under it.
+     The textarea grows and shrinks with the line count INSIDE the box, so the
+     icons never move relative to the text — the old side-by-side row re-centred
+     the buttons on every new line. */
+  .composer{flex:none;padding:9px 10px 11px;background:transparent}
+  .cbox{display:flex;flex-direction:column;gap:2px;
+    background:var(--panel);border:1px solid var(--line2);border-radius:var(--r3);
+    padding:9px 9px 8px;transition:border-color .15s}
+  .cbox:focus-within{border-color:var(--blue)}
+  .composer textarea{width:100%;resize:none;min-height:26px;max-height:132px;
+    background:transparent;color:var(--fg);border:none;border-radius:0;
+    padding:3px 5px;font:15px/1.45 var(--ui);outline:none}
   .composer textarea::placeholder{color:var(--dimmer)}
-  /* mic + send share one 46×46 footprint and center an SVG icon, so the row
-     reads as a matched pair; align-items:flex-end on .composer keeps both pinned
-     to the bottom as the textarea grows. */
-  .mic,.send{flex:none;width:46px;height:46px;border-radius:var(--r);cursor:pointer;
+  /* the persistent bottom line — attach on the left, mic + send on the right */
+  .cbar{display:flex;align-items:center;gap:4px}
+  .cbar .gap{flex:1}
+  /* mic + send share one footprint and center an SVG icon, so the row reads as a
+     matched set. Ghost buttons inside the box; only send carries the accent. */
+  .mic,.send{flex:none;width:34px;height:34px;border-radius:999px;cursor:pointer;
     display:flex;align-items:center;justify-content:center;padding:0;
     -webkit-tap-highlight-color:transparent}
-  .mic svg,.send svg{width:22px;height:22px;display:block}
+  .mic svg,.send svg{width:19px;height:19px;display:block}
   .send{border:none;background:var(--blue);color:#06172e}
   .send:disabled{background:var(--line);color:var(--dimmer)}
-  .mic{border:1px solid var(--line2);background:var(--panel);color:var(--fg)}
+  .mic{border:none;background:transparent;color:var(--dim)}
+  .mic:active{background:var(--panel3);color:var(--fg)}
   .mic:disabled{opacity:.55;cursor:default}
   .mic .i-stop{display:none}
   .mic.rec{background:var(--red);border-color:transparent;color:#1a1200;
     animation:micpulse 1.1s ease-in-out infinite}
+  .mic.rec:active,.mic.busy:active{color:#1a1200}
   .mic.rec .i-mic{display:none}
   .mic.rec .i-stop{display:block}
   .mic.busy{background:var(--amber);border-color:transparent;color:#1a1200;
     animation:micpulse 1.1s ease-in-out infinite}
   @keyframes micpulse{0%,100%{opacity:1}50%{opacity:.5}}
 
-  #toast{position:fixed;left:14px;right:14px;bottom:calc(env(safe-area-inset-bottom) + 84px);
+  #toast{position:fixed;left:14px;right:14px;bottom:calc(env(safe-area-inset-bottom) + 118px);
     background:var(--panel3);border:1px solid var(--line2);border-radius:var(--r);padding:11px 14px;
     font:13px var(--ui);z-index:60;opacity:0;transform:translateY(12px);
     transition:all .22s;pointer-events:none}
@@ -1054,28 +1063,33 @@
   <div class="composer">
     <input type="file" id="fileinput" accept="image/*,video/*" multiple hidden
            onchange="uploadFiles(this.files)">
-    <button class="mic" id="attachbtn" onclick="document.getElementById('fileinput').click()" aria-label="attach">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M21 11.5l-8.5 8.5a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.6 1.6 0 0 1-2.3-2.3l7.8-7.8"/>
-      </svg>
-    </button>
-    <textarea id="input" rows="1" placeholder=""></textarea>
-    <button class="mic" id="micbtn" onclick="toggleMic()" aria-label="dictate">
-      <svg class="i-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="9" y="2.5" width="6" height="11" rx="3"/>
-        <path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="21.5"/>
-      </svg>
-      <svg class="i-stop" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-        <rect x="6" y="6" width="12" height="12" rx="2.5"/>
-      </svg>
-    </button>
-    <button class="send" id="sendbtn" onclick="send()" disabled aria-label="send">
-      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-        <path d="M3.5 20.6l16.9-8.1c.8-.4.8-1.6 0-2L3.5 2.4c-.8-.4-1.6.4-1.3 1.2L4 11l-1.8 6.4c-.3.8.5 1.6 1.3 1.2z"/>
-      </svg>
-    </button>
+    <div class="cbox">
+      <textarea id="input" rows="1" placeholder=""></textarea>
+      <div class="cbar">
+        <button class="mic" id="attachbtn" onclick="document.getElementById('fileinput').click()" aria-label="attach">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 11.5l-8.5 8.5a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.6 1.6 0 0 1-2.3-2.3l7.8-7.8"/>
+          </svg>
+        </button>
+        <span class="gap"></span>
+        <button class="mic" id="micbtn" onclick="toggleMic()" aria-label="dictate">
+          <svg class="i-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="2.5" width="6" height="11" rx="3"/>
+            <path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="21.5"/>
+          </svg>
+          <svg class="i-stop" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <rect x="6" y="6" width="12" height="12" rx="2.5"/>
+          </svg>
+        </button>
+        <button class="send" id="sendbtn" onclick="send()" disabled aria-label="send">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M3.5 20.6l16.9-8.1c.8-.4.8-1.6 0-2L3.5 2.4c-.8-.4-1.6.4-1.3 1.2L4 11l-1.8 6.4c-.3.8.5 1.6 1.3 1.2z"/>
+          </svg>
+        </button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -3113,12 +3127,18 @@ async function key(k){
 }
 
 const input = document.getElementById('input'), sendbtn = document.getElementById('sendbtn');
+/* Height tracks the line count; the icon row below it never moves. Every path
+   that writes into the box (typing, dictation, an attached file's path, the
+   clear after send) goes through here, or the box keeps a stale height. */
+function autosize(){
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 132) + 'px';
+}
 input.addEventListener('input', () => {
   // Enabled whenever the pane can take input — an empty box still submits
   // whatever Claude has pre-filled in the pane (see send()).
   sendbtn.disabled = !(current && current.sendable);
-  input.style.height = 'auto';
-  input.style.height = Math.min(input.scrollHeight, 132) + 'px';
+  autosize();
 });
 /* ── voice dictation (local whisper.cpp on the server) ──────────────────────
    Tap to record, tap again to stop. The clip is POSTed to /api/whisper, which
@@ -3161,6 +3181,7 @@ async function transcribe(blob){
     if (!t){ toast('nothing heard', true); return; }
     const cur = input.value;
     input.value = cur ? cur.replace(/\s*$/,'') + ' ' + t : t;
+    autosize();
     input.dispatchEvent(new Event('input'));   // resize + enable send
     send();                                    // dictation fires the prompt straight off
   } catch(e){ toast(String(e.message), true); }
@@ -3197,6 +3218,7 @@ async function uploadFiles(files){
         if (!r.ok || d.error){ toast(d.error || ('upload '+r.status), true); continue; }
         const cur = input.value;
         input.value = (cur ? cur.replace(/\s*$/,'') + ' ' : '') + d.path + ' ';
+        autosize();
         input.dispatchEvent(new Event('input'));
         toast('attached ' + d.name);
       } catch(e){ toast(String(e.message), true); }
@@ -3216,7 +3238,7 @@ async function send(){
   try {
     if (t){
       await post('/api/send', {uuid: current.uuid, text: t, submit: true});
-      input.value = ''; input.style.height = 'auto';
+      input.value = ''; autosize();
     } else {
       // Empty box: let the server "just send it" — retype Claude's ghost
       // suggestion and submit, or press Enter on already-typed text.
