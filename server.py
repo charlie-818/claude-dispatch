@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-"""CC Dispatch — phone control for a fleet of live Claude Code panes.
+"""CC Dispatch — phone control for a fleet of live agent panes.
 
 Reads and drives EXISTING iTerm2 sessions via the iTerm2 Python API. Nothing is
 restarted. The one exception to "no session is created" is /api/spawn, which opens
 a new Claude pane in a throwaway scratch dir on explicit request from the UI.
 
+Claude Code, Codex and Grok are all tracked, off the same fleet records CC-Dash
+reads (~/.claude/statusline.sh for Claude, ~/.claude/cc-active.sh for the other
+two) plus each client's own session journal for its prompt/edit counters.
+
 Safety model
 ------------
 * Writes only ever happen in response to an authenticated request from the UI.
-* SEND_ALLOW gates every write: a pane must be running Claude to receive keys,
-  so scratch shells and unrelated panes are unreachable by construction.
+* Identity gates every write: a pane must be running one of those agents to
+  receive keys, so scratch shells and unrelated panes are unreachable.
 * Killing this process leaves the fleet exactly as it was.
 
 Run:  .venv/bin/python server.py
@@ -29,41 +33,112 @@ PORT = int(os.environ.get("DISPATCH_PORT", 8788))
 BIND = os.environ.get("DISPATCH_BIND", "127.0.0.1")
 FLEET_DIR = os.environ.get("CC_FLEET_DIR", "/tmp/cc-status")
 POLL = 0.45                      # seconds between screen samples
-STALE = 90                       # fleet json older than this is dropped
+STALE = 90                       # Claude fleet json older than this is dropped
+# Codex and Grok write their record once per lifecycle event, not per render, so a
+# quiet session's file goes cold while the pane is very much alive. Same retention
+# CC-Dash gives them; the live pane list is what actually retires a row.
+STALE_GENERIC = 4 * 3600
+STALE_ENDED = 15 * 60            # keep a finished row long enough to review it
+_FLEET_BY_TTY = {}               # /dev/ttysNNN -> record, for panes with no session id
 
-# A pane may receive keystrokes if its foreground job is Claude itself, OR if
-# statusline.sh has recently written a fleet file for it. The second clause
-# matters: while Claude runs a Bash tool the foreground job is that child
-# process (bash/git/npm...), and gating on jobName alone would refuse Esc and
-# Ctrl-C at precisely the moment you need them.
-SEND_ALLOW = {"claude", "node", "caffeinate"}
+# The interactive agent CLIs this fleet tracks. All three write the same shape of
+# fleet record into FLEET_DIR — Claude via ~/.claude/statusline.sh, Codex and Grok
+# via ~/.claude/cc-active.sh — so tracking one is tracking all three, on exactly
+# the records CC-Dash already owns and prunes.
+PROVIDERS = ("claude", "codex", "grok")
+DEFAULT_PROVIDER = "claude"
 
-# Panes confirmed to be Claude at any point. Identity does not expire: a pane
-# sitting at a permission prompt stops re-rendering its statusline, so its
-# fleet file ages out of the STALE window — and that is precisely when you need
-# to answer it. Gating on freshness locked out exactly the wrong case.
-KNOWN_CLAUDE = set()
+# A pane may receive keystrokes if its foreground job is an agent CLI itself, OR if
+# a fleet file was recently written for it. The second clause matters: while an
+# agent runs a Bash tool the foreground job is that child process
+# (bash/git/npm...), and gating on jobName alone would refuse Esc and Ctrl-C at
+# precisely the moment you need them.
+CHILD_JOBS = {"node", "caffeinate"}      # an agent's child, not the agent itself
 
-# Markers unique to Claude's TUI chrome, used as a last-resort identity check
-# when jobName is a child process and no fleet file is present.
-CLAUDE_MARKERS = ("shift+tab to cycle", "for shortcuts", "bypass permissions on",
-                  "auto mode on", "plan mode on", "accept edits on",
-                  "manual mode on", "esc to interrupt")
+# Panes confirmed to be an agent at any point, and which one. Identity does not
+# expire: a pane sitting at a permission prompt stops re-rendering its statusline,
+# so its fleet file ages out of the STALE window — and that is precisely when you
+# need to answer it. Gating on freshness locked out exactly the wrong case.
+KNOWN_AGENTS = {}                        # uuid -> provider
+
+# Markers unique to each TUI's chrome, the last-resort identity check when jobName
+# is a child process and no fleet file has landed yet. Every marker must be one
+# that ONLY that client draws — a shared phrase would mislabel the pane.
+# Only chrome the client DRAWS itself, never a phrase that could be discussed on
+# screen: a Claude pane talking about Codex must not be read as a Codex pane.
+MARKERS = {
+    "claude": ("shift+tab to cycle", "for shortcuts", "bypass permissions on",
+               "auto mode on", "plan mode on", "accept edits on",
+               "manual mode on", "esc to interrupt"),
+    "codex":  ("ask codex to do anything",),
+    "grok":   ("· always-approve", "· auto-approve", "· approve-edits"),
+}
 
 
-def looks_like_claude(text):
+def marker_provider(text):
+    """Which client's TUI chrome is on this screen — None if it is nobody's."""
     low = (text or "").lower()
-    return any(m in low for m in CLAUDE_MARKERS)
+    for p in PROVIDERS:
+        if any(m in low for m in MARKERS[p]):
+            return p
+    return None
 
 
-def is_claude_pane(uuid, job, text=None):
+def job_provider(job):
+    """The client a foreground job IS. Matched on the leading word, because the
+    binaries carry their platform and version in the name ("grok-1.0.5-macos",
+    "claude.exe") and only the family part is stable."""
+    j = (job or "").lower()
+    for p in PROVIDERS:
+        if j == p or j.startswith(p + "-") or j.startswith(p + "."):
+            return p
+    return None
+
+
+def pane_provider(uuid, job, text=None):
+    """Which agent CLI owns this pane — None for a plain shell.
+
+    Record first, then screen, because a client's own fleet record is the only
+    source that names the provider outright. jobName is checked before both when
+    it IS the client binary, and the child-job fallback stays uncached so a Codex
+    pane running `node` can still be identified properly a poll later.
+    """
     u = (uuid or "").upper()
-    if job in SEND_ALLOW or u in KNOWN_CLAUDE:
-        return True
-    if u in read_fleet_files() or looks_like_claude(text):
-        KNOWN_CLAUDE.add(u)
-        return True
-    return False
+    known = KNOWN_AGENTS.get(u)
+    if known:
+        return known
+    p = job_provider(job)
+    if not p:
+        p = (read_fleet_files().get(u) or {}).get("provider") or marker_provider(text)
+    if p:
+        KNOWN_AGENTS[u] = p
+        return p
+    return DEFAULT_PROVIDER if job in CHILD_JOBS else None
+
+
+def is_agent_pane(uuid, job, text=None):
+    return pane_provider(uuid, job, text) is not None
+
+
+def provider_of(uuid):
+    """The provider we have already established for a pane."""
+    return KNOWN_AGENTS.get((uuid or "").upper()) or DEFAULT_PROVIDER
+
+
+def claude_only(uuid, what):
+    """Guard for the controls that read or drive Claude's own TUI chrome.
+
+    Permission mode, effort and model are steered by watching Claude's status
+    line and pressing keys until it changes. Codex and Grok draw nothing of the
+    sort, so the loop would type into a pane that can never satisfy it — refuse
+    with a reason instead.
+    """
+    p = provider_of(uuid)
+    if p == DEFAULT_PROVIDER:
+        return None
+    return web.json_response(
+        {"error": f"{what} is a Claude control — this pane is running {p}"},
+        status=409)
 
 TOKEN_FILE = HERE / ".token"
 if TOKEN_FILE.exists():
@@ -89,6 +164,7 @@ KEYS = {
     "enter": "\r",
     "1": "1", "2": "2", "3": "3", "4": "4", "5": "5",
     "6": "6", "7": "7", "8": "8", "9": "9",
+    "space": " ",
 }
 
 CONN = None          # iterm2.Connection
@@ -183,7 +259,7 @@ def fleet_tab(app):
     best, best_n = None, 0
     for w in app.terminal_windows:
         for t in w.tabs:
-            n = sum(1 for s in t.sessions if s.session_id.upper() in KNOWN_CLAUDE)
+            n = sum(1 for s in t.sessions if s.session_id.upper() in KNOWN_AGENTS)
             if n > best_n:
                 best, best_n = t, n
     if best is not None:
@@ -368,7 +444,7 @@ async def normalize_all(passes=10):
             print(f"  [normalize] scan failed: {type(e).__name__}: {e}", flush=True)
             return
         acted = False
-        for uuid in list(KNOWN_CLAUDE):
+        for uuid in list(KNOWN_AGENTS):
             s = sessions.get(uuid)
             if s is None:
                 continue
@@ -407,6 +483,23 @@ OPTION_RE = re.compile(r"^\s*[❯>]?\s*(\d)\.\s+(\S.*?)\s*$")
 # The caret Claude parks on the highlighted row of a select dialog. Its presence
 # is what separates a live prompt from a numbered list Claude merely printed.
 SELECT_RE = re.compile(r"^\s*[❯>]\s")
+
+# A leading checkbox glyph on an option label — multi-select (AskUserQuestion
+# with multiSelect) draws one of these instead of a number. group(1) is the
+# box itself, group(2) the label with the box stripped off.
+CHECK_RE = re.compile(r"^([☐☑☒◻◼◽◾○●⬡⬢]|\[[ xX✓·]?\])\s*(.*)$")
+_CHECKED_MARKS = set("☑☒◼◾⬢●")
+# Claude prints this hint under a checkbox run even when a row happens to
+# have no box drawn (a header row, say) — the fallback signal for "multi".
+MULTI_HINT_RE = re.compile(r"space to (toggle|select)", re.I)
+
+
+def _check_state(mark):
+    if mark in _CHECKED_MARKS:
+        return True
+    if mark.startswith("["):
+        return mark[1:-1] in ("x", "X", "✓", "·")
+    return False
 
 
 # The input box is fenced by a horizontal rule above and below; long input
@@ -469,19 +562,30 @@ def detect_input(text):
     return {"text": s[:600], "ghost": ghost}
 
 
-def detect_prompt(text):
-    """Find a numbered choice Claude is waiting on (permission, plan approval).
-
-    Returns {"question": str, "options": [{"key","label","selected"}]} or None.
-    Only the LAST run of consecutive numbered lines counts — earlier ones are
-    scrollback from prompts already answered.
+def _fold_tail(cur, l, indent, label_col):
+    """Classify a line that isn't itself an option/checkbox row: fold it into
+    the option above if it's a hard-wrapped continuation (a narrow pane — a
+    split can be 16 columns wide — wraps every option onto lines indented to
+    the label column), swallow a blank gutter, or signal the run should close.
+    Shared by the numbered and checkbox run-builders below.
     """
-    lines = text.splitlines()
-    runs, cur = [], []
-    label_col = 0                      # column where the current run's labels start
+    if not cur:
+        return "skip"
+    s = l.strip()
+    if s and indent >= label_col and not set(s) <= set("─━│ ⎿"):
+        cur[-1][2] = (cur[-1][2] + " " + s)[:200]
+        return "fold"
+    if not s:
+        return "blank"                 # blank gutter between options is fine
+    return "close"
 
-    def opt(i, l, m):
-        return [i, m.group(1), m.group(2), bool(SELECT_RE.match(l))]
+
+def _last_numbered_run(lines):
+    """Last run of consecutive numbered option lines with the caret parked on
+    exactly one of them — a numbered list Claude simply wrote out (the tail of
+    a plan, a summary ending in bullets) carries no caret and doesn't count."""
+    runs, cur = [], []
+    label_col = 0
 
     def close():
         if cur:
@@ -496,30 +600,72 @@ def detect_prompt(text):
                 close()                # a number out of sequence starts a new run
             if not cur:
                 label_col = l.index(m.group(2))
-            cur.append(opt(i, l, m))
+            cur.append([i, m.group(1), m.group(2), bool(SELECT_RE.match(l))])
             continue
-        if not cur:
-            continue
-        s = l.strip()
-        # A narrow pane (a split can be 16 columns wide) hard-wraps every option
-        # onto continuation lines indented to the label column. Those belong to
-        # the option above, not to the end of the run — without this, no prompt
-        # on a narrow pane is ever detected.
-        if s and indent >= label_col and not set(s) <= set("─━│ ⎿"):
-            cur[-1][2] = (cur[-1][2] + " " + s)[:200]
-            continue
-        if not s:
-            continue                   # blank gutter between options is fine
-        close()
+        if _fold_tail(cur, l, indent, label_col) == "close":
+            close()
     close()
-    # A real dialog is a run of at least two options with the caret parked on
-    # exactly one of them. A numbered list Claude simply wrote out — the tail of
-    # a plan, a summary ending in bullets — carries no caret, and used to be read
-    # here as a question the phone then flagged and pushed a notification about.
     runs = [r for r in runs if len(r) >= 2 and sum(1 for o in r if o[3]) == 1]
-    if not runs:
+    return runs[-1] if runs else None
+
+
+def _last_unnumbered_run(lines):
+    """A multi-select rendered with no numbers at all — just a caret and a
+    checkbox glyph per row, e.g. "  ❯ ☑ Option A" / "    ☐ Option B". Only
+    tried when the numbered parser above finds nothing, since Claude numbers
+    the vast majority of dialogs.
+    """
+    runs, cur = [], []
+    label_col = 0
+
+    def close():
+        if cur:
+            runs.append(list(cur))
+            cur.clear()
+
+    for i, l in enumerate(lines):
+        indent = len(l) - len(l.lstrip())
+        s = l.lstrip()
+        caret = s[:1] in ("❯", ">")
+        m = CHECK_RE.match(s[1:].lstrip() if caret else s)
+        if m:
+            if not cur:
+                label_col = indent
+            cur.append([i, m.group(1), m.group(2), caret])
+            continue
+        if _fold_tail(cur, l, indent, label_col) == "close":
+            close()
+    close()
+    runs = [r for r in runs if len(r) >= 2 and sum(1 for o in r if o[3]) == 1]
+    return runs[-1] if runs else None
+
+
+def _is_option_row(l):
+    """True for anything the question-text walk-up should treat as the start
+    of the option list, numbered or checkbox — used to stop the upward scan."""
+    if OPTION_RE.match(l):
+        return True
+    s = l.lstrip()
+    if s[:1] in ("❯", ">"):
+        s = s[1:].lstrip()
+    return bool(CHECK_RE.match(s))
+
+
+def detect_prompt(text):
+    """Find a choice Claude is waiting on: permission/plan approval (numbered,
+    single choice) or a checkbox multi-select (AskUserQuestion multiSelect,
+    numbered or not). Returns {"question", "options", "multi"} or None, where
+    each option is {"key","label","selected","checked","index"}. Only the LAST
+    run of consecutive option lines counts — earlier ones are scrollback from
+    prompts already answered.
+    """
+    lines = text.splitlines()
+    run = _last_numbered_run(lines)
+    numbered = run is not None
+    if run is None:
+        run = _last_unnumbered_run(lines)
+    if run is None:
         return None
-    run = runs[-1]
 
     # The question sits above the first option, but the terminal may have
     # hard-wrapped it ("Would you like to / proceed?"), so walk upward and
@@ -531,22 +677,56 @@ def detect_prompt(text):
             if parts:                  # blank above the text block ends it
                 break
             continue                   # blank between question and options
-        if OPTION_RE.match(lines[j]) or set(cand) <= set("─━│ ⎿"):
+        if _is_option_row(lines[j]) or set(cand) <= set("─━│ ⎿"):
             break
         parts.append(cand)
     q = " ".join(reversed(parts))
-    return {
-        "question": q[:160],
-        "options": [{"key": k, "label": lbl[:70], "selected": sel}
-                    for _, k, lbl, sel in run][:9],
-    }
+
+    opts, multi = [], False
+    for idx, (_, k, lbl, sel) in enumerate(run):
+        if numbered:
+            m = CHECK_RE.match(lbl)
+            box, label, key = (m.group(1), m.group(2), k) if m else (None, lbl, k)
+        else:
+            box, label, key = k, lbl, ""   # no number to press on this row
+        checked = _check_state(box) if box is not None else False
+        multi = multi or box is not None
+        opts.append({"key": key, "label": label[:70], "selected": sel,
+                     "checked": checked, "index": idx})
+    if not multi:
+        for l in lines[run[-1][0] + 1: run[-1][0] + 5]:
+            if MULTI_HINT_RE.search(l):
+                multi = True
+                break
+
+    return {"question": q[:160], "options": opts[:9], "multi": multi}
 
 
 _EDIT_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
 # Harness-injected user lines that aren't something a human typed — excluded from
 # the prompt count, mirroring cc-dashboard's _NOISE filter.
 _PROMPT_NOISE = ("Caveat:", "<command-name>", "<command-message>", "<local-command",
-                 "[Request interrupted", "system-reminder", "<user-prompt-submit")
+                 "[Request interrupted", "system-reminder", "<user-prompt-submit",
+                 # harness-injected turns the other clients open a session with —
+                 # same list cc-dashboard filters on, so the counts agree
+                 "task-notification", "<environment_context", "<channel")
+# The harness staples these onto ordinary user turns — CLAUDE.md context, memory
+# recalls, task nudges — so their presence says nothing about who typed the turn.
+# They come off before the noise test; what is left is what the human actually
+# sent. A Telegram-relayed prompt is likewise a real prompt, so its envelope is
+# stripped rather than treated as noise.
+_WRAPPERS = re.compile(
+    r"<system-reminder>.*?</system-reminder>|<channel\b[^>]*>|</channel>", re.S)
+
+
+def human_prompt(txt):
+    """The human-typed part of a user turn, or "" if the turn wasn't one."""
+    txt = _WRAPPERS.sub("", txt or "").strip()
+    if not txt or any(s in txt for s in _PROMPT_NOISE):
+        return ""
+    return txt
+
+
 _OPS = {}   # transcript path -> {"off","files","seen","prompts","fn","pn","action"}
 
 
@@ -603,7 +783,7 @@ def session_ops(path):
                        " ".join(b.get("text", "") for b in ct
                                 if isinstance(b, dict) and b.get("type") == "text")
                        if isinstance(ct, list) else "")
-                if txt.strip() and not any(s in txt for s in _PROMPT_NOISE):
+                if human_prompt(txt):
                     uid = o.get("uuid")
                     if uid is None or uid not in st["seen"]:
                         if uid is not None:
@@ -632,24 +812,199 @@ def session_ops(path):
     return st["fn"], st["pn"]
 
 
+# ── Codex / Grok journals ───────────────────────────────────────────────────
+# Neither client writes a Claude-shaped transcript, and the fleet record their
+# hooks leave carries no counters at all — the numbers live in the client's own
+# append-only journal. These are the same files CC-Dash reads, scanned the same
+# way, so both dashboards always agree about a session.
+CODEX_SESSIONS = os.path.expanduser("~/.codex/sessions")
+GROK_SESSIONS = os.path.expanduser("~/.grok/sessions")
+_journals = {}                   # (provider, sid) -> path, cached: the glob is not free
+_NATIVE = {}                     # path -> incremental scan state
+
+
+def journal_path(provider, sid):
+    """The client's own session journal — "" when it has not appeared yet."""
+    key = (provider, sid)
+    hit = _journals.get(key)
+    if hit and os.path.exists(hit):
+        return hit
+    if provider == "codex":
+        found = glob.glob(os.path.join(CODEX_SESSIONS, "*", "*", "*", f"*-{sid}.jsonl"))
+    elif provider == "grok":
+        found = glob.glob(os.path.join(GROK_SESSIONS, "*", sid, "chat_history.jsonl"))
+    else:
+        found = []
+    path = found[-1] if found else ""
+    if path:
+        _journals[key] = path
+    return path
+
+
+def _fresh_native():
+    return {"off": 0, "files": set(), "prompts": 0, "add": 0, "del": 0,
+            "action": None, "stamp": None}
+
+
+def codex_ops(path):
+    """Prompts, edited files and line deltas from a Codex rollout journal.
+
+    Incremental, like session_ops: only bytes appended since the last read are
+    parsed. Edits arrive as apply_patch payloads inside a custom_tool_call, so the
+    file list and +/- counts come from the patch body itself.
+    """
+    st = _NATIVE.get(path) or _fresh_native()
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return st
+    if size < st["off"]:                       # truncated/rotated — start over
+        st = _fresh_native()
+    if size > st["off"]:
+        try:
+            with open(path, "rb") as fh:
+                fh.seek(st["off"]); data = fh.read()
+        except OSError:
+            data = b""
+        cut = data.rfind(b"\n") + 1
+        st["off"] += cut
+        for line in data[:cut].decode("utf-8", "ignore").splitlines():
+            try:
+                p = (json.loads(line) or {}).get("payload") or {}
+            except Exception:
+                continue
+            typ = p.get("type")
+            if typ == "message" and p.get("role") == "user":
+                txt = " ".join(x.get("text", "") for x in (p.get("content") or [])
+                               if isinstance(x, dict) and x.get("type") == "input_text")
+                if txt.strip() and not any(s in txt for s in _PROMPT_NOISE):
+                    st["prompts"] += 1
+                continue
+            if typ != "custom_tool_call":
+                continue
+            name = p.get("name") or "tool"
+            raw = p.get("input") or ""
+            if not isinstance(raw, str):
+                raw = ""
+            body = raw.replace("\\n", "\n")
+            hit = ""
+            if "*** Begin Patch" in body:
+                for m in re.finditer(r"^\*\*\* (?:Update|Add|Delete) File: (.+)$",
+                                     body, re.M):
+                    hit = m.group(1).strip()
+                    st["files"].add(hit)
+                for change in body.splitlines():
+                    if change.startswith(("+++", "---")):
+                        continue
+                    if change.startswith("+"):
+                        st["add"] += 1
+                    elif change.startswith("-"):
+                        st["del"] += 1
+                hit = os.path.basename(hit)
+                name = "apply_patch"
+            else:
+                # Every Codex tool call arrives as a snippet of JS that awaits the
+                # real tool, so the first line is boilerplate. Name the inner call
+                # instead, and for a shell, the command it is about to run.
+                inner = re.search(r"tools\.(\w+)", body)
+                if inner:
+                    name = inner.group(1)
+                cmd = re.search(r'"cmd"\s*:\s*"((?:[^"\\]|\\.)*)"', body)
+                if cmd:
+                    hit = cmd.group(1).replace('\\"', '"').replace("\\\\", "\\")[:32]
+                elif body.strip():
+                    hit = body.strip().splitlines()[0][:32]
+            st["action"] = {"tool": name, "arg": hit}
+    _NATIVE[path] = st
+    return st
+
+
+def grok_ops(path):
+    """Prompts from Grok's chat log; file/line deltas from its hunk records.
+
+    The hunk file is rewritten rather than appended, so this re-reads on any
+    change of size/mtime instead of tracking an offset.
+    """
+    hunk = os.path.join(os.path.dirname(path), "hunk_records.jsonl")
+    try:
+        stamp = (os.path.getmtime(path), os.path.getsize(path),
+                 os.path.getmtime(hunk) if os.path.exists(hunk) else 0)
+    except OSError:
+        return _NATIVE.get(path) or _fresh_native()
+    st = _NATIVE.get(path)
+    if st and st.get("stamp") == stamp:
+        return st
+    st = _fresh_native(); st["stamp"] = stamp
+    try:
+        with open(path, errors="ignore") as fh:
+            for line in fh:
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                if o.get("type") == "user":
+                    txt = " ".join(x.get("text", "") for x in (o.get("content") or [])
+                                   if isinstance(x, dict) and x.get("type") == "text")
+                    if txt.strip() and not any(s in txt for s in _PROMPT_NOISE):
+                        st["prompts"] += 1
+                elif o.get("type") in ("tool_call", "backend_tool_call"):
+                    kind = o.get("kind") or {}
+                    st["action"] = {"tool": o.get("name")
+                                    or kind.get("tool_type") or "tool", "arg": ""}
+    except OSError:
+        return st
+    try:
+        with open(hunk, errors="ignore") as fh:
+            for line in fh:
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                # Agent hunks are marked `agent`; Grok's compensating `removed`
+                # records drop authorType but keep agentId. Never count a human edit.
+                author = o.get("authorType")
+                if author == "human" or (author != "agent" and not o.get("agentId")):
+                    continue
+                if o.get("eventType") not in ("added", "updated", "removed"):
+                    continue
+                if o.get("filePath"):
+                    st["files"].add(o["filePath"])
+                try:
+                    added = int(o.get("linesAdded") or 0)
+                    removed = int(o.get("linesRemoved") or 0)
+                except (TypeError, ValueError):
+                    continue
+                # Each refinement is a signed delta: a negative "added" is really a
+                # deletion of lines this chat inserted earlier, and vice versa.
+                st["add"] += added if added >= 0 else 0
+                st["del"] += -added if added < 0 else 0
+                st["del"] += removed if removed >= 0 else 0
+                st["add"] += -removed if removed < 0 else 0
+    except OSError:
+        pass
+    _NATIVE[path] = st
+    return st
+
+
+def native_ops(provider, path):
+    return codex_ops(path) if provider == "codex" else grok_ops(path)
+
+
 def read_fleet_files():
     """Status dumps written by ~/.claude/statusline.sh + cc-active.sh.
 
     We only read these; cc-dashboard.py owns them and prunes its own staleness.
     """
     now, out = time.time(), {}
+    _FLEET_BY_TTY.clear()
     for p in glob.glob(os.path.join(FLEET_DIR, "*.json")):
         try:
-            if now - os.path.getmtime(p) > STALE:
-                continue
+            mt = os.path.getmtime(p)
             d = json.load(open(p))
         except Exception:
             continue
-        pane = d.get("iterm_pane") or ""
-        uuid = pane.split(":")[-1].upper() if ":" in pane else ""
-        if not uuid:
-            continue
-        key = pathlib.Path(p).stem
+        provider = d.get("provider") or DEFAULT_PROVIDER
+        key = d.get("fleet_key") or pathlib.Path(p).stem
         state = "idle"
         state_mt = None                       # mtime of the winning .state file
         sf = os.path.join(FLEET_DIR, f"claude-{key}.state")
@@ -661,11 +1016,27 @@ def read_fleet_files():
                     break
                 except Exception:
                     pass
+        # Claude's statusline rewrites its dump on every render, so 90s of silence
+        # means the pane is gone. Codex and Grok only touch their record at
+        # lifecycle events — a chat left open overnight writes nothing — so they
+        # get CC-Dash's far longer retention, and the pane list is what actually
+        # retires them: a record with no live pane never becomes a row.
+        limit = STALE if provider == DEFAULT_PROVIDER else (
+            STALE_ENDED if state == "ended" else STALE_GENERIC)
+        if now - max(mt, state_mt or mt) > limit:
+            continue
+        pane = d.get("iterm_pane") or ""
+        uuid = pane.split(":")[-1].upper() if ":" in pane else ""
         cw = d.get("context_window") or {}
         cst = d.get("cost") or {}
+        # Claude names its transcript in the record; the others keep their own
+        # journal, which we locate from the session id exactly as CC-Dash does.
         tp = d.get("transcript_path") or ""
-        out[uuid] = {
+        if not tp and provider != DEFAULT_PROVIDER:
+            tp = journal_path(provider, d.get("session_id") or "")
+        row = {
             "sid": key,
+            "provider": provider,
             "transcript": tp,
             "state": state,
             # When this pane entered its current state, straight from the .state
@@ -673,27 +1044,56 @@ def read_fleet_files():
             # the iTerm tab colour use, so the phone timer matches them and, being
             # on disk, survives a server restart.
             "state_since": state_mt,
-            "cwd": (d.get("workspace") or {}).get("current_dir", ""),
+            "cwd": (d.get("workspace") or {}).get("current_dir", "") or d.get("cwd", ""),
             "model": (d.get("model") or {}).get("display_name", ""),
             "cost": round(cst.get("total_cost_usd", 0) or 0, 2),
             "ctx": cw.get("used_percentage"),
             "limits": d.get("rate_limits") or {},
             "effort": (d.get("effort") or {}).get("level"),
-            "mtime": os.path.getmtime(p),
+            "mtime": mt,
             # richer per-agent metrics, ported from cc-dashboard's fleet row
             "tokens": (cw.get("total_input_tokens") or 0)
                     + (cw.get("total_output_tokens") or 0),
             "lines_add": cst.get("total_lines_added") or 0,
             "lines_del": cst.get("total_lines_removed") or 0,
             "dur_ms": cst.get("total_duration_ms") or 0,
-            "age": int(now - os.path.getmtime(p)),
+            "age": int(now - mt),
         }
-        fcount, pcount = session_ops(tp) if tp else (0, 0)
-        out[uuid]["files"] = fcount
-        out[uuid]["prompts"] = pcount
-        out[uuid]["action"] = (_OPS.get(tp) or {}).get("action") if tp else None
-        # subagents currently alive for this pane — one pet each on the yard
-        out[uuid]["subs"] = live_subagents(tp, now) if tp else []
+        if provider == DEFAULT_PROVIDER:
+            fcount, pcount = session_ops(tp) if tp else (0, 0)
+            row["files"] = fcount
+            row["prompts"] = pcount
+            row["action"] = (_OPS.get(tp) or {}).get("action") if tp else None
+            # subagents currently alive for this pane — one pet each on the yard
+            row["subs"] = live_subagents(tp, now) if tp else []
+        else:
+            # Codex and Grok keep their own accounting in their own journal; their
+            # hook record carries none. No subagent transcripts to watch, either.
+            st = native_ops(provider, tp) if tp else None
+            row["files"] = len(st["files"]) if st else 0
+            row["prompts"] = st["prompts"] if st else 0
+            row["lines_add"] = st["add"] if st else 0
+            row["lines_del"] = st["del"] if st else 0
+            row["action"] = (st or {}).get("action")
+            row["subs"] = []
+        # A hook child can lose ITERM_SESSION_ID, so a record may name only the tty
+        # it was written from. Index those by tty and let build_fleet match them to
+        # the pane it is already looking at.
+        # One pane outlives the chats that run in it: a /clear, a --resume or just
+        # a new session leaves the previous chat's record behind, still naming this
+        # pane and still inside its stale window. Keyed blindly, whichever record
+        # glob happened to yield last would win — often the dead one, so the pane
+        # showed a finished chat's prompts, lines and cost. The live chat is the
+        # one whose record was written most recently, so freshest wins.
+        if uuid:
+            prev = out.get(uuid)
+            if prev is None or mt >= prev["mtime"]:
+                out[uuid] = row
+        elif d.get("tty"):
+            key = "/dev/" + os.path.basename(d["tty"])
+            prev = _FLEET_BY_TTY.get(key)
+            if prev is None or mt >= prev["mtime"]:
+                _FLEET_BY_TTY[key] = row
     return out
 
 
@@ -736,16 +1136,41 @@ def live_subagents(transcript_path, now):
 
 
 def fleet_limits(files):
-    """Account-wide 5h/7d usage. Each pane only refreshes its own copy on an
-    API call, so take the reading from the newest rate-limit window."""
-    best, best_key = {}, (-1, -1)
-    for f in files.values():
-        fh = (f.get("limits") or {}).get("five_hour")
-        if isinstance(fh, dict):
-            k = (fh.get("resets_at", 0), fh.get("used_percentage", -1))
-            if k > best_key:
-                best_key, best = k, f.get("limits")
-    return best
+    """Account-wide 5h/7d usage, pooled across every pane's copy.
+
+    A pane only refreshes its reading when it makes an API call, so no single
+    dump is authoritative. Two failure modes to dodge:
+
+      * an expired window — a pane idle since yesterday still rewrites its dump
+        every render, carrying a reading whose window closed hours ago;
+      * a placeholder — a just-started pane reports 0% against a window it
+        synthesised (this hour + 5h) before any rate-limit header arrived.
+
+    Picking the newest resets_at hits the placeholder every time and shows 0%
+    while the account is really at 17%. So: drop closed windows, then take the
+    highest percentage still open. Usage only climbs inside a window, so every
+    stale-but-open reading is a lower bound on the truth and the max is the
+    freshest fact anyone has. Each window is resolved on its own — the 5h
+    winner must not drag an unrelated 7d reading along with it.
+    """
+    now, out = time.time(), {}
+    for window in ("five_hour", "seven_day"):
+        best = None
+        for f in files.values():
+            w = (f.get("limits") or {}).get(window)
+            if not isinstance(w, dict):
+                continue
+            resets = w.get("resets_at") or 0
+            if resets and resets <= now:          # window already rolled over
+                continue
+            pct = w.get("used_percentage")
+            if pct is None:
+                continue
+            if best is None or pct > best.get("used_percentage", -1):
+                best = w
+        if best is not None:
+            out[window] = best
+    return out
 
 
 # ── live working directory ─────────────────────────────────────────────────
@@ -969,29 +1394,45 @@ async def build_fleet():
     files = read_fleet_files()
     rows = []
     for uuid, s in sessions.items():
-        f = files.get(uuid)
         try:
             job = await s.async_get_variable("jobName") or ""
             cwd = await s.async_get_variable("path") or ""
+            tty = await s.async_get_variable("tty") or ""
         except Exception:
-            job, cwd = "", ""
+            job, cwd, tty = "", "", ""
+        # A Codex/Grok hook child can lose ITERM_SESSION_ID, leaving a record that
+        # knows only the tty it ran on. That still names this pane exactly.
+        f = files.get(uuid) or _FLEET_BY_TTY.get(tty)
         txt = await pane_text(s)
-        if not is_claude_pane(uuid, job, txt):
+        provider = (f or {}).get("provider") or pane_provider(uuid, job, txt)
+        if not provider:
             continue                      # hide scratch shells entirely
+        KNOWN_AGENTS.setdefault(uuid, provider)
         lines = [l for l in txt.splitlines() if l.strip()]
-        mode = detect_mode(txt)
+        mode = detect_mode(txt) if provider == DEFAULT_PROVIDER else ""
         prompt = detect_prompt(txt)
         # live working dir: the transcript's current cwd (follows `cd`s), then the
         # statusline's launch-pinned dir, then the iTerm pane path — same order as ccdash
-        live_cwd = latest_cwd((f or {}).get("transcript")) or (f or {}).get("cwd") or cwd
+        # Only Claude's transcript records a per-entry cwd; the others pin theirs in
+        # the hook record, so their live dir is the pane's own path.
+        live_cwd = (latest_cwd((f or {}).get("transcript"))
+                    if provider == DEFAULT_PROVIDER else "") or (f or {}).get("cwd") or cwd
         # What this chat has changed on disk. Keyed on the Claude session id so
         # a /clear starts fresh; the pane uuid only stands in when no statusline
         # dump has landed yet. Falls back to the statusline/transcript counters
         # when the pane is not in a git repo.
         ch = churn_for((f or {}).get("sid") or uuid, await git_snapshot(live_cwd))
+        # An all-zero churn is "nothing observed yet", not "nothing changed":
+        # first sight only records a baseline, and a server restart mid-session
+        # re-bases every pane. Treating that as an answer would blank out the
+        # statusline's own real counters, so only trust churn once it has seen
+        # something move.
+        if ch and not (ch["add"] or ch["del"] or ch["files"]):
+            ch = None
         rows.append({
             "uuid": uuid,
             "job": job,
+            "provider": provider,          # claude | codex | grok — picks the sprite
             "cwd": live_cwd,
             "name": os.path.basename(live_cwd.rstrip("/")) or "?",
             "state": (f or {}).get("state", "idle"),
@@ -1001,7 +1442,7 @@ async def build_fleet():
             "effort": (f or {}).get("effort"),
             "mode": mode,
             "prompt": prompt,
-            "sendable": is_claude_pane(uuid, job, txt),
+            "sendable": True,
             "tokens": (f or {}).get("tokens"),
             "lines_add": ch["add"] if ch else (f or {}).get("lines_add"),
             "lines_del": ch["del"] if ch else (f or {}).get("lines_del"),
@@ -1071,6 +1512,15 @@ def _transcript_digest(path, max_chars=20000):
             o = json.loads(ln)
         except Exception:
             continue
+        # Codex keeps its turns one level down, under `payload`. Grok's chat log
+        # already matches Claude's {type, content} shape, so it needs nothing.
+        pl = o.get("payload")
+        if isinstance(pl, dict) and pl.get("type") == "message":
+            o = {"message": {"role": pl.get("role"), "content": [
+                b for b in (pl.get("content") or [])
+                if isinstance(b, dict) and b.get("type", "").endswith("_text")]}}
+            for b in o["message"]["content"]:
+                b["type"] = "text"
         role = (o.get("message") or {}).get("role") or o.get("type")
         content = (o.get("message") or {}).get("content")
         if isinstance(content, list):
@@ -1159,7 +1609,9 @@ async def api_summary(request):
         e = _summaries.get(uuid) or {}
         return web.json_response({"summary": e.get("summary"),
                                   "success": e.get("success"), "running": False})
-    _, pcount = session_ops(path)
+    provider = f.get("provider") or DEFAULT_PROVIDER
+    pcount = (session_ops(path)[1] if provider == DEFAULT_PROVIDER
+              else native_ops(provider, path)["prompts"])
     entry = await _ensure_summary(uuid, path, pcount, running) or {}
     return web.json_response({"summary": entry.get("summary"),
                               "success": entry.get("success"),
@@ -1358,12 +1810,61 @@ async def api_key(request):
     job = await s.async_get_variable("jobName") or ""
     # never type into a plain shell by accident — but identify the pane by its
     # Claude UI, not by jobName, which is often a child (caffeinate, bash, git)
-    if not is_claude_pane(uuid, job, await pane_text(s)):
+    if not is_agent_pane(uuid, job, await pane_text(s)):
         return web.json_response(
-            {"error": f"pane is running {job!r} and shows no Claude UI — refusing"},
+            {"error": f"pane is running {job!r} and shows no agent UI — refusing"},
             status=403)
     await s.async_send_text(KEYS[k])
     return web.json_response({"ok": True, "sent": k})
+
+
+@writes("key")
+async def api_select(request):
+    """Drive a checkbox multi-select: walk the caret to each row that needs
+    toggling and space it, then optionally submit. Always re-parses the pane
+    fresh — the client's view of which rows are checked and where the caret
+    sits can be a frame stale by the time this lands, and getting that wrong
+    means toggling the wrong option.
+    """
+    body = await request.json()
+    uuid = body.get("uuid", "").upper()
+    indices = set(body.get("indices") or [])
+    submit = bool(body.get("submit", True))
+    s = (await all_sessions()).get(uuid)
+    if not s:
+        return web.json_response({"error": "no such pane"}, status=404)
+    job = await s.async_get_variable("jobName") or ""
+    text = await pane_text(s)
+    if not is_agent_pane(uuid, job, text):
+        return web.json_response(
+            {"error": f"pane is running {job!r} and shows no agent UI — refusing"},
+            status=403)
+    p = detect_prompt(text)
+    if not p or not p["multi"]:
+        return web.json_response(
+            {"error": "no multi-select prompt on screen"}, status=400)
+
+    opts = p["options"]
+    caret = next((o["index"] for o in opts if o["selected"]), 0)
+    toggled = 0
+    for o in sorted(opts, key=lambda o: o["index"]):
+        want = o["index"] in indices
+        if want == o["checked"]:
+            continue
+        while caret < o["index"]:
+            await s.async_send_text(KEYS["down"])
+            await asyncio.sleep(0.04)
+            caret += 1
+        while caret > o["index"]:
+            await s.async_send_text(KEYS["up"])
+            await asyncio.sleep(0.04)
+            caret -= 1
+        await s.async_send_text(KEYS["space"])
+        await asyncio.sleep(0.04)
+        toggled += 1
+    if submit:
+        await s.async_send_text(KEYS["enter"])
+    return web.json_response({"ok": True, "toggled": toggled, "submitted": submit})
 
 
 @writes("send")
@@ -1378,9 +1879,9 @@ async def api_send(request):
     if not s:
         return web.json_response({"error": "no such pane"}, status=404)
     job = await s.async_get_variable("jobName") or ""
-    if not is_claude_pane(uuid, job, await pane_text(s)):
+    if not is_agent_pane(uuid, job, await pane_text(s)):
         return web.json_response(
-            {"error": f"pane is running {job!r} and shows no Claude UI — refusing"},
+            {"error": f"pane is running {job!r} and shows no agent UI — refusing"},
             status=403)
     # literal, byte-exact: $ ` " ' and newlines all survive (probe_keys.py test 1)
     await s.async_send_text(text)
@@ -1549,9 +2050,9 @@ async def api_submit(request):
         return web.json_response({"error": "no such pane"}, status=404)
     job = await s.async_get_variable("jobName") or ""
     txt = await pane_text(s)
-    if not is_claude_pane(uuid, job, txt):
+    if not is_agent_pane(uuid, job, txt):
         return web.json_response(
-            {"error": f"pane is running {job!r} and shows no Claude UI — refusing"},
+            {"error": f"pane is running {job!r} and shows no agent UI — refusing"},
             status=403)
     kind, sug = _input_suggestion(txt)
     if kind == "ghost" and sug:
@@ -1601,7 +2102,7 @@ async def api_spawn(request):
     It starts in a throwaway scratch dir so nothing real is touched until you tell
     it where to work. The scratch dir is pre-trusted in ~/.claude.json so Claude's
     first-run "trust the files in this folder?" prompt never fires. We add the UUID
-    to KNOWN_CLAUDE up front so it lands in the fleet the instant it opens, before
+    to KNOWN_AGENTS up front so it lands in the fleet the instant it opens, before
     its jobName has even settled to `node`.
     """
     import tempfile, shlex
@@ -1635,7 +2136,7 @@ async def api_spawn(request):
         return web.json_response(
             {"error": f"could not open pane: {type(e).__name__}: {e}"}, status=500)
     uuid = sess.session_id.upper()
-    KNOWN_CLAUDE.add(uuid)
+    KNOWN_AGENTS[uuid] = "claude"
     await normalize_pane(sess)             # land at the canonical width from birth
 
     # Hand the pane a capability handle for the auth broker, plus any credentials
@@ -1746,14 +2247,18 @@ async def api_browse(request):
                               "roots": _browse_roots(), "dirs": dirs})
 
 
+# How each client is asked to shut itself down before the pane is closed.
+QUIT_CMD = {"claude": "/exit", "codex": "/quit", "grok": "/exit"}
+
+
 @writes("kill")
 async def api_kill(request):
     """End a session and close its iTerm pane — the drag-to-trash gesture.
 
-    Ctrl-C first so Claude tears down its own child processes, then /exit so it
-    saves the transcript the way a normal quit would, then close the pane. The
-    close is what removes the split/tab from the Mac; without it the shell just
-    returns to a prompt and the pane lingers.
+    Ctrl-C first so the agent tears down its own child processes, then its own
+    quit command so it saves the session the way a normal quit would, then close
+    the pane. The close is what removes the split/tab from the Mac; without it the
+    shell just returns to a prompt and the pane lingers.
     """
     d = await request.json()
     uuid = (d.get("uuid") or "").upper()
@@ -1763,7 +2268,7 @@ async def api_kill(request):
     try:
         await s.async_send_text("\x03")          # interrupt whatever is running
         await asyncio.sleep(0.2)
-        await s.async_send_text("/exit\r")       # let Claude close its session
+        await s.async_send_text(QUIT_CMD.get(provider_of(uuid), "/exit") + "\r")
         await asyncio.sleep(0.6)
     except Exception as e:
         print(f"  [kill] {uuid} graceful stop failed: {type(e).__name__}: {e}",
@@ -1773,7 +2278,7 @@ async def api_kill(request):
     except Exception as e:
         return web.json_response(
             {"error": f"could not close pane: {type(e).__name__}: {e}"}, status=500)
-    KNOWN_CLAUDE.discard(uuid)
+    KNOWN_AGENTS.pop(uuid, None)
     print(f"  [kill] closed pane {uuid}", flush=True)
     return web.json_response({"ok": True, "uuid": uuid})
 
@@ -1814,10 +2319,13 @@ async def api_mode(request):
     if not s:
         return web.json_response({"error": "no such pane"}, status=404)
     job = await s.async_get_variable("jobName") or ""
-    if not is_claude_pane(uuid, job, await pane_text(s)):
+    if not is_agent_pane(uuid, job, await pane_text(s)):
         return web.json_response(
-            {"error": f"pane is running {job!r} and shows no Claude UI — refusing"},
+            {"error": f"pane is running {job!r} and shows no agent UI — refusing"},
             status=403)
+    bad = claude_only(uuid, "mode")
+    if bad:
+        return bad
 
     if want == "bypass":
         return web.json_response(
@@ -1861,10 +2369,13 @@ async def api_effort(request):
     if not s:
         return web.json_response({"error": "no such pane"}, status=404)
     job = await s.async_get_variable("jobName") or ""
-    if not is_claude_pane(uuid, job, await pane_text(s)):
+    if not is_agent_pane(uuid, job, await pane_text(s)):
         return web.json_response(
-            {"error": f"pane is running {job!r} and shows no Claude UI — refusing"},
+            {"error": f"pane is running {job!r} and shows no agent UI — refusing"},
             status=403)
+    bad = claude_only(uuid, "effort")
+    if bad:
+        return bad
     await send_slash(s, f"/effort {level}")
     return web.json_response({"ok": True, "level": level})
 
@@ -1910,9 +2421,9 @@ async def api_cmd(request):
     if not s:
         return web.json_response({"error": "no such pane"}, status=404)
     job = await s.async_get_variable("jobName") or ""
-    if not is_claude_pane(uuid, job, await pane_text(s)):
+    if not is_agent_pane(uuid, job, await pane_text(s)):
         return web.json_response(
-            {"error": f"pane is running {job!r} and shows no Claude UI — refusing"},
+            {"error": f"pane is running {job!r} and shows no agent UI — refusing"},
             status=403)
     await send_slash(s, COMMANDS[name][0])
     return web.json_response({"ok": True, "cmd": COMMANDS[name][0]})
@@ -1941,10 +2452,13 @@ async def api_model(request):
     if not s:
         return web.json_response({"error": "no such pane"}, status=404)
     job = await s.async_get_variable("jobName") or ""
-    if not is_claude_pane(uuid, job, await pane_text(s)):
+    if not is_agent_pane(uuid, job, await pane_text(s)):
         return web.json_response(
-            {"error": f"pane is running {job!r} and shows no Claude UI — refusing"},
+            {"error": f"pane is running {job!r} and shows no agent UI — refusing"},
             status=403)
+    bad = claude_only(uuid, "model")
+    if bad:
+        return bad
     await send_slash(s, f"/model {MODELS[name]}")
     return web.json_response({"ok": True, "model": name,
                               "note": "also changed the global default"})
@@ -2053,10 +2567,10 @@ def _scan_history_file(path):
             if isinstance(content, list):
                 content = " ".join(c.get("text", "") for c in content
                                    if isinstance(c, dict) and c.get("type") == "text")
-            if isinstance(content, str) and content.strip() \
-                    and not any(n in content for n in _PROMPT_NOISE):
+            clean = human_prompt(content) if isinstance(content, str) else ""
+            if clean:
                 prompts += 1
-                clean = content.strip().replace("\n", " ")
+                clean = clean.replace("\n", " ")
                 if not title:
                     title = clean[:120]
                 if blurb_len < 1600:                 # bound the search text per session
@@ -2203,7 +2717,7 @@ async def api_resume(request):
         return web.json_response(
             {"error": f"could not open pane: {type(e).__name__}: {e}"}, status=500)
     uuid = sess.session_id.upper()
-    KNOWN_CLAUDE.add(uuid)
+    KNOWN_AGENTS[uuid] = "claude"
     await normalize_pane(sess)             # land at the canonical width from birth
     await sess.async_send_text(
         f"cd {shlex.quote(cwd)} && clear && claude --resume {shlex.quote(session_id)}\n")
@@ -2933,6 +3447,7 @@ async def main(connection):
     app.router.add_get("/api/fleet", api_fleet)
     app.router.add_get("/api/summary", api_summary)
     app.router.add_post("/api/key", api_key)
+    app.router.add_post("/api/select", api_select)
     app.router.add_post("/api/send", api_send)
     app.router.add_post("/api/whisper", api_whisper)
     app.router.add_post("/api/upload", api_upload)
@@ -3045,7 +3560,9 @@ async def main(connection):
     print(f"  passkeys registered: {len(auth.load_creds())}"
           f"   audit: {auth.AUDIT_FILE}\n")
     fleet, _ = await build_fleet()
-    print(f"  {len(fleet)} Claude panes visible, "
+    tally = ", ".join(f"{sum(1 for f in fleet if f['provider'] == p)} {p}"
+                      for p in PROVIDERS if any(f["provider"] == p for f in fleet))
+    print(f"  {len(fleet)} agent panes visible ({tally or 'none'}), "
           f"{sum(1 for f in fleet if f['sendable'])} sendable\n", flush=True)
     while True:
         await asyncio.sleep(3600)

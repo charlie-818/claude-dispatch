@@ -1,9 +1,10 @@
 # CC Dispatch
 
-**Phone control for a fleet of live Claude Code panes.**
+**Phone control for a fleet of live agent panes.**
 
-CC Dispatch reads and drives your *existing* iTerm2 Claude Code sessions from
-your phone. See every pane's status at a glance, read what each one is doing,
+CC Dispatch reads and drives your *existing* iTerm2 agent sessions — Claude Code,
+Codex and Grok — from your phone, each with its own critter on the yard so you can
+tell them apart. See every pane's status at a glance, read what each one is doing,
 answer permission prompts, send follow-ups, and get a push notification the
 moment a session finishes or needs input — all from a passkey-protected PWA
 served over your Tailnet.
@@ -19,15 +20,18 @@ it was.
 
 ```
   iTerm2 panes ──► iTerm2 Python API ──► server.py ──► PWA (static/index.html)
-   (Claude CC)                              │              ▲
+  (Claude/Codex/Grok)                       │              ▲
                                             │              │  passkey / WebAuthn
    ~/.claude/statusline.sh ─► /tmp/cc-status│              │  web-push
+   ~/.claude/cc-active.sh   ─►              │              │
         (fleet status .json) ───────────────┘         your phone, over Tailscale
 ```
 
-- **`server.py`** — aiohttp server. Polls iTerm2 for pane contents, reads
-  Claude session transcripts, exposes the fleet over HTTP/WebSocket, and sends
-  keystrokes back to panes that are confirmed to be running Claude.
+- **`server.py`** — aiohttp server. Polls iTerm2 for pane contents, reads each
+  session's transcript (Claude's `.jsonl`, Codex's rollout, Grok's chat log),
+  exposes the fleet over HTTP/WebSocket, and sends keystrokes back to panes that
+  are confirmed to be running one of those agents. Permission mode, effort and
+  model are Claude-only controls and are hidden for the others.
 - **`auth.py`** — WebAuthn/passkey login. The bootstrap token in the QR is
   single-use to register the first passkey; after that, only passkeys get in.
 - **`vault.py` + `dispatch-auth`** — the credential broker. An agent in a pane

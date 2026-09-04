@@ -329,6 +329,9 @@
   .act.no{border-color:rgba(255,107,97,.45);color:var(--red)}
   .act.slim{flex:1;justify-content:center;padding:12px 8px;font-size:13px}
   .act.stop{color:var(--red);border-color:rgba(255,107,97,.4)}
+  .act .num.check{background:none;font-size:16px;color:var(--fg)}
+  .act.sel .num.check{color:var(--green)}
+  .act.send{border-color:var(--green);background:rgba(61,220,92,.14);color:var(--green)}
 
   /* One box holds everything: the text on top, a fixed row of icons under it.
      The textarea grows and shrinks with the line count INSIDE the box, so the
@@ -431,6 +434,11 @@
   #yard-status{position:absolute;inset:0;display:flex;align-items:center;
     justify-content:center;padding:30px;text-align:center;color:var(--dim);
     font:13px/1.7 var(--ui);white-space:pre-wrap;word-break:break-word;z-index:8}
+  /* the waiting state: three faint dots, nothing else */
+  #yard-status.quiet{color:var(--line);animation:qfade .35s ease-out}
+  #yard-status.quiet .dots{gap:7px;margin:0}
+  #yard-status.quiet .dots i{width:6px;height:6px}
+  @keyframes qfade{from{opacity:0}}
   /* spawn a new clawd — terracotta FAB, bottom-right of the yard */
   .fab{position:absolute;right:16px;bottom:16px;z-index:9;
     width:54px;height:54px;border-radius:50%;border:none;cursor:pointer;
@@ -476,9 +484,17 @@
 
   .clawd{position:absolute;left:50%;bottom:15px;transform:translateX(-50%);
     width:44px;height:40px;overflow:visible}
-  .clawd .body{fill:#d77757}.clawd .shade{fill:#b85f42}
+  /* One block-guy chassis, three skins — the yard reads as one family and you can
+     still tell at a glance which client a pane is running. Claude keeps the
+     terracotta original; the other two wear their own maker's mark for a face. */
+  .clawd{--skin:#d77757;--skin-dark:#b85f42}
+  /* Codex takes OpenAI's chalk, Grok xAI's silver — both light bodies so the
+     brand mark, which is cut out in the page background, reads as the face. */
+  .critter.p-codex .clawd{--skin:#ececea;--skin-dark:#c3c3bd}
+  .critter.p-grok  .clawd{--skin:#b9bec7;--skin-dark:#8c929c}
+  .clawd .body{fill:var(--skin)}.clawd .shade{fill:var(--skin-dark)}
   .clawd .eye{fill:var(--bg);transition:all .12s}
-  .clawd .limb{fill:#d77757;transform-box:fill-box;transform-origin:center;
+  .clawd .limb{fill:var(--skin);transform-box:fill-box;transform-origin:center;
     transition:transform .18s ease}
   .stage.walk .clawd{animation:cbob .5s ease-in-out infinite}
   .stage.walk .arm-l,.stage.walk .leg-r{animation:cswA .5s ease-in-out infinite}
@@ -1255,20 +1271,33 @@ function renderFleet(rows){
   const panes = `${rows.length} pane${rows.length===1?'':'s'}`;
   document.querySelectorAll('.sb-panes').forEach(e => e.textContent = panes);
   const st = document.getElementById('yard-status');
-  if (!rows.length){ st.textContent = 'no Claude panes found'; st.style.display = 'flex'; }
+  clearTimeout(statusT);            // a queued loader must not surface over a live yard
+  st.className = '';
+  if (!rows.length){ st.textContent = 'no agent panes found'; st.style.display = 'flex'; }
   else { st.style.display = 'none'; }
   syncCritters(rows);
 }
 
 let tries = 0, fleetWS = null, fleetT = null;
 let lastContact = 0;          // last time the server answered anything at all
+let statusT = null;
 function status(msg){
   if (SESSIONS.length) return;
   const st = document.getElementById('yard-status');
-  // a trailing "…" becomes live bobbing dots — the connect screen never freezes
-  const i = msg.indexOf('…');
-  if (i >= 0) st.innerHTML = esc(msg.slice(0, i)) + DOTS + esc(msg.slice(i + 1));
-  else st.textContent = msg;
+  clearTimeout(statusT);
+  // Waiting is not news. A trailing "…" means "still working on it", and the
+  // yard says so with three dots and nothing else — no try counter, no socket
+  // URL, no close code. Held back for a beat too, so a redial that lands fast
+  // (the common case when the phone wakes) never flashes a loader at all.
+  if (msg.endsWith('…')){
+    st.className = 'quiet';
+    st.innerHTML = DOTS;
+    st.style.display = 'none';
+    statusT = setTimeout(() => { st.style.display = 'flex'; }, 400);
+    return;
+  }
+  st.className = '';                 // a real failure still gets its words
+  st.textContent = msg;
   st.style.display = 'flex';
 }
 
@@ -1288,6 +1317,43 @@ const CLAWD_SVG = `
   <rect class="eye" x="24" y="15" width="6" height="7" rx="2"/>
   <rect class="band" x="7" y="8" width="30" height="4.5" rx="2.25" fill="transparent"/>
 </svg>`;
+/* Codex wears the same chassis, but its face IS OpenAI's blossom: three bars
+   crossed at 60° with the hollow centre, cut out of the head in page black.
+   Antenna keeps the silhouette distinct at critter size. */
+const CODEX_SVG = `
+<svg class="clawd" viewBox="0 0 44 40">
+  <rect class="limb leg-l" x="13" y="30" width="7" height="10" rx="2"/>
+  <rect class="limb leg-r" x="24" y="30" width="7" height="10" rx="2"/>
+  <rect class="limb arm-l" x="1"  y="14" width="7" height="15" rx="3.5"/>
+  <rect class="limb arm-r" x="36" y="14" width="7" height="15" rx="3.5"/>
+  <rect class="body" x="21" y="0" width="2" height="6" rx="1"/>
+  <circle class="body" cx="22" cy="1.6" r="2.4"/>
+  <rect class="body"  x="7" y="6" width="30" height="28" rx="7"/>
+  <rect class="shade" x="7" y="26" width="30" height="8" rx="4"/>
+  <rect class="body"  x="7" y="6" width="30" height="24" rx="7"/>
+  <rect class="eye" x="12.5" y="15.7" width="19" height="4.6" rx="2.3"/>
+  <rect class="eye" x="12.5" y="15.7" width="19" height="4.6" rx="2.3" transform="rotate(60 22 18)"/>
+  <rect class="eye" x="12.5" y="15.7" width="19" height="4.6" rx="2.3" transform="rotate(-60 22 18)"/>
+  <circle class="body" cx="22" cy="18" r="2.1"/>
+</svg>`;
+/* Grok is the angular one — squared chassis, head vents, and xAI's slash-X for a
+   face: two hard diagonal strokes, the right one clipped short like the mark. */
+const GROK_SVG = `
+<svg class="clawd" viewBox="0 0 44 40">
+  <rect class="limb leg-l" x="13" y="30" width="7" height="10" rx="1"/>
+  <rect class="limb leg-r" x="24" y="30" width="7" height="10" rx="1"/>
+  <rect class="limb arm-l" x="1"  y="14" width="7" height="15" rx="1.5"/>
+  <rect class="limb arm-r" x="36" y="14" width="7" height="15" rx="1.5"/>
+  <rect class="body" x="6"  y="2" width="5" height="5" rx="1" transform="rotate(-20 8.5 4.5)"/>
+  <rect class="body" x="33" y="2" width="5" height="5" rx="1" transform="rotate(20 35.5 4.5)"/>
+  <rect class="body"  x="7" y="6" width="30" height="28" rx="2.5"/>
+  <rect class="shade" x="7" y="26" width="30" height="8" rx="2.5"/>
+  <rect class="body"  x="7" y="6" width="30" height="24" rx="2.5"/>
+  <path class="eye" d="M12.6 11.5h4.6L31.4 24.5h-4.6z"/>
+  <path class="eye" d="M26.8 11.5h4.6l-6.1 5.6h-4.6z"/>
+  <path class="eye" d="M17.5 18.9h4.6l-6.1 5.6h-4.6z"/>
+</svg>`;
+const SPRITES = {claude:CLAWD_SVG, codex:CODEX_SVG, grok:GROK_SVG};
 // The actual Claude bot mark (same as the brand logo): a subagent pet wears this
 // so a spawned Task reads instantly as "a little Claude helper".
 const PET_SVG = `<span class="pupbot"><svg viewBox="0 0 24 24" aria-hidden="true">`
@@ -1314,7 +1380,13 @@ const YARD_NOISE = /mode on|bypass permissions|shift\+tab|for shortcuts|context 
 const TOOL_RE = /^\s*[⏺●]\s*([A-Za-z]+)\((.*?)\)/;
 const VERBS = {Edit:'editing',MultiEdit:'editing',Write:'writing',Read:'reading',
   Bash:'running',Grep:'searching',Glob:'searching',Task:'dispatching',
-  WebFetch:'fetching',WebSearch:'searching'};
+  WebFetch:'fetching',WebSearch:'searching',
+  // Codex and Grok name the same jobs differently — map theirs onto the same verbs
+  // so a mixed yard reads in one voice.
+  exec:'running',exec_command:'running',shell:'running',
+  apply_patch:'editing',str_replace:'editing',
+  read_file:'reading',write_file:'writing',view_file:'reading',
+  web_search:'searching',browser:'fetching'};
 function shortArg(tool, a){
   a = a.trim().replace(/^["']|["']$/g,'');
   // Bash: show the command itself — that's the useful bit. File tools: just the
@@ -1523,10 +1595,11 @@ function paintIdentity(c){
 
 function spawnCritter(s){
   const el = document.createElement('div');
-  el.className = 'critter';
+  const prov = SPRITES[s.provider] ? s.provider : 'claude';
+  el.className = 'critter p-' + prov;
   el.innerHTML =
     `<div class="stage">
-       <div class="glow"></div>${CLAWD_SVG}
+       <div class="glow"></div>${SPRITES[prov]}
        <svg class="ring" viewBox="0 0 58 20">
          <path class="track" d="M4 18 A25 25 0 0 1 54 18"/>
          <path class="fill"  d="M4 18 A25 25 0 0 1 54 18"/>
@@ -1538,7 +1611,7 @@ function spawnCritter(s){
   el.onclick = () => tapClawd(CRITTERS.get(s.uuid));
   document.getElementById('yard').appendChild(el);
   const c = {
-    uuid:s.uuid, s, el,
+    uuid:s.uuid, s, el, prov,
     stage:el.querySelector('.stage'), bubble:el.querySelector('.bubble'),
     fill:el.querySelector('.fill'), nm:el.querySelector('.nm'),
     wtimer:el.querySelector('.wtimer'), _wt:'',
@@ -1859,7 +1932,7 @@ function tick(t){
 
     const moving = Math.abs(c.vx) + Math.abs(c.vy) > 0.05;
     const resting = st === 'idle' && Math.abs(c.vx) + Math.abs(c.vy) < 0.03;
-    const cls = 'critter ' + st + (c.facing < 0 ? ' left' : '')
+    const cls = 'critter p-' + c.prov + ' ' + st + (c.facing < 0 ? ' left' : '')
               + (resting ? ' resting' : '') + (c._pet ? ' petting' : '')
               + (c._fid ? ' fidget' : '');
     if (cls !== c._cls){ c.el.className = cls; c._cls = cls; }
@@ -1953,7 +2026,7 @@ function connectFleet(){
   if (fleetWS){ try { fleetWS.onclose = null; fleetWS.close(); } catch(e){} fleetWS = null; }
   const url = `${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/fleet${Q}`;
   tries++;
-  status(`connecting… (try ${tries})\n${url}`);
+  status('connecting…');
   let ws;
   try { ws = new WebSocket(url); }
   catch(e){ status('WebSocket ctor failed: ' + e.message); return; }
@@ -1962,11 +2035,13 @@ function connectFleet(){
   ws.onopen  = () => { opened = true; tries = 0; lastContact = Date.now();
                        unlockUI(); document.getElementById('brand').classList.add('live');
                        loadDevices(); status('connected, waiting for data…'); };
-  ws.onerror = () => status(`socket error — cannot reach ${location.host}`);
+  ws.onerror = () => { if (tries > 3) status(`socket error — cannot reach ${location.host}`); };
   ws.onclose = ev => {
     if (fleetWS === ws) fleetWS = null;
     document.getElementById('brand').classList.remove('live');
-    status(`disconnected (code ${ev.code}${ev.reason ? ' ' + ev.reason : ''})`);
+    // a drop the client is about to redial through is not worth a close code
+    status(opened || tries < 4 ? 'connecting…'
+                              : `disconnected (code ${ev.code}${ev.reason ? ' ' + ev.reason : ''})`);
     // A socket that OPENED and then dropped is a network event — just redial.
     // Only one that never opened can be the server refusing us (this one
     // answers an unauthorised handshake with a 401, so there is no auth close
@@ -2092,6 +2167,7 @@ function openSession(uuid){
   // owns the screen; open the ••• row deliberately if you want the chips.
   chipsOpen = false; applyChips();
   document.getElementById('st').textContent = current.name;
+  applyProviderChrome();
   updateMeta();
   document.querySelectorAll('.chips button:not(.ghost)').forEach(b => b.disabled = !current.sendable);
   document.getElementById('sendbtn').disabled = !current.sendable;
@@ -2409,10 +2485,22 @@ window.addEventListener('pageshow', onResume);
    still show, so keep it current on every state change. Model leads — it's the
    thing you most want confirmed at a glance. Context is the rule underneath
    rather than a number in the line. */
+/* Permission mode, effort and model are steered by reading Claude's own status
+   line. Codex and Grok draw nothing of the sort, so their chips would be dead
+   controls — hide them and name the client in the meta line instead. */
+function applyProviderChrome(){
+  const claude = !current || (current.provider || 'claude') === 'claude';
+  ['chip-mode', 'chip-effort', 'chip-model'].forEach(id => {
+    const b = document.getElementById(id);
+    if (b) b.style.display = claude ? '' : 'none';
+  });
+}
+
 function updateMeta(){
   if (!current) return;
+  const prov = current.provider && current.provider !== 'claude' ? current.provider : '';
   document.getElementById('sm').textContent =
-    [shortModel(current.model), current.mode,
+    [prov, shortModel(current.model), current.mode,
      EFFORT_LABEL[current.effort]].filter(Boolean).join(' · ');
   paintCtxBar(current.ctx);
 }
@@ -2729,6 +2817,21 @@ function dismissPrompt(){
   renderActions();
 }
 
+// Pending checked-state for the multi-select branch — keyed off promptKey()
+// so a new prompt resets it but repeated frames of the SAME prompt (the pane
+// re-sends its whole screen on every poll) don't clobber what's been ticked.
+let multiPending = null;
+let multiPendingKey = null;
+
+async function sendSelect(){
+  if (!current || !livePrompt) return;
+  buzz(12);
+  try {
+    await post('/api/select', {uuid: current.uuid, indices: [...multiPending], submit: true});
+    livePrompt = null; renderActions();
+  } catch(e){ toast(String(e.message), true); }
+}
+
 function renderActions(){
   const bar = document.getElementById('actionbar');
   const send = current && current.sendable;
@@ -2738,7 +2841,6 @@ function renderActions(){
 
   if (livePrompt && livePrompt.options && livePrompt.options.length
       && promptKey(livePrompt) !== promptDismissed){
-    // Claude is asking. Show ITS options verbatim, one tap each.
     bar.className = 'actionbar on';
     const grab = document.createElement('div');
     grab.className = 'grab';
@@ -2750,6 +2852,35 @@ function renderActions(){
     }
     const wrap = document.createElement('div');
     wrap.className = 'opts';
+
+    if (livePrompt.multi){
+      // Checkbox dialog — taps only toggle local state, a Send button submits.
+      const pk = promptKey(livePrompt);
+      if (multiPendingKey !== pk){
+        multiPending = new Set(livePrompt.options.filter(o => o.checked).map(o => o.index));
+        multiPendingKey = pk;
+      }
+      livePrompt.options.forEach(o => {
+        const b = document.createElement('button');
+        const on = multiPending.has(o.index);
+        b.className = 'act' + (on ? ' sel' : '');
+        b.innerHTML = `<span class="num check">${on ? '☑' : '☐'}</span><span>${esc(o.label)}</span>`;
+        b.onclick = () => {
+          if (on) multiPending.delete(o.index); else multiPending.add(o.index);
+          renderActions();
+        };
+        wrap.appendChild(b);
+      });
+      bar.appendChild(wrap);
+      const go = document.createElement('button');
+      go.className = 'act slim send';
+      go.textContent = 'Send';
+      go.onclick = sendSelect;
+      bar.appendChild(go);
+      return;
+    }
+
+    // Claude is asking. Show ITS options verbatim, one tap each.
     livePrompt.options.forEach(o => {
       const b = document.createElement('button');
       const yes = /^(yes|approve|accept|proceed|allow)/i.test(o.label);
