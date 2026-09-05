@@ -1608,7 +1608,6 @@ function spawnCritter(s){
     _bhtml:'', _bat:0,          // last announced command + when, for the bubble
     _fling:false, gkey:groupKey(s),
     pace: 0.7 + Math.random() * 0.7,   // personal walking speed — no two alike
-    tx:null, ty:0,
     drag:false,
   };
   CRITTERS.set(s.uuid, c);
@@ -1678,6 +1677,7 @@ function attachDrag(c){
     clearTimeout(hold);
     if (!on) return;
     on = false; c.drag = false; dragEndedAt = Date.now();
+    c.tx = c.ty = null;                    // dropped here — don't walk back to the old spot
     el.classList.remove('dragging', 'doomed');
     trash.classList.remove('on', 'hot');
     if (e.type === 'pointercancel') return;
