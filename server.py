@@ -18,7 +18,7 @@ Safety model
 
 Run:  .venv/bin/python server.py
 """
-import asyncio, errno, json, os, re, secrets, signal, sys, time, glob, pathlib, subprocess
+import asyncio, errno, json, os, re, secrets, shutil, signal, sys, time, glob, pathlib, subprocess
 from aiohttp import web, WSMsgType
 import iterm2
 import auth
@@ -1543,6 +1543,31 @@ def _transcript_digest(path, max_chars=20000):
     return (first + "\n" + tail)[:max_chars + 2000]
 
 
+def _claude_bin():
+    """Absolute path to the `claude` CLI. The server is started by launchd/iTerm2
+    with a minimal PATH, so a bare "claude" raises FileNotFoundError and every
+    brief comes back blank — look it up on PATH first, then the usual install
+    locations, and cache the answer."""
+    global _CLAUDE_BIN
+    if _CLAUDE_BIN is not None:
+        return _CLAUDE_BIN
+    found = shutil.which("claude")
+    if not found:
+        for c in (pathlib.Path.home() / ".npm-packages/bin/claude",
+                  pathlib.Path.home() / ".claude/local/claude",
+                  pathlib.Path.home() / ".local/bin/claude",
+                  pathlib.Path("/opt/homebrew/bin/claude"),
+                  pathlib.Path("/usr/local/bin/claude")):
+            if os.access(c, os.X_OK):
+                found = str(c)
+                break
+    _CLAUDE_BIN = found or "claude"
+    return _CLAUDE_BIN
+
+
+_CLAUDE_BIN = None
+
+
 async def _claude_summary(digest, running):
     """Ask `claude -p` for the two lines. Returns (summary, success|None)."""
     ask = (
@@ -1558,7 +1583,7 @@ async def _claude_summary(digest, running):
         # --model haiku: the label is a cheap two-line job; the fast model keeps it
         # snappy and cheap while staying on the local subscription (no API key).
         proc = await asyncio.create_subprocess_exec(
-            "claude", "-p", "--model", "haiku", ask,
+            _claude_bin(), "-p", "--model", "haiku", ask,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=45)
     except Exception as e:
@@ -3419,7 +3444,10 @@ def _install_hot_reload(runner):
         _reloading = True
         print("  [reload] SIGHUP — draining socket, then re-exec", flush=True)
         try:
-            await runner.cleanup()      # release the listen socket so the new image binds clean
+            # Bounded: an open websocket makes runner.cleanup() wait forever, which
+            # used to leave the process alive, unbound and never re-exec'd — a
+            # deploy that silently took the server down. Five seconds, then go.
+            await asyncio.wait_for(runner.cleanup(), timeout=5)
         except Exception as e:
             print(f"  [reload] drain failed (continuing): {type(e).__name__}: {e}", flush=True)
         try:
