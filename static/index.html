@@ -913,6 +913,15 @@
     font-weight:600;padding:10px 18px}
   #lock .warn{color:var(--amber);font:12px/1.6 var(--mono);max-width:22em}
   #lock .err{color:var(--red);font:12px/1.5 var(--mono);max-width:22em;min-height:1em}
+  /* Reconnecting is not news. The cover drops into the same quiet three dots the
+     yard uses while it waits — no shouted headline, no paragraph explaining that
+     a socket is redialling. One loader, one language, everywhere. */
+  #lock.quiet{gap:20px}
+  #lock.quiet .mark svg{opacity:.45}
+  #lock.quiet h2{color:var(--line);letter-spacing:0;margin:0}
+  #lock.quiet h2 .dots{gap:7px;margin:0}
+  #lock.quiet h2 .dots i{width:6px;height:6px}
+  #lock.quiet p,#lock.quiet .warn{display:none}
 </style>
 </head>
 <body>
@@ -4217,12 +4226,16 @@ function lock(why){
   const m = document.getElementById('lock-msg');
   const b = document.getElementById('lock-go');
   const w = document.getElementById('lock-warn');
+  const box = document.getElementById('lock');
+  box.classList.remove('quiet');
   document.getElementById('lock-err').textContent = '';
   if (why === 'reconnect'){
-    t.innerHTML = 'Reconnecting' + DOTS;
-    m.textContent = 'Waking the fleet — this reconnects on its own, no need to reopen.';
+    // Same quiet loader as the yard: three dots and nothing else.
+    box.classList.add('quiet');
+    t.innerHTML = DOTS;
+    m.textContent = ''; w.textContent = '';
     b.style.display = 'none';
-    document.getElementById('lock').classList.add('on');
+    box.classList.add('on');
     return;
   }
   if (why === 'gone'){
