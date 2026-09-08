@@ -51,3 +51,6 @@ deploy.out
 
 # Live server pidfile (for SIGHUP hot-reload)
 .server.pid
+
+# Reboot-resilience watchdog log
+ensure.out
