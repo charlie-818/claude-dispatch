@@ -14,7 +14,7 @@ dependencies = [
     "iterm2==2.22",
     "cryptography==50.0.1",
     "webauthn==3.0.0",
-    "pywebpush==2.4.0",
+    "pywebpush==2.5.0",
     "pillow==12.3.0",
     "qrcode==8.2",
 ]
