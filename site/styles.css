@@ -150,7 +150,7 @@ section { padding-block: var(--section); position: relative; }
 .fab { position: absolute; right: 14px; bottom: 14px; width: 40px; height: 40px; border-radius: 50%; background: #d77757; color: #1a0e08; display: grid; place-items: center; font: 300 26px/1 var(--ui); box-shadow: 0 6px 16px rgba(0, 0, 0, .5); z-index: 5; }
 
 /* critters: same chassis, CSS and sprites as the PWA */
-.critter { position: absolute; left: var(--x); top: var(--y); width: 80px; height: 100px; z-index: 4; display: flex; flex-direction: column; align-items: center; transform: translateX(-50%); }
+.critter { position: absolute; left: var(--x); top: var(--y); width: 80px; height: 100px; z-index: 4; display: flex; flex-direction: column; align-items: center; transform: translateX(-50%) scale(.8); transform-origin: top center; }
 .critter .stage { position: relative; width: 64px; height: 58px; }
 .ring { position: absolute; left: 50%; bottom: 2px; transform: translateX(-50%); width: 64px; height: 38px; z-index: 0; }
 .ring path { fill: none; stroke-linecap: round; }
@@ -178,7 +178,7 @@ section { padding-block: var(--section); position: relative; }
 @keyframes tpulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
 .idle .wtimer { color: #9fb0c4; background: #2b3440; box-shadow: none; }
 .idle .wtimer::before { display: none; }
-.bubble { position: absolute; left: 50%; bottom: 104px; transform: translateX(-50%); max-width: 158px; padding: 5px 9px; border-radius: 9px; background: var(--panel3); border: 1px solid var(--line2); font: 500 10.5px/1.3 var(--m); color: var(--fg); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; z-index: 3; }
+.bubble { position: absolute; left: 50%; bottom: 104px; transform: translateX(-50%); max-width: 140px; padding: 4px 8px; border-radius: 8px; background: var(--panel3); border: 1px solid var(--line2); font: 500 10.5px/1.3 var(--m); color: var(--fg); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; z-index: 3; }
 .bubble::after { content: ""; position: absolute; left: 50%; bottom: -5px; width: 8px; height: 8px; background: var(--panel3); border-right: 1px solid var(--line2); border-bottom: 1px solid var(--line2); transform: translateX(-50%) rotate(45deg); }
 .bubble .verb { color: var(--green); }
 .bubble .b { display: none; }
@@ -237,13 +237,6 @@ section { padding-block: var(--section); position: relative; }
 .banner img { width: 26px; height: 26px; border-radius: 7px; }
 .banner b { display: block; color: var(--fg); font-weight: 600; }
 @keyframes banner { 0%, 64% { transform: translateY(-150%); } 67%, 90% { transform: translateY(0); } 93%, 100% { transform: translateY(-150%); } }
-
-/* fireflies around the phone */
-.fly { position: absolute; width: 3px; height: 3px; border-radius: 50%; background: var(--sun); box-shadow: 0 0 8px var(--sun); opacity: 0; animation: fly 9s ease-in-out infinite; pointer-events: none; }
-.fly:nth-of-type(2) { animation-delay: -3s; animation-duration: 11s; background: var(--moss); box-shadow: 0 0 8px var(--moss); }
-.fly:nth-of-type(3) { animation-delay: -6s; animation-duration: 13s; }
-.fly:nth-of-type(4) { animation-delay: -1.5s; animation-duration: 10s; background: var(--sky); box-shadow: 0 0 8px var(--sky); }
-@keyframes fly { 0% { opacity: 0; transform: translate(0, 0); } 20% { opacity: .9; } 50% { opacity: .3; transform: translate(18px, -26px); } 80% { opacity: .8; } 100% { opacity: 0; transform: translate(-8px, -52px); } }
 
 /* ── "Why" — three truths, set as type not cards ─────────────────────────── */
 .why { --tint: var(--ember); border-top: 1px solid var(--fog); }
@@ -387,7 +380,7 @@ table.config td:first-child code { color: var(--sun); }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   .r { opacity: 1; transform: none; transition: none; }
-  .yard *, .yard *::before, .yard *::after, .fly { animation: none !important; }
+  .yard *, .yard *::before, .yard *::after { animation: none !important; }
   .sheet { transform: none; }
   .banner { display: none; }
   .asks .bubble { border-color: var(--red); color: var(--amber); }
