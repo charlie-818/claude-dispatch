@@ -114,118 +114,135 @@ section { padding-block: var(--section); position: relative; }
 .hero .req span::before { content: "·"; margin-right: 8px; color: var(--fog); }
 .hero .req span:first-child::before { content: none; }
 
-/* legend: the colour vocabulary, taught once */
-.legend { display: flex; flex-wrap: wrap; gap: 10px 18px; margin-top: 22px; font-family: var(--mono); font-size: 12.5px; letter-spacing: .03em; color: var(--hay); }
-.legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; vertical-align: 1px; background: var(--c); }
-
-/* ── The yard (signature) ────────────────────────────────────────────────── */
-.yard { position: relative; aspect-ratio: 560 / 600; max-width: 520px; margin-inline: auto; width: 100%; }
-.yard svg.scene { width: 100%; height: 100%; }
-.scene .ground { fill: var(--dusk); }
-.scene .contour { fill: none; stroke: var(--fog); stroke-width: 1; stroke-dasharray: 3 9; opacity: .9; }
-.scene .row-line { stroke: var(--fog); stroke-width: 1; }
-.scene .name { fill: var(--bone); font: 600 13px var(--mono); }
-.scene .tag { fill: var(--hay-2); font: 11px var(--mono); letter-spacing: .06em; }
-.scene .line { fill: var(--hay); font: 12.5px var(--mono); }
-.scene .line.alt { opacity: 0; }
-.scene .head { fill: var(--dusk); stroke: var(--c); stroke-width: 1.6; }
-.scene .ear { fill: var(--c); }
-.scene .eye { fill: var(--c); }
-.scene .dot { fill: var(--c); }
-.scene .halo { fill: var(--c); opacity: 0; }
-.cr { --c: var(--sun); }
-.cr.idle { --c: var(--moss); }
-.cr.codex { --c: var(--sky); }
-.cr.grok { --c: var(--lilac); }
-
-/* breathing status dots (all critters) */
-.scene .dot { transform-box: fill-box; transform-origin: center; animation: breathe 2.6s ease-in-out infinite; }
-.cr:nth-child(2) .dot { animation-delay: -.8s; }
-.cr:nth-child(3) .dot { animation-delay: -1.6s; }
-.cr:nth-child(4) .dot { animation-delay: -2.2s; }
-@keyframes breathe { 0%, 100% { transform: scale(1); opacity: .85; } 50% { transform: scale(1.35); opacity: 1; } }
-
-/* The story. One 16 s loop shared by every animated part below. */
-.yard .story { animation-duration: 16s; animation-iteration-count: infinite; animation-timing-function: linear; }
-/* critter #2 asks for permission at 2 s, is answered at 6 s */
-.cr.asks .head, .cr.asks .ear, .cr.asks .eye, .cr.asks .dot { animation-name: ask-color; }
-.cr.asks .head { animation-name: ask-head; }
-@keyframes ask-color {
-  0%, 12% { fill: var(--sun); }
-  14%, 38% { fill: var(--ember); }
-  40%, 100% { fill: var(--sun); }
-}
-@keyframes ask-head {
-  0%, 12% { stroke: var(--sun); fill: var(--dusk); }
-  14%, 38% { stroke: var(--ember); fill: color-mix(in srgb, var(--ember) 14%, var(--dusk)); }
-  40%, 100% { stroke: var(--sun); fill: var(--dusk); }
-}
-.cr.asks .ear { transform-box: fill-box; transform-origin: bottom center; animation-name: ears; }
-@keyframes ears { 0%, 12% { transform: none; } 14%, 38% { transform: translateY(-3px) scaleY(1.25); } 40%, 100% { transform: none; } }
-.cr.asks .halo { transform-box: fill-box; transform-origin: center; animation-name: halo; }
-@keyframes halo { 0%, 13% { opacity: 0; transform: scale(.4); } 16% { opacity: .35; transform: scale(1); } 24%, 100% { opacity: 0; transform: scale(2.2); } }
-.cr.asks .line.a { animation-name: line-out-mid; }
-.cr.asks .line.b { animation-name: line-in-mid; }
-@keyframes line-out-mid { 0%, 12% { opacity: 1; } 14%, 40% { opacity: 0; } 42%, 100% { opacity: 1; } }
-@keyframes line-in-mid { 0%, 12% { opacity: 0; } 14%, 38% { opacity: 1; } 40%, 100% { opacity: 0; } }
-/* critter #3 finishes at 10 s */
-.cr.finishes .head { animation-name: fin-head; }
-.cr.finishes .ear, .cr.finishes .eye, .cr.finishes .dot { animation-name: fin-color; }
-@keyframes fin-color { 0%, 60% { fill: var(--sun); } 63%, 100% { fill: var(--moss); } }
-@keyframes fin-head { 0%, 60% { stroke: var(--sun); } 63%, 100% { stroke: var(--moss); } }
-.cr.finishes .line.a { animation-name: line-out-late; }
-.cr.finishes .line.b { animation-name: line-in-late; }
-@keyframes line-out-late { 0%, 60% { opacity: 1; } 63%, 100% { opacity: 0; } }
-@keyframes line-in-late { 0%, 60% { opacity: 0; } 63%, 100% { opacity: 1; } }
-
-/* phone card: rises at 3 s, tapped at 5 s, gone by 6.5 s */
+/* ── The yard (signature): the app's own fleet view, in a phone ──────────── */
+.phone-wrap { position: relative; width: min(100%, 360px); margin-inline: auto; }
 .phone {
-  position: absolute; right: 4%; bottom: 6%; width: min(62%, 300px);
-  background: #0e1a1a; border: 1px solid var(--fog); border-radius: 18px;
-  padding: 14px 16px 16px; box-shadow: 0 30px 60px -20px rgba(0, 0, 0, .8), 0 0 0 1px rgba(255, 255, 255, .02) inset;
-  font-family: var(--mono); font-size: 12.5px; color: var(--hay);
-  transform: translateY(120%); opacity: 0;
-  animation-name: phone;
+  position: relative; border-radius: 42px; padding: 10px;
+  background: #0a0c0f; border: 1px solid #2a3138;
+  box-shadow: 0 40px 80px -30px rgba(0, 0, 0, .9), 0 0 0 1px rgba(255, 255, 255, .03) inset;
 }
-.phone .who { display: flex; align-items: center; gap: 8px; color: var(--bone); font-weight: 600; margin-bottom: 6px; }
-.phone .who i { width: 8px; height: 8px; border-radius: 50%; background: var(--ember); box-shadow: 0 0 10px var(--ember); }
-.phone .ask { color: var(--bone); margin-bottom: 12px; line-height: 1.5; }
-.phone .ask code { color: var(--ember); }
-.phone .acts { display: flex; gap: 8px; }
-.phone .acts span { flex: 1; text-align: center; padding: 9px 0; border-radius: 10px; border: 1px solid var(--fog); }
-.phone .acts .allow { background: var(--moss); color: #0b1a0a; border-color: transparent; font-weight: 600; position: relative; overflow: hidden; }
-.phone .acts .allow::after { content: ""; position: absolute; inset: 0; margin: auto; width: 12px; height: 12px; border-radius: 50%; background: rgba(255, 255, 255, .8); transform: scale(0); opacity: 0; animation: tap 16s linear infinite; }
-@keyframes phone {
-  0%, 17% { transform: translateY(120%); opacity: 0; }
-  20%, 38% { transform: translateY(0); opacity: 1; }
-  41%, 100% { transform: translateY(120%); opacity: 0; }
+.phone::before { content: ""; position: absolute; left: 50%; top: 18px; width: 92px; height: 24px; border-radius: 14px; background: #000; transform: translateX(-50%); z-index: 6; }
+.app {
+  --bg: #14171b; --panel2: #22262d; --panel3: #2a2f38; --line: #333944; --line2: #434b58;
+  --fg: #f2f5f9; --dim: #a8b2bf; --red: #ff6b61; --amber: #ffc233; --green: #3ddc5c; --blue: #66a9ff;
+  --ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --m: ui-monospace, "SF Mono", Menlo, monospace;
+  display: flex; flex-direction: column; height: 640px; border-radius: 34px; overflow: hidden;
+  background: var(--bg); color: var(--fg); font: 13px/1.4 var(--ui);
 }
-@keyframes tap { 0%, 30% { transform: scale(0); opacity: 0; } 31% { opacity: .9; } 36% { transform: scale(14); opacity: 0; } 100% { transform: scale(0); opacity: 0; } }
+.app-top { display: flex; align-items: center; gap: 8px; padding: 40px 14px 10px; background: var(--panel2); border-bottom: 1px solid var(--line); }
+.app-top .wm { display: flex; align-items: center; gap: 7px; flex: 1; font: 700 12px var(--ui); letter-spacing: .16em; }
+.app-top .wm b { color: var(--fg); } .app-top .wm { color: #d77757; }
+.app-top .wm svg { width: 18px; height: 16px; }
+.app-top .wm .body { fill: #d77757; } .app-top .wm .shade { fill: #b85f42; } .app-top .wm .eye { fill: var(--panel2); }
+.app-top .host { font: 500 11px var(--ui); color: var(--fg); border: 1px solid var(--line2); border-radius: 6px; padding: 4px 8px; }
+.app-top .host i { font-style: normal; color: var(--dim); margin-left: 4px; }
+.app-top .bell { width: 26px; height: 26px; border: 1px solid var(--line2); border-radius: 6px; display: grid; place-items: center; color: var(--fg); }
+.app-top .bell svg { width: 15px; height: 15px; }
+.app-sub { display: flex; justify-content: space-between; align-items: center; padding: 5px 12px; font: 10.5px var(--m); color: var(--dim); background: var(--panel2); border-bottom: 1px solid var(--line); }
+.app-sub .usage { display: flex; align-items: center; gap: 6px; }
+.app-sub .usage i { width: 40px; height: 4px; border-radius: 2px; background: var(--line2); position: relative; overflow: hidden; }
+.app-sub .usage i::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: var(--u); background: var(--green); border-radius: 2px; }
+.yard { position: relative; flex: 1; min-height: 0; overflow: hidden; background: var(--bg); }
+.tabbar { display: flex; border-top: 1px solid var(--line2); background: var(--panel2); padding-bottom: 14px; }
+.tabbar span { flex: 1; text-align: center; padding: 10px 0 6px; font: 600 9.5px var(--ui); letter-spacing: .12em; text-transform: uppercase; color: var(--dim); border-top: 2px solid transparent; }
+.tabbar span.cur { color: var(--blue); border-top-color: var(--blue); }
+.fab { position: absolute; right: 14px; bottom: 14px; width: 40px; height: 40px; border-radius: 50%; background: #d77757; color: #1a0e08; display: grid; place-items: center; font: 300 26px/1 var(--ui); box-shadow: 0 6px 16px rgba(0, 0, 0, .5); z-index: 5; }
 
-/* push toast: lands at 10.5 s */
-.toast {
-  position: absolute; left: 4%; bottom: 7%; width: min(64%, 300px);
-  display: flex; gap: 10px; align-items: flex-start;
-  background: #0e1a1a; border: 1px solid var(--fog); border-radius: 14px; padding: 11px 13px;
-  font-family: var(--mono); font-size: 12px; color: var(--hay);
-  box-shadow: 0 20px 50px -20px rgba(0, 0, 0, .8);
-  transform: translateY(140%); opacity: 0;
-  animation-name: toast;
-}
-.toast img { width: 22px; height: 22px; border-radius: 6px; margin-top: 1px; }
-.toast b { display: block; color: var(--bone); font-weight: 600; margin-bottom: 1px; }
-.toast .moss { color: var(--moss); }
-@keyframes toast {
-  0%, 64% { transform: translateY(140%); opacity: 0; }
-  67%, 90% { transform: translateY(0); opacity: 1; }
-  93%, 100% { transform: translateY(140%); opacity: 0; }
-}
+/* critters: same chassis, CSS and sprites as the PWA */
+.critter { position: absolute; left: var(--x); top: var(--y); width: 80px; height: 100px; z-index: 4; display: flex; flex-direction: column; align-items: center; transform: translateX(-50%); }
+.critter .stage { position: relative; width: 64px; height: 58px; }
+.ring { position: absolute; left: 50%; bottom: 2px; transform: translateX(-50%); width: 64px; height: 38px; z-index: 0; }
+.ring path { fill: none; stroke-linecap: round; }
+.ring .track { stroke: var(--line); stroke-width: 3; }
+.ring .fill { stroke: var(--blue); stroke-width: 3; stroke-dasharray: calc(var(--pct) * 105) 200; }
+.clawd { position: absolute; left: 50%; bottom: 15px; transform: translateX(-50%); width: 44px; height: 40px; overflow: visible; --skin: #d77757; --skin-dark: #b85f42; }
+.p-codex .clawd { --skin: #ececea; --skin-dark: #c3c3bd; }
+.p-grok .clawd { --skin: #b9bec7; --skin-dark: #8c929c; }
+.clawd .body { fill: var(--skin); } .clawd .shade { fill: var(--skin-dark); }
+.clawd .eye { fill: var(--bg); }
+.clawd .band { fill: var(--band); opacity: .9; }
+.clawd .limb { fill: var(--skin); transform-box: fill-box; transform-origin: center; }
+.working .clawd { animation: cbob .68s ease-in-out infinite; }
+.working .arm-l, .working .leg-r { animation: cswA .68s ease-in-out infinite; }
+.working .arm-r, .working .leg-l { animation: cswB .68s ease-in-out infinite; }
+@keyframes cbob { 50% { transform: translateX(-50%) translateY(-1.5px); } }
+@keyframes cswA { 50% { transform: rotate(11deg); } }
+@keyframes cswB { 50% { transform: rotate(-11deg); } }
+.resting .clawd { transform: translateX(-50%) translateY(4px) scaleY(.9); }
+.glow { position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%); width: 52px; height: 14px; border-radius: 50%; filter: blur(6px); opacity: .5; background: var(--green); }
+.idle .glow { opacity: 0; }
+.ctag { margin-top: 2px; font: 600 10.5px var(--m); letter-spacing: .02em; color: var(--fg); max-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 6px; border-radius: 4px; background: rgba(20, 23, 27, .72); }
+.wtimer { margin-top: 2px; font: 600 10px var(--m); letter-spacing: .04em; color: #2a1206; background: var(--amber); padding: 1px 6px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0, 0, 0, .4); }
+.wtimer::before { content: ""; display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: #2a1206; margin-right: 4px; vertical-align: middle; animation: tpulse 1.1s ease-in-out infinite; }
+@keyframes tpulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+.idle .wtimer { color: #9fb0c4; background: #2b3440; box-shadow: none; }
+.idle .wtimer::before { display: none; }
+.bubble { position: absolute; left: 50%; bottom: 104px; transform: translateX(-50%); max-width: 158px; padding: 5px 9px; border-radius: 9px; background: var(--panel3); border: 1px solid var(--line2); font: 500 10.5px/1.3 var(--m); color: var(--fg); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; z-index: 3; }
+.bubble::after { content: ""; position: absolute; left: 50%; bottom: -5px; width: 8px; height: 8px; background: var(--panel3); border-right: 1px solid var(--line2); border-bottom: 1px solid var(--line2); transform: translateX(-50%) rotate(45deg); }
+.bubble .verb { color: var(--green); }
+.bubble .b { display: none; }
 
-/* fireflies: ambient, cheap */
+/* The story: one 16 s loop. */
+.yard .story { animation-duration: 16s; animation-iteration-count: infinite; animation-timing-function: linear; }
+.asks .stage { animation: ask-hop 16s linear infinite; }
+@keyframes ask-hop { 0%, 12%, 40%, 100% { transform: none; } 14%, 18%, 22%, 26%, 30%, 34%, 38% { transform: translateY(0); } 16%, 20%, 24%, 28%, 32%, 36% { transform: translateY(-8px); } }
+.asks .glow { animation: ask-glow 16s linear infinite; }
+@keyframes ask-glow { 0%, 12%, 40%, 100% { background: var(--green); opacity: .5; } 14%, 38% { background: var(--red); opacity: .75; } }
+.asks .bubble { animation: ask-bubble 16s linear infinite; }
+@keyframes ask-bubble { 0%, 12%, 40%, 100% { border-color: var(--line2); color: var(--fg); } 14%, 38% { border-color: var(--red); color: var(--amber); } }
+.asks .bubble .a { animation: hide-mid 16s linear infinite; }
+.asks .bubble .b { display: inline; animation: show-mid 16s linear infinite; }
+.asks .bubble .b .verb { animation: verb-red 16s linear infinite; }
+@keyframes verb-red { 0%, 12%, 40%, 100% { color: var(--green); } 14%, 38% { color: var(--red); } }
+@keyframes hide-mid { 0%, 12% { display: inline; } 14%, 38% { display: none; } 40%, 100% { display: inline; } }
+@keyframes show-mid { 0%, 12% { display: none; } 14%, 38% { display: inline; } 40%, 100% { display: none; } }
+.asks .wtimer { animation: chip-hide 16s linear infinite; }
+@keyframes chip-hide { 0%, 12%, 40%, 100% { opacity: 1; } 14%, 38% { opacity: 0; } }
+.finishes .bubble .a { animation: hide-late 16s linear infinite; }
+.finishes .bubble .b { display: inline; animation: show-late 16s linear infinite; }
+@keyframes hide-late { 0%, 60% { display: inline; } 63%, 100% { display: none; } }
+@keyframes show-late { 0%, 60% { display: none; } 63%, 100% { display: inline; } }
+.finishes .clawd, .finishes .limb { animation-play-state: running; }
+.finishes .glow { animation: fin-glow 16s linear infinite; }
+@keyframes fin-glow { 0%, 60% { opacity: .5; } 63%, 100% { opacity: 0; } }
+.finishes .wtimer { animation: fin-chip 16s linear infinite; }
+@keyframes fin-chip { 0%, 60% { color: #2a1206; background: var(--amber); } 63%, 100% { color: #9fb0c4; background: #2b3440; } }
+
+/* permission sheet: rises at 3 s, tapped at 5 s, gone by 6.5 s */
+.sheet {
+  position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 7;
+  background: var(--panel2); border: 1px solid var(--line2); border-radius: 14px; padding: 12px 14px 14px;
+  box-shadow: 0 -20px 40px -20px rgba(0, 0, 0, .8);
+  transform: translateY(130%); animation-name: sheet;
+}
+.sheet-h { display: flex; align-items: center; gap: 8px; font: 600 12px var(--ui); color: var(--fg); margin-bottom: 8px; }
+.sheet-h i { width: 8px; height: 8px; border-radius: 50%; background: var(--red); box-shadow: 0 0 10px var(--red); }
+.sheet pre { margin: 0 0 12px; font: 12px var(--m); color: var(--amber); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.sheet .acts { display: flex; gap: 8px; }
+.sheet .acts span { flex: 1; text-align: center; padding: 10px 0; border-radius: 10px; border: 1px solid var(--line2); font: 600 12px var(--ui); color: var(--fg); }
+.sheet .acts .allow { background: var(--green); color: #0b1a0a; border-color: transparent; position: relative; overflow: hidden; }
+.sheet .acts .allow::after { content: ""; position: absolute; inset: 0; margin: auto; width: 12px; height: 12px; border-radius: 50%; background: rgba(255, 255, 255, .8); transform: scale(0); opacity: 0; animation: tap 16s linear infinite; }
+@keyframes sheet { 0%, 17% { transform: translateY(130%); } 20%, 38% { transform: translateY(0); } 41%, 100% { transform: translateY(130%); } }
+@keyframes tap { 0%, 30% { transform: scale(0); opacity: 0; } 31% { opacity: .9; } 36% { transform: scale(16); opacity: 0; } 100% { transform: scale(0); opacity: 0; } }
+
+/* push banner: lands at 10.5 s */
+.banner {
+  position: absolute; left: 10px; right: 10px; top: 8px; z-index: 7;
+  display: flex; gap: 10px; align-items: center;
+  background: rgba(34, 38, 45, .96); border: 1px solid var(--line2); border-radius: 14px; padding: 9px 12px;
+  font: 11px var(--ui); color: var(--dim); box-shadow: 0 16px 40px -16px rgba(0, 0, 0, .9);
+  transform: translateY(-150%); animation-name: banner;
+}
+.banner img { width: 26px; height: 26px; border-radius: 7px; }
+.banner b { display: block; color: var(--fg); font-weight: 600; }
+@keyframes banner { 0%, 64% { transform: translateY(-150%); } 67%, 90% { transform: translateY(0); } 93%, 100% { transform: translateY(-150%); } }
+
+/* fireflies around the phone */
 .fly { position: absolute; width: 3px; height: 3px; border-radius: 50%; background: var(--sun); box-shadow: 0 0 8px var(--sun); opacity: 0; animation: fly 9s ease-in-out infinite; pointer-events: none; }
-.fly:nth-child(2) { animation-delay: -3s; animation-duration: 11s; background: var(--moss); box-shadow: 0 0 8px var(--moss); }
-.fly:nth-child(3) { animation-delay: -6s; animation-duration: 13s; }
-.fly:nth-child(4) { animation-delay: -1.5s; animation-duration: 10s; background: var(--sky); box-shadow: 0 0 8px var(--sky); }
+.fly:nth-of-type(2) { animation-delay: -3s; animation-duration: 11s; background: var(--moss); box-shadow: 0 0 8px var(--moss); }
+.fly:nth-of-type(3) { animation-delay: -6s; animation-duration: 13s; }
+.fly:nth-of-type(4) { animation-delay: -1.5s; animation-duration: 10s; background: var(--sky); box-shadow: 0 0 8px var(--sky); }
 @keyframes fly { 0% { opacity: 0; transform: translate(0, 0); } 20% { opacity: .9; } 50% { opacity: .3; transform: translate(18px, -26px); } 80% { opacity: .8; } 100% { opacity: 0; transform: translate(-8px, -52px); } }
 
 /* ── "Why" — three truths, set as type not cards ─────────────────────────── */
@@ -362,9 +379,7 @@ table.config td:first-child code { color: var(--sun); }
   .nav nav { gap: 14px; font-size: 14px; }
   .nav nav a.gh { padding: 6px 11px; }
   .posts { grid-template-columns: 1fr; }
-  .yard { max-width: 100%; }
-  .phone { width: 72%; }
-  .toast { width: 74%; }
+  .app { height: 600px; }
   .paths li { grid-template-columns: 1fr; gap: 4px; }
   .paths small { text-align: left; }
 }
@@ -372,9 +387,10 @@ table.config td:first-child code { color: var(--sun); }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   .r { opacity: 1; transform: none; transition: none; }
-  .yard .story, .scene .dot, .fly, .phone .acts .allow::after { animation: none !important; }
-  .phone { transform: none; opacity: 1; }
-  .toast { display: none; }
-  .cr.asks { --c: var(--ember); }
-  .cr.asks .line.a { opacity: 0; } .cr.asks .line.b { opacity: 1; }
+  .yard *, .yard *::before, .yard *::after, .fly { animation: none !important; }
+  .sheet { transform: none; }
+  .banner { display: none; }
+  .asks .bubble { border-color: var(--red); color: var(--amber); }
+  .asks .bubble .a { display: none; } .asks .bubble .b { display: inline; }
+  .asks .glow { background: var(--red); opacity: .75; }
 }

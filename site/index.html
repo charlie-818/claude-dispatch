@@ -44,100 +44,58 @@
         </a>
         <a class="btn btn-ghost" href="how-it-works.html">How it works</a>
       </div>
-      <div class="legend" aria-label="Status colours">
-        <span><i style="--c:var(--sun)"></i>working</span>
-        <span><i style="--c:var(--ember)"></i>needs you</span>
-        <span><i style="--c:var(--moss)"></i>done</span>
-        <span><i style="--c:var(--sky)"></i>Codex</span>
-        <span><i style="--c:var(--lilac)"></i>Grok</span>
-      </div>
       <div class="req"><span>macOS + iTerm2</span><span>Python 3.11</span><span>Tailscale</span><span>Apache-2.0</span></div>
     </div>
 
-    <div class="yard" aria-label="Animated fleet: one session asks permission, you approve it from your phone, another finishes and sends a push notification">
-      <svg class="scene" viewBox="0 0 560 600" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <rect class="ground" x="0" y="0" width="560" height="600" rx="22"/>
-        <!-- contour grass -->
-        <path class="contour" d="M0 90 Q140 70 280 90 T560 90"/>
-        <path class="contour" d="M0 190 Q140 170 280 190 T560 190"/>
-        <path class="contour" d="M0 290 Q140 270 280 290 T560 290"/>
-        <path class="contour" d="M0 390 Q140 370 280 390 T560 390"/>
-        <path class="contour" d="M0 490 Q140 470 280 490 T560 490"/>
-        <text class="tag" x="28" y="42">THE YARD · 4 PANES</text>
-        <text class="tag" x="532" y="42" text-anchor="end">bigmac.ts.net</text>
-
-        <!-- api-server: working -->
-        <g class="cr" transform="translate(28,112)">
-          <circle class="halo" cx="22" cy="24" r="26"/>
-          <rect class="head" x="5" y="10" width="34" height="30" rx="9"/>
-          <polygon class="ear" points="9,12 12,0 20,10"/>
-          <polygon class="ear" points="35,12 32,0 24,10"/>
-          <rect class="eye" x="14" y="22" width="4" height="6" rx="1.5"/>
-          <rect class="eye" x="26" y="22" width="4" height="6" rx="1.5"/>
-          <circle class="dot" cx="66" cy="18" r="4"/>
-          <text class="name" x="78" y="22">api-server</text>
-          <text class="line a" x="66" y="42">refactoring auth middleware…</text>
-        </g>
-
-        <!-- dashboard-ui: asks for permission -->
-        <g class="cr asks" transform="translate(28,212)">
-          <circle class="halo story" cx="22" cy="24" r="26"/>
-          <rect class="head story" x="5" y="10" width="34" height="30" rx="9"/>
-          <polygon class="ear story" points="9,12 12,0 20,10"/>
-          <polygon class="ear story" points="35,12 32,0 24,10"/>
-          <rect class="eye story" x="14" y="22" width="4" height="6" rx="1.5"/>
-          <rect class="eye story" x="26" y="22" width="4" height="6" rx="1.5"/>
-          <circle class="dot story" cx="66" cy="18" r="4"/>
-          <text class="name" x="78" y="22">dashboard-ui</text>
-          <text class="line a story" x="66" y="42">running vitest --coverage…</text>
-          <text class="line b alt story" x="66" y="42">wants to run  rm -rf dist/</text>
-        </g>
-
-        <!-- infra-scripts: Codex, finishes -->
-        <g class="cr codex finishes" transform="translate(28,312)">
-          <circle class="halo" cx="22" cy="24" r="26"/>
-          <rect class="head story" x="5" y="10" width="34" height="30" rx="9"/>
-          <polygon class="ear story" points="9,12 12,0 20,10"/>
-          <polygon class="ear story" points="35,12 32,0 24,10"/>
-          <rect class="eye story" x="14" y="22" width="4" height="6" rx="1.5"/>
-          <rect class="eye story" x="26" y="22" width="4" height="6" rx="1.5"/>
-          <circle class="dot story" cx="66" cy="18" r="4"/>
-          <text class="name" x="78" y="22">infra-scripts</text>
-          <text class="tag" x="190" y="22">CODEX</text>
-          <text class="line a story" x="66" y="42">applying terraform plan…</text>
-          <text class="line b alt story" x="66" y="42">done — 12 resources changed</text>
-        </g>
-
-        <!-- data-pipeline: Grok, idle -->
-        <g class="cr grok idle" transform="translate(28,412)">
-          <circle class="halo" cx="22" cy="24" r="26"/>
-          <rect class="head" x="5" y="10" width="34" height="30" rx="9"/>
-          <polygon class="ear" points="9,12 12,0 20,10"/>
-          <polygon class="ear" points="35,12 32,0 24,10"/>
-          <rect class="eye" x="14" y="22" width="4" height="6" rx="1.5"/>
-          <rect class="eye" x="26" y="22" width="4" height="6" rx="1.5"/>
-          <circle class="dot" cx="66" cy="18" r="4"/>
-          <text class="name" x="78" y="22">data-pipeline</text>
-          <text class="tag" x="196" y="22">GROK</text>
-          <text class="line a" x="66" y="42">idle — awaiting follow-up</text>
-        </g>
-      </svg>
-
-      <div class="toast story" aria-hidden="true">
-        <img src="assets/icon-512.png" alt="">
-        <div><b>infra-scripts finished</b><span class="moss">done</span> — 12 resources changed</div>
+    <div class="phone-wrap" aria-label="The Yard: the fleet view of the CC Dispatch app. One session asks permission, you approve it, another finishes and sends a push notification.">
+      <div class="phone">
+        <div class="app">
+          <div class="app-top">
+            <span class="wm"><svg viewBox="0 0 44 40" aria-hidden="true"><rect class="body" x="7" y="6" width="30" height="28" rx="7"/><rect class="shade" x="7" y="26" width="30" height="8" rx="4"/><rect class="body" x="7" y="6" width="30" height="24" rx="7"/><rect class="eye" x="14" y="15" width="6" height="7" rx="2"/><rect class="eye" x="24" y="15" width="6" height="7" rx="2"/></svg>THE <b>YARD</b></span>
+            <span class="host">BigMac <i>⌄</i></span>
+            <span class="bell"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M3.5 11.5h9l-1.2-1.6V7a3.3 3.3 0 0 0-6.6 0v2.9zM6.5 13.5a1.5 1.5 0 0 0 3 0"/></svg></span>
+          </div>
+          <div class="app-sub"><span>4 panes</span><span class="usage"><i style="--u:62%"></i>62%</span></div>
+          <div class="yard">
+            <div class="banner story"><img src="assets/icon-512.png" alt=""><div><b>infra-scripts finished</b>done — 12 resources changed</div></div>
+        <div class="critter working" style="--x:27%;--y:15%;--band:#66a9ff">
+          <div class="bubble on"><span class="verb">Edit</span> auth/middleware.py</div>
+          <div class="stage"><svg class="ring" viewBox="0 0 64 38" aria-hidden="true"><path class="track" d="M2 36 A30 26 0 0 1 62 36"/><path class="fill" d="M2 36 A30 26 0 0 1 62 36" style="--pct:.62"/></svg><span class="glow"></span><svg class="clawd" viewBox="0 0 44 40" aria-hidden="true"><rect class="limb leg-l" x="13" y="30" width="7" height="10" rx="2"/><rect class="limb leg-r" x="24" y="30" width="7" height="10" rx="2"/><rect class="limb arm-l" x="1" y="14" width="7" height="15" rx="3.5"/><rect class="limb arm-r" x="36" y="14" width="7" height="15" rx="3.5"/><rect class="body" x="7" y="6" width="30" height="28" rx="7"/><rect class="shade" x="7" y="26" width="30" height="8" rx="4"/><rect class="body" x="7" y="6" width="30" height="24" rx="7"/><rect class="eye" x="14" y="15" width="6" height="7" rx="2"/><rect class="eye" x="24" y="15" width="6" height="7" rx="2"/><rect class="band" x="7" y="8" width="30" height="4.5" rx="2.25"/></svg></div>
+          <span class="ctag">api-server</span>
+          <span class="wtimer">0:19</span>
+        </div>
+        <div class="critter working asks" style="--x:62%;--y:30%;--band:#bd8dff">
+          <div class="bubble on"><span class="a"><span class="verb">Bash</span> vitest --coverage</span><span class="b"><span class="verb">Bash</span> rm -rf dist/</span></div>
+          <div class="stage"><svg class="ring" viewBox="0 0 64 38" aria-hidden="true"><path class="track" d="M2 36 A30 26 0 0 1 62 36"/><path class="fill" d="M2 36 A30 26 0 0 1 62 36" style="--pct:.35"/></svg><span class="glow"></span><svg class="clawd" viewBox="0 0 44 40" aria-hidden="true"><rect class="limb leg-l" x="13" y="30" width="7" height="10" rx="2"/><rect class="limb leg-r" x="24" y="30" width="7" height="10" rx="2"/><rect class="limb arm-l" x="1" y="14" width="7" height="15" rx="3.5"/><rect class="limb arm-r" x="36" y="14" width="7" height="15" rx="3.5"/><rect class="body" x="7" y="6" width="30" height="28" rx="7"/><rect class="shade" x="7" y="26" width="30" height="8" rx="4"/><rect class="body" x="7" y="6" width="30" height="24" rx="7"/><rect class="eye" x="14" y="15" width="6" height="7" rx="2"/><rect class="eye" x="24" y="15" width="6" height="7" rx="2"/><rect class="band" x="7" y="8" width="30" height="4.5" rx="2.25"/></svg></div>
+          <span class="ctag">dashboard-ui</span>
+          <span class="wtimer">4:07</span>
+        </div>
+        <div class="critter working finishes p-codex" style="--x:30%;--y:56%;--band:#5bd6cd">
+          <div class="bubble on"><span class="a"><span class="verb">apply</span> terraform plan</span><span class="b">done · 12 changed</span></div>
+          <div class="stage"><svg class="ring" viewBox="0 0 64 38" aria-hidden="true"><path class="track" d="M2 36 A30 26 0 0 1 62 36"/><path class="fill" d="M2 36 A30 26 0 0 1 62 36" style="--pct:.8"/></svg><span class="glow"></span><svg class="clawd" viewBox="0 0 44 40" aria-hidden="true"><rect class="limb leg-l" x="13" y="30" width="7" height="10" rx="2"/><rect class="limb leg-r" x="24" y="30" width="7" height="10" rx="2"/><rect class="limb arm-l" x="1" y="14" width="7" height="15" rx="3.5"/><rect class="limb arm-r" x="36" y="14" width="7" height="15" rx="3.5"/><rect class="body" x="21" y="0" width="2" height="6" rx="1"/><circle class="body" cx="22" cy="1.6" r="2.4"/><rect class="body" x="7" y="6" width="30" height="28" rx="7"/><rect class="shade" x="7" y="26" width="30" height="8" rx="4"/><rect class="body" x="7" y="6" width="30" height="24" rx="7"/><rect class="eye" x="12.5" y="15.7" width="19" height="4.6" rx="2.3"/><rect class="eye" x="12.5" y="15.7" width="19" height="4.6" rx="2.3" transform="rotate(60 22 18)"/><rect class="eye" x="12.5" y="15.7" width="19" height="4.6" rx="2.3" transform="rotate(-60 22 18)"/><circle class="body" cx="22" cy="18" r="2.1"/></svg></div>
+          <span class="ctag">infra-scripts</span>
+          <span class="wtimer">12:41</span>
+        </div>
+        <div class="critter idle resting p-grok" style="--x:70%;--y:70%;--band:#ffc233">
+          <div class="bubble on">awaiting follow-up</div>
+          <div class="stage"><svg class="ring" viewBox="0 0 64 38" aria-hidden="true"><path class="track" d="M2 36 A30 26 0 0 1 62 36"/><path class="fill" d="M2 36 A30 26 0 0 1 62 36" style="--pct:.2"/></svg><span class="glow"></span><svg class="clawd" viewBox="0 0 44 40" aria-hidden="true"><rect class="limb leg-l" x="13" y="30" width="7" height="10" rx="1"/><rect class="limb leg-r" x="24" y="30" width="7" height="10" rx="1"/><rect class="limb arm-l" x="1" y="14" width="7" height="15" rx="1.5"/><rect class="limb arm-r" x="36" y="14" width="7" height="15" rx="1.5"/><rect class="body" x="6" y="2" width="5" height="5" rx="1" transform="rotate(-20 8.5 4.5)"/><rect class="body" x="33" y="2" width="5" height="5" rx="1" transform="rotate(20 35.5 4.5)"/><rect class="body" x="7" y="6" width="30" height="28" rx="2.5"/><rect class="shade" x="7" y="26" width="30" height="8" rx="2.5"/><rect class="body" x="7" y="6" width="30" height="24" rx="2.5"/><path class="eye" d="M12.6 11.5h4.6L31.4 24.5h-4.6z"/><path class="eye" d="M26.8 11.5h4.6l-6.1 5.6h-4.6z"/><path class="eye" d="M17.5 18.9h4.6l-6.1 5.6h-4.6z"/></svg></div>
+          <span class="ctag">data-pipeline</span>
+          <span class="wtimer">2h 10m</span>
+        </div>
+            <div class="sheet story">
+              <div class="sheet-h"><i></i>dashboard-ui wants to run</div>
+              <pre>rm -rf dist/</pre>
+              <div class="acts"><span class="allow">Allow</span><span>Deny</span></div>
+            </div>
+            <span class="fab" aria-hidden="true">+</span>
+          </div>
+          <div class="tabbar"><span class="cur">Fleet</span><span>Usage</span><span>History</span><span>Auth</span></div>
+        </div>
       </div>
-
-      <div class="phone story" aria-hidden="true">
-        <div class="who"><i></i>dashboard-ui</div>
-        <div class="ask">wants to run <code>rm -rf dist/</code></div>
-        <div class="acts"><span class="allow">Allow</span><span>Deny</span></div>
-      </div>
-
-      <span class="fly" style="left:62%;top:30%"></span>
-      <span class="fly" style="left:80%;top:55%"></span>
-      <span class="fly" style="left:48%;top:75%"></span>
-      <span class="fly" style="left:88%;top:20%"></span>
+      <span class="fly" style="left:6%;top:30%"></span>
+      <span class="fly" style="left:92%;top:55%"></span>
+      <span class="fly" style="left:2%;top:75%"></span>
+      <span class="fly" style="left:96%;top:20%"></span>
     </div>
   </div>
 </section>
