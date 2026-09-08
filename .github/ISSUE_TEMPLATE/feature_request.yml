@@ -1,0 +1,31 @@
+name: Feature Request
+description: Suggest a new feature
+title: "[feature] "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: Proposed solution
+      description: How should this be implemented?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What other approaches did you consider?
+  - type: textarea
+    id: security_impact
+    attributes:
+      label: Security implications
+      description: Does this change the security model? Any risks?
+    validations:
+      required: true

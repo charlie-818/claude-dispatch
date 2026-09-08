@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CC Dispatch — phone control for a fleet of live agent panes</title>
+<meta name="description" content="CC Dispatch attaches to your existing iTerm2 Claude Code, Codex and Grok sessions and puts them in your pocket: status at a glance, permission prompts, follow-ups, and push notifications over a passkey-protected PWA.">
+<meta property="og:title" content="CC Dispatch">
+<meta property="og:description" content="Phone control for a fleet of live agent panes running in iTerm2. Attaches, never restarts.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="assets/icon-512.png">
+<meta name="theme-color" content="#14171b">
+<link rel="icon" type="image/png" href="assets/icon-512.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="index.html">
+      <img src="assets/icon-512.png" alt="CC Dispatch logo">
+      <span>CC <b>Dispatch</b></span>
+    </a>
+    <nav>
+      <a href="how-it-works.html">How it works</a>
+      <a href="https://github.com/charlie-818/claude-dispatch/tree/main/docs">Docs</a>
+      <a class="gh" href="https://github.com/charlie-818/claude-dispatch">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap">
+    <div>
+      <h1>Your agent fleet, <span>in your pocket</span>.</h1>
+      <p class="sub">CC Dispatch attaches to the Claude Code, Codex and Grok
+        sessions already running in your iTerm2 — reads them, answers their
+        permission prompts, and pushes you the moment one needs you. Nothing
+        gets restarted.</p>
+      <div class="cta-row">
+        <a class="btn primary" href="https://github.com/charlie-818/claude-dispatch">Get it on GitHub</a>
+        <a class="btn secondary" href="how-it-works.html">See how it works</a>
+      </div>
+    </div>
+    <div class="phone" aria-hidden="true">
+      <div class="screen">
+        <div class="sbar"><span class="dot"></span> The Yard</div>
+        <div class="pane-row">
+          <span class="status working"></span>
+          <div class="meta">
+            <div class="name">api-server</div>
+            <div class="desc">refactoring auth middleware...</div>
+          </div>
+          <span class="tag">CC</span>
+        </div>
+        <div class="pane-row">
+          <span class="status needs"></span>
+          <div class="meta">
+            <div class="name">dashboard-ui</div>
+            <div class="desc">wants to run rm -rf dist/</div>
+          </div>
+          <span class="tag">CC</span>
+        </div>
+        <div class="pane-row">
+          <span class="status idle"></span>
+          <div class="meta">
+            <div class="name">infra-scripts</div>
+            <div class="desc">done — awaiting follow-up</div>
+          </div>
+          <span class="tag">CODEX</span>
+        </div>
+        <div class="pane-row">
+          <span class="status working"></span>
+          <div class="meta">
+            <div class="name">data-pipeline</div>
+            <div class="desc">running migration 0042...</div>
+          </div>
+          <span class="tag">GROK</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="why">
+  <div class="wrap">
+    <p class="eyebrow">Why</p>
+    <h2>You're not at your desk. The fleet is still running.</h2>
+    <div class="why-grid">
+      <div class="why-item">
+        <h3>Permission prompts don't wait</h3>
+        <p>An agent stalls on an approval and the whole session sits idle
+          until you're back at the keyboard.</p>
+      </div>
+      <div class="why-item">
+        <h3>Status is invisible from afar</h3>
+        <p>Is it working, stuck, or done? Without eyes on the pane there's no
+          way to tell.</p>
+      </div>
+      <div class="why-item">
+        <h3>Restarting loses context</h3>
+        <p>Most remote-access tools mean spinning up a fresh session. CC
+          Dispatch just looks at the one that's already running.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <p class="eyebrow">Features</p>
+    <h2>Everything the fleet needs, nothing it doesn't</h2>
+    <div class="feat-grid">
+      <div class="feat-card">
+        <div class="ico">&gt;_</div>
+        <h3>Attach, not restart</h3>
+        <p>Reads existing iTerm2 panes via the Python API. Kill the server and
+          your fleet is exactly as it was.</p>
+      </div>
+      <div class="feat-card">
+        <div class="ico">✓</div>
+        <h3>Permission prompts from your pocket</h3>
+        <p>See what an agent wants to do and approve or deny it from your
+          phone.</p>
+      </div>
+      <div class="feat-card">
+        <div class="ico">🔔</div>
+        <h3>Push when it needs you</h3>
+        <p>Web-push notifications the moment a session finishes or stalls on
+          input.</p>
+      </div>
+      <div class="feat-card">
+        <div class="ico">🔑</div>
+        <h3>Passkey-only</h3>
+        <p>WebAuthn login. A single-use bootstrap token in the startup QR
+          registers your first passkey — then it's passkeys only.</p>
+      </div>
+      <div class="feat-card">
+        <div class="ico">🔒</div>
+        <h3>Loopback + Tailscale</h3>
+        <p>The server binds 127.0.0.1 only. <code>tailscale serve</code>
+          terminates TLS — no listener for a stranger to find.</p>
+      </div>
+      <div class="feat-card">
+        <div class="ico">⚿</div>
+        <h3>Credential broker</h3>
+        <p>An agent requests a secret, you approve on your phone, it's
+          released just-in-time from an encrypted vault.</p>
+      </div>
+      <div class="feat-card">
+        <div class="ico">🎤</div>
+        <h3>Voice input</h3>
+        <p>Local whisper.cpp transcription — nothing leaves the machine.</p>
+      </div>
+      <div class="feat-card">
+        <div class="ico">⌘</div>
+        <h3>Multi-agent</h3>
+        <p>Claude Code, Codex and Grok panes, side by side, each with its own
+          critter on the yard.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <p class="eyebrow">Install</p>
+    <h2>Install in 5 minutes</h2>
+    <p class="lede">Runs on the Mac that's already running your iTerm2 fleet.
+      macOS, iTerm2 with the Python API enabled, and Tailscale.</p>
+    <div class="steps">
+      <div class="step">
+        <div class="num"></div>
+        <div>
+          <h3>Clone the repo</h3>
+          <div class="code-block">
+            <pre>git clone https://github.com/charlie-818/claude-dispatch.git
+cd claude-dispatch</pre>
+            <button class="copy-btn" type="button">copy</button>
+          </div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="num"></div>
+        <div>
+          <h3>Set up the virtualenv</h3>
+          <div class="code-block">
+            <pre>python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt</pre>
+            <button class="copy-btn" type="button">copy</button>
+          </div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="num"></div>
+        <div>
+          <h3>Wire up the fleet-status hooks</h3>
+          <p>So every Claude Code pane shows up in the fleet view.</p>
+          <div class="code-block">
+            <pre>cp examples/statusline.sh examples/cc-state.sh ~/.claude/
+chmod +x ~/.claude/statusline.sh ~/.claude/cc-state.sh</pre>
+            <button class="copy-btn" type="button">copy</button>
+          </div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="num"></div>
+        <div>
+          <h3>Expose the port over your Tailnet</h3>
+          <div class="code-block">
+            <pre>tailscale serve --bg 8788</pre>
+            <button class="copy-btn" type="button">copy</button>
+          </div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="num"></div>
+        <div>
+          <h3>Start the server</h3>
+          <p>Run it from inside iTerm2, so it inherits <code>ITERM2_COOKIE</code>.</p>
+          <div class="code-block">
+            <pre>.venv/bin/python server.py</pre>
+            <button class="copy-btn" type="button">copy</button>
+          </div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="num"></div>
+        <div>
+          <h3>Scan the QR code</h3>
+          <p>The server prints a QR with the bootstrap token baked in. Scan
+            it, register a passkey, add the PWA to your home screen. Every
+            visit after that is passkey-only.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="security">
+  <div class="wrap">
+    <p class="eyebrow">Security posture</p>
+    <div class="sec-grid">
+      <div class="sec-item"><p>Binds loopback (127.0.0.1) only — reachability
+        is Tailscale's job.</p></div>
+      <div class="sec-item"><p>Passkey registration requires the one-time
+        bootstrap token and a real TLS origin.</p></div>
+      <div class="sec-item"><p>Writes are gated — keystrokes only reach panes
+        confirmed to be running a known agent.</p></div>
+      <div class="sec-item"><p>Integration secrets live in an encrypted
+        vault, key held in the macOS keychain.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="contribute" class="contrib">
+  <div class="wrap">
+    <p class="eyebrow">Contribute</p>
+    <h2>Built in the open</h2>
+    <p class="lede">Fork it, pick up a good-first-issue, or read the
+      contributing guide before opening a PR.</p>
+    <div class="cta-row">
+      <a class="btn primary" href="https://github.com/charlie-818/claude-dispatch/fork">Fork the repo</a>
+      <a class="btn secondary" href="https://github.com/charlie-818/claude-dispatch/issues">Good first issues</a>
+      <a class="btn secondary" href="https://github.com/charlie-818/claude-dispatch/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>Apache-2.0</span>
+    <a href="https://github.com/charlie-818/claude-dispatch">github.com/charlie-818/claude-dispatch</a>
+  </div>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>

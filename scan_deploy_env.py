@@ -20,7 +20,7 @@ import urllib.request
 from pathlib import Path
 
 import vault
-from sweep_auth import classify, SECRETY_NAME, mask
+from sweep_auth import SECRETY_NAME, classify
 
 # Vercel/Netlify inject their own non-secret build vars — skip the noise.
 SKIP = {"VERCEL", "CI", "NODE_ENV", "NEXT_RUNTIME", "TURBO_REMOTE_ONLY", "NX_DAEMON"}
@@ -137,7 +137,7 @@ def main():
     for key, (prov, source, where) in sorted(reg.items()):
         label = vault.PROVIDERS.get(prov, {}).get("label", prov)
         try:
-            cid = vault.add_source_cred(prov, f"{label} — {key}", key, source, [])
+            vault.add_source_cred(prov, f"{label} — {key}", key, source, [])
             print(f"  + {key:<28} [{prov}]  from {where}")
         except Exception as e:
             print(f"  ! {key:<28} FAILED: {type(e).__name__}: {e}")

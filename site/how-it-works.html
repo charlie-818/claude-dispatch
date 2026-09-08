@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>How it works — CC Dispatch</title>
+<meta name="description" content="Architecture, request lifecycle, auth flow, credential broker and threat model for CC Dispatch.">
+<meta property="og:title" content="How CC Dispatch works">
+<meta property="og:description" content="Architecture, request lifecycle, auth flow and threat model for CC Dispatch.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="assets/icon-512.png">
+<meta name="theme-color" content="#14171b">
+<link rel="icon" type="image/png" href="assets/icon-512.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="index.html">
+      <img src="assets/icon-512.png" alt="CC Dispatch logo">
+      <span>CC <b>Dispatch</b></span>
+    </a>
+    <nav>
+      <a href="how-it-works.html">How it works</a>
+      <a href="https://github.com/charlie-818/claude-dispatch/tree/main/docs">Docs</a>
+      <a class="gh" href="https://github.com/charlie-818/claude-dispatch">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="hiw-layout">
+  <nav class="toc" aria-label="Table of contents">
+    <p class="eyebrow">On this page</p>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#architecture">Architecture</a></li>
+      <li><a href="#components">Components</a></li>
+      <li><a href="#lifecycle">Request lifecycle</a></li>
+      <li><a href="#fleet-status">Fleet status pipeline</a></li>
+      <li><a href="#auth">Auth flow</a></li>
+      <li><a href="#broker">Credential broker</a></li>
+      <li><a href="#notifications">Notifications</a></li>
+      <li><a href="#voice">Voice</a></li>
+      <li><a href="#operations">Operations</a></li>
+      <li><a href="#configuration">Configuration</a></li>
+      <li><a href="#threat-model">Threat model</a></li>
+      <li><a href="#faq">FAQ</a></li>
+    </ul>
+  </nav>
+
+  <main class="hiw-content">
+    <h1>How CC Dispatch works</h1>
+
+    <section id="overview">
+      <h2>Overview</h2>
+      <p>CC Dispatch is a small aiohttp server that sits next to iTerm2 on your
+        Mac and reads the panes that are already running Claude Code, Codex or
+        Grok. It polls each pane's screen and transcript through the iTerm2
+        Python API, exposes a fleet view over HTTP and WebSocket, and — only
+        in response to an authenticated request from the installed PWA —
+        sends keystrokes back into a pane. It never launches, restarts, or
+        kills a session; if you stop the server, your terminals are untouched.
+        Reachability comes from Tailscale, which terminates TLS and proxies a
+        single loopback port to your Tailnet, and the only way in is a
+        passkey registered from a one-time bootstrap QR code.</p>
+    </section>
+
+    <section id="architecture">
+      <h2>Architecture</h2>
+      <p>Two data paths feed the server: the live iTerm2 panes themselves, and
+        a side channel of fleet-status files written by Claude Code hooks.
+        Everything the server produces flows out to the PWA over Tailscale,
+        including push notifications that don't require the app to be open.</p>
+      <div class="diagram">
+        <svg viewBox="0 0 900 380" role="img" aria-labelledby="arch-title arch-desc" xmlns="http://www.w3.org/2000/svg">
+          <title id="arch-title">CC Dispatch architecture diagram</title>
+          <desc id="arch-desc">iTerm2 panes connect through the iTerm2 Python API to server.py. Statusline and cc-state hooks write fleet status files that server.py also reads. server.py talks to the PWA on your phone over WebSocket and HTTP via tailscale serve, and pushes notifications through web-push.</desc>
+          <defs>
+            <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+              <path d="M0,0 L6,3 L0,6 Z" fill="#a8b2bf"></path>
+            </marker>
+          </defs>
+          <style>
+            .box{fill:#22262d;stroke:#333944;stroke-width:1}
+            .lbl{fill:#f2f5f9;font:600 13px ui-monospace,monospace;text-anchor:middle}
+            .sub{fill:#a8b2bf;font:11px ui-monospace,monospace;text-anchor:middle}
+            .edge{stroke:#a8b2bf;stroke-width:1.5;fill:none;marker-end:url(#arrow)}
+            .accent{stroke:#d77757}
+          </style>
+
+          <rect class="box" x="20" y="30" width="150" height="60" rx="8"></rect>
+          <text class="lbl" x="95" y="55">iTerm2 panes</text>
+          <text class="sub" x="95" y="72">Claude / Codex / Grok</text>
+
+          <rect class="box" x="220" y="30" width="170" height="60" rx="8"></rect>
+          <text class="lbl" x="305" y="55">iTerm2 Python API</text>
+          <text class="sub" x="305" y="72">screen + transcript read</text>
+
+          <rect class="box" x="440" y="130" width="140" height="60" rx="8" stroke="#d77757"></rect>
+          <text class="lbl" x="510" y="155">server.py</text>
+          <text class="sub" x="510" y="172">aiohttp</text>
+
+          <rect class="box" x="20" y="220" width="150" height="60" rx="8"></rect>
+          <text class="lbl" x="95" y="242">statusline.sh</text>
+          <text class="lbl" x="95" y="258">cc-state.sh</text>
+
+          <rect class="box" x="220" y="220" width="170" height="60" rx="8"></rect>
+          <text class="lbl" x="305" y="250">/tmp/cc-status</text>
+          <text class="sub" x="305" y="266">fleet status JSON</text>
+
+          <rect class="box" x="680" y="60" width="180" height="60" rx="8"></rect>
+          <text class="lbl" x="770" y="85">tailscale serve</text>
+          <text class="sub" x="770" y="102">TLS termination</text>
+
+          <rect class="box" x="680" y="200" width="180" height="60" rx="8"></rect>
+          <text class="lbl" x="770" y="222">PWA on phone</text>
+          <text class="sub" x="770" y="238">WebSocket + HTTP</text>
+
+          <rect class="box" x="440" y="290" width="150" height="60" rx="8"></rect>
+          <text class="lbl" x="515" y="312">web-push</text>
+          <text class="sub" x="515" y="328">VAPID</text>
+
+          <path class="edge" d="M170,60 H220"></path>
+          <path class="edge" d="M390,60 C420,60 420,140 440,150"></path>
+          <path class="edge" d="M170,250 H220"></path>
+          <path class="edge" d="M390,250 C420,250 420,190 440,180"></path>
+          <path class="edge" d="M580,150 C630,120 640,100 680,90"></path>
+          <path class="edge" d="M580,160 C630,190 640,210 680,220"></path>
+          <path class="edge" d="M770,120 V200"></path>
+          <path class="edge" d="M510,190 V290"></path>
+          <path class="edge" d="M590,320 C630,320 650,270 680,240"></path>
+        </svg>
+      </div>
+    </section>
+
+    <section id="components">
+      <h2>Components</h2>
+      <h3>server.py</h3>
+      <p>The aiohttp server. Polls iTerm2 for pane contents, reads each
+        session's transcript (Claude's <code>.jsonl</code>, Codex's rollout,
+        Grok's chat log), exposes the fleet over HTTP/WebSocket, and sends
+        keystrokes back to panes confirmed to be running one of those agents.
+        Permission mode, effort and model controls are Claude-only and hidden
+        for the others.</p>
+      <h3>auth.py</h3>
+      <p>WebAuthn/passkey login. The bootstrap token baked into the startup
+        QR is single-use, for registering the first passkey; after that, only
+        passkeys get in.</p>
+      <h3>vault.py + dispatch-auth</h3>
+      <p>The credential broker. An agent in a pane runs
+        <code>dispatch-auth request &lt;service&gt;</code>; you approve it on
+        your phone; the secret is released just-in-time and never touches
+        disk in plaintext.</p>
+      <h3>static/ (PWA + sw.js)</h3>
+      <p>The installable PWA: the fleet view, chat view, and a service worker
+        that receives web-push notifications even when the app isn't open.</p>
+      <h3>examples/ hooks</h3>
+      <p>Ready-to-use <code>statusline.sh</code> and <code>cc-state.sh</code>
+        scripts that make every Claude Code pane show up in the fleet view
+        without waiting on a foreground-job check.</p>
+    </section>
+
+    <section id="lifecycle">
+      <h2>Request lifecycle</h2>
+      <p>What happens when you tap Approve on a permission prompt:</p>
+      <ol>
+        <li>Phone taps <b>Approve</b> in the PWA.</li>
+        <li>The request carries your passkey session cookie.</li>
+        <li>PWA sends a <code>POST</code> to the server.</li>
+        <li>Server runs a gate check — <code>is_claude_pane</code> — to
+          confirm the target pane is actually running a known agent.</li>
+        <li>Server sends the keystroke via the iTerm2 Python API.</li>
+        <li>The pane repaints.</li>
+        <li>The server's poll loop (or an open WebSocket) pushes the new
+          screen content back to the phone.</li>
+      </ol>
+    </section>
+
+    <section id="fleet-status">
+      <h2>Fleet status pipeline</h2>
+      <p>Claude Code's <code>statusLine</code> hook runs
+        <code>statusline.sh</code>, which writes a JSON status file — tagged
+        with the pane's iTerm2 session id — into <code>CC_FLEET_DIR</code>
+        (default <code>/tmp/cc-status</code>). <code>UserPromptSubmit</code>,
+        <code>Stop</code> and <code>Notification</code> hooks call
+        <code>cc-state.sh</code> to flip that pane between
+        <code>working</code> and <code>idle</code>. The server watches that
+        directory and merges it with what iTerm2 reports directly, so a new
+        pane shows up in the fleet within a couple of seconds of its first
+        repaint. Panes without a status file are still driveable whenever
+        iTerm2 reports Claude as the foreground job — the hooks just make the
+        fleet view complete.</p>
+    </section>
+
+    <section id="auth">
+      <h2>Auth flow</h2>
+      <p>On first run the server prints a QR code containing a URL with a
+        single-use bootstrap token. Scanning it and completing WebAuthn
+        registration creates your passkey; the bootstrap token is then burned
+        and cannot register another one. Every visit after that authenticates
+        with the passkey alone. WebAuthn requires a real HTTPS origin, which
+        is why <code>tailscale serve</code> — not a bare IP — sits in front of
+        the server: passkeys can't be registered against a plain HTTP or raw-IP
+        origin, so this also rules out exposing the port directly.</p>
+    </section>
+
+    <section id="broker">
+      <h2>Credential broker flow</h2>
+      <div class="seq-steps">
+        <div class="seq-step"><span class="n">1</span><span class="t">An agent in a pane runs <b>dispatch-auth request &lt;service&gt;</b>.</span></div>
+        <div class="seq-step"><span class="n">2</span><span class="t">The request lands in the vault's pending queue and a push notification goes to your phone.</span></div>
+        <div class="seq-step"><span class="n">3</span><span class="t">You review and tap <b>Approve</b> in the PWA.</span></div>
+        <div class="seq-step"><span class="n">4</span><span class="t">The server decrypts the secret from <b>.integrations.vault</b> using the Fernet key held in the macOS keychain.</span></div>
+        <div class="seq-step"><span class="n">5</span><span class="t">The secret is released just-in-time to the waiting <b>dispatch-auth</b> call — never written to disk in plaintext.</span></div>
+      </div>
+    </section>
+
+    <section id="notifications">
+      <h2>Notifications</h2>
+      <p>The PWA registers for web-push using VAPID keys. When a session
+        finishes or stalls waiting on input, the server pushes a notification
+        through the browser's push service, so you find out without the app
+        open or your phone on the same network.</p>
+    </section>
+
+    <section id="voice">
+      <h2>Voice</h2>
+      <p>The <code>/api/whisper</code> endpoint transcribes recorded audio
+        locally using whisper.cpp — nothing leaves the machine. It's used for
+        dictating follow-ups from the phone's chat view instead of typing on
+        glass.</p>
+    </section>
+
+    <section id="operations">
+      <h2>Operations</h2>
+      <p>A launchd watchdog keeps the server alive across reboots and restarts
+        it if it gets stuck. An auto-deploy loop mirrors <code>origin/main</code>
+        and sends the running process a <code>SIGHUP</code> to hot-reload
+        without dropping the passkey session. The server must be launched from
+        inside an iTerm2 session — it inherits <code>ITERM2_COOKIE</code> from
+        the environment, which is what the iTerm2 Python API uses to
+        authorize a script talking to it.</p>
+    </section>
+
+    <section id="configuration">
+      <h2>Configuration</h2>
+      <table class="config">
+        <thead>
+          <tr><th>Env var</th><th>Default</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>DISPATCH_PORT</code></td><td>8788</td><td>Server port.</td></tr>
+          <tr><td><code>DISPATCH_BIND</code></td><td>127.0.0.1</td><td>Bind address. Leave on loopback.</td></tr>
+          <tr><td><code>CC_FLEET_DIR</code></td><td>/tmp/cc-status</td><td>Where pane status JSON files are read.</td></tr>
+          <tr><td><code>VAPID_SUB</code></td><td>mailto:admin@example.com</td><td>Contact mailto: for web-push.</td></tr>
+          <tr><td><code>WHISPER_BIN</code></td><td>whisper-cli</td><td>whisper.cpp binary.</td></tr>
+          <tr><td><code>WHISPER_MODEL</code></td><td>models/ggml-base.en.bin</td><td>Local transcription model.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="threat-model">
+      <h2>Threat model — what it does not protect against</h2>
+      <div class="callout">
+        <p>CC Dispatch trusts the local Mac and your Tailnet. It is not a
+          defense against a compromised device or network.</p>
+      </div>
+      <ul>
+        <li>Anyone holding your <b>unlocked phone</b> with the passkey
+          enrolled can drive the fleet.</li>
+        <li>A compromised <b>Tailnet</b> (a malicious or stolen node with
+          access to your tailnet) can reach the proxied port.</li>
+        <li>It trusts the <b>local Mac</b> completely — anything with access
+          to the machine's iTerm2, filesystem, or keychain can reach what CC
+          Dispatch can reach.</li>
+        <li>It gates writes to panes it recognizes as a known agent, but does
+          not sandbox or review what that agent is instructed to do once a
+          keystroke lands.</li>
+      </ul>
+    </section>
+
+    <section id="faq">
+      <h2>FAQ</h2>
+      <div class="faq-item">
+        <h3>Does it work on Linux?</h3>
+        <p>No. It's built around the iTerm2 Python API, which is macOS-only.</p>
+      </div>
+      <div class="faq-item">
+        <h3>Does it restart my sessions?</h3>
+        <p>No. It only ever attaches to panes that are already running.
+          Stopping the server leaves your terminals untouched.</p>
+      </div>
+      <div class="faq-item">
+        <h3>Where do secrets live?</h3>
+        <p>Integration secrets sit encrypted in <code>.integrations.vault</code>,
+          decrypted only in memory with a Fernet key stored in the macOS login
+          keychain. All per-install secrets and state are git-ignored.</p>
+      </div>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap">
+    <span>Apache-2.0</span>
+    <a href="https://github.com/charlie-818/claude-dispatch">github.com/charlie-818/claude-dispatch</a>
+  </div>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>

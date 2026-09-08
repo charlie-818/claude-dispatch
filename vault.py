@@ -21,7 +21,13 @@ The trust anchor is the grant: an agent can *ask* freely, but a secret is
 released only after the owner approves a grant through the passkey-gated phone UI
 (see server.py `/api/requests/{id}/approve`).
 """
-import base64, json, os, pathlib, re, secrets, subprocess, time
+import json
+import os
+import pathlib
+import re
+import secrets
+import subprocess
+import time
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -265,7 +271,8 @@ def add_source_cred(provider, label, env_var, source, scopes=None):
 
 def _api_get(url, bearer, params=None):
     """Minimal GET → parsed json (or None). Bearer auth, short timeout, no deps."""
-    import urllib.parse, urllib.request
+    import urllib.parse
+    import urllib.request
     if params:
         url = url + "?" + urllib.parse.urlencode({k: v for k, v in params.items() if v})
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {bearer}"})

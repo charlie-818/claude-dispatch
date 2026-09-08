@@ -14,19 +14,25 @@ layered, and every layer is independently sufficient to stop a stranger:
 3. A passkey (WebAuthn, so Face ID / fingerprint) gates every write. It is
    bound to the origin, which makes it unphishable, and the private key never
    leaves the phone's secure element.
-4. Sessions expire: 30 minutes idle, 12 hours absolute. Expiry drops you back
+4. Sessions expire: 7 days idle, 30 days absolute. Expiry drops you back
    to "unlock with your passkey", not to a token prompt.
 5. Every write is appended to an audit log, and token guesses are rate limited
    per address.
 """
-import json, os, pathlib, secrets, time
-from aiohttp import web
+import json
+import os
+import pathlib
+import secrets
+import time
 
 import webauthn
+from aiohttp import web
 from webauthn.helpers import base64url_to_bytes, options_to_json
 from webauthn.helpers.structs import (
-    AuthenticatorAttachment, AuthenticatorSelectionCriteria,
-    PublicKeyCredentialDescriptor, ResidentKeyRequirement,
+    AuthenticatorAttachment,
+    AuthenticatorSelectionCriteria,
+    PublicKeyCredentialDescriptor,
+    ResidentKeyRequirement,
     UserVerificationRequirement,
 )
 

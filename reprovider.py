@@ -11,7 +11,7 @@ import vault
 def main():
     v = vault.load_vault()
     changed, left = [], []
-    for cid, r in v.items():
+    for r in v.values():
         if r.get("provider") not in (None, "custom"):
             continue
         got = vault.infer_provider(r.get("env_var"))

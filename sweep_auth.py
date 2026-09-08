@@ -19,7 +19,6 @@ Owner-run (the harness blocks the daemon from reading local creds):
 
 No secret VALUE is ever printed — only names, lengths, last-4, and file paths.
 """
-import json
 import os
 import re
 import shutil

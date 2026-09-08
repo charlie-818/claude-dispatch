@@ -18,9 +18,23 @@ Safety model
 
 Run:  .venv/bin/python server.py
 """
-import asyncio, errno, json, os, re, secrets, shutil, signal, sys, time, glob, pathlib, subprocess
-from aiohttp import web, WSMsgType
+import asyncio
+import errno
+import glob
+import json
+import os
+import pathlib
+import re
+import secrets
+import shutil
+import signal
+import subprocess
+import sys
+import time
+
 import iterm2
+from aiohttp import web
+
 import auth
 import vault
 
@@ -278,7 +292,8 @@ def trust_dir(path):
     concurrent Claude rewriting the file can at worst drop this one new key (the
     dialog reappears once), never corrupt anything else.
     """
-    import json, os
+    import json
+    import os
     p = os.path.expanduser("~/.claude.json")
     try:
         with open(p) as f:
@@ -1295,7 +1310,7 @@ async def _git(cwd, *args):
             "git", "-C", cwd, *args,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
         out, _ = await asyncio.wait_for(p.communicate(), 5)
-    except (OSError, ValueError, asyncio.TimeoutError):
+    except (TimeoutError, OSError, ValueError):
         return None
     return out.decode("utf-8", "ignore") if p.returncode == 0 else None
 
@@ -2137,7 +2152,8 @@ async def api_spawn(request):
     to KNOWN_AGENTS up front so it lands in the fleet the instant it opens, before
     its jobName has even settled to `node`.
     """
-    import tempfile, shlex
+    import shlex
+    import tempfile
     await APP.async_refresh()
     body = request.get("_body") or {}
     # Chosen dir from the picker: cd straight there. Absent → throwaway scratch, so
@@ -2516,7 +2532,8 @@ def _compute_usage():
     # last 30 days of cost/tokens for the phone spend chart (oldest → newest, gaps
     # filled with 0 so the bar chart has one column per calendar day). Same series
     # the TUI's 30-day graph reads, so the shapes line up.
-    from datetime import date as _date, timedelta as _td
+    from datetime import date as _date
+    from datetime import timedelta as _td
     _t = _date.today()
     days = [( _t - _td(days=i)).isoformat() for i in range(29, -1, -1)]
     daily = [{"d": dd, "cost": round(cost.get(dd, 0.0), 2),
@@ -2579,8 +2596,9 @@ def _scan_history_file(path):
         lines = pathlib.Path(path).read_text(errors="replace").splitlines()
     except Exception:
         return None
-    import cc_history as HIST
     from datetime import datetime
+
+    import cc_history as HIST
     cwd = None; model = None; first = last = None; prompts = 0
     itok = otok = cctok = crtok = 0; seen = set(); title = ""
     blurb = []; blurb_len = 0                # all user prompts, for search
@@ -2789,7 +2807,7 @@ _push_subs = _load_subs()
 
 
 def _send_one(sub, payload):
-    from pywebpush import webpush, WebPushException
+    from pywebpush import WebPushException, webpush
     try:
         webpush(subscription_info=sub, data=json.dumps(payload),
                 vapid_private_key=_VAPID_PRIV,
