@@ -16,6 +16,19 @@ log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*"; }
 
 listening() { lsof -nP -iTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1; }
 
+# Run osascript under a hard timeout. The first time launchd drives AppleScript
+# macOS puts an Automation consent dialog on screen, and osascript then blocks
+# on it forever — which would wedge this job and every later run of it. Bounded
+# waits turn that into a logged failure that retries on the next interval.
+osa() {
+  local secs=$1; shift
+  "$@" & local pid=$!
+  ( sleep "$secs"; kill "$pid" 2>/dev/null ) & local killer=$!
+  wait "$pid" 2>/dev/null; local rc=$?
+  kill "$killer" 2>/dev/null
+  return $rc
+}
+
 if listening; then
   exit 0
 fi
@@ -28,10 +41,17 @@ if ! pgrep -x iTerm2 >/dev/null; then
 fi
 
 # Wait for iTerm2's API server to be answering AppleScript before driving it.
-for _ in $(seq 1 30); do
-  osascript -e 'tell application "iTerm2" to count windows' >/dev/null 2>&1 && break
-  sleep 1
+ready=0
+for _ in $(seq 1 10); do
+  if osa 5 osascript -e 'tell application "iTerm2" to count windows' >/dev/null 2>&1; then
+    ready=1; break
+  fi
+  sleep 2
 done
+if [ "$ready" = 0 ]; then
+  log "iTerm2 is not answering AppleScript — if this repeats, approve the Automation prompt on screen (System Settings > Privacy & Security > Automation)"
+  exit 1
+fi
 
 # A stale server can be parked on a hung API connect, holding nothing but the
 # pid file. Clear that one process out — matched by pid file, then confirmed by
@@ -44,12 +64,11 @@ if [ -n "$stale" ] && ps -p "$stale" -o command= 2>/dev/null | grep -q 'server\.
   sleep 2
 fi
 
-osascript <<'OSA' 2>&1 | sed 's/^/osascript: /'
-tell application "iTerm2"
-  set w to (create window with default profile)
-  tell current session of w to write text "cd ~/claude-dispatch && ./start-dispatch.sh"
-end tell
-OSA
+osa 20 osascript \
+  -e 'tell application "iTerm2"' \
+  -e '  set w to (create window with default profile)' \
+  -e '  tell current session of w to write text "cd ~/claude-dispatch && ./start-dispatch.sh"' \
+  -e 'end tell' 2>&1 | sed 's/^/osascript: /'
 
 for _ in $(seq 1 30); do
   sleep 1
