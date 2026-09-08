@@ -369,6 +369,8 @@ table.config td:first-child code { color: var(--sun); }
 }
 @media (max-width: 600px) {
   body { font-size: 16px; }
+  .hero .req { display: none; }
+  footer { border-top: 0; }
   .nav nav { gap: 14px; font-size: 14px; }
   .nav nav a.gh { padding: 6px 11px; }
   .posts { grid-template-columns: 1fr; }
