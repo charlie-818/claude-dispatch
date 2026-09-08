@@ -3,24 +3,24 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>CC Dispatch — phone control for a fleet of live agent panes</title>
-<meta name="description" content="CC Dispatch attaches to your existing iTerm2 Claude Code, Codex and Grok sessions and puts them in your pocket: status at a glance, permission prompts, follow-ups, and push notifications over a passkey-protected PWA.">
-<meta property="og:title" content="CC Dispatch">
-<meta property="og:description" content="Phone control for a fleet of live agent panes running in iTerm2. Attaches, never restarts.">
+<title>CC Dispatch — watch the yard from your pocket</title>
+<meta name="description" content="CC Dispatch attaches to the Claude Code, Codex and Grok sessions already running in iTerm2 on your Mac. See who's working, answer the one that's asking, get pinged when one finishes. From your phone, over Tailscale, behind a passkey.">
+<meta property="og:title" content="CC Dispatch — watch the yard from your pocket">
+<meta property="og:description" content="Phone control for the agent panes already running in iTerm2. Nothing restarts.">
 <meta property="og:type" content="website">
 <meta property="og:image" content="assets/icon-512.png">
-<meta name="theme-color" content="#14171b">
+<meta name="theme-color" content="#0b1414">
 <link rel="icon" type="image/png" href="assets/icon-512.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,100..112,700..800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
 <header class="nav">
   <div class="wrap">
-    <a class="brand" href="index.html">
-      <img src="assets/icon-512.png" alt="CC Dispatch logo">
-      <span>CC <b>Dispatch</b></span>
-    </a>
+    <a class="brand" href="index.html"><img src="assets/icon-512.png" alt=""><span>CC <b>Dispatch</b></span></a>
     <nav>
       <a href="how-it-works.html">How it works</a>
       <a href="https://github.com/charlie-818/claude-dispatch/tree/main/docs">Docs</a>
@@ -29,248 +29,266 @@
   </div>
 </header>
 
+<main>
+
+<!-- ── Hero: the yard ─────────────────────────────────────────────────── -->
 <section class="hero">
   <div class="wrap">
     <div>
-      <h1>Your agent fleet, <span>in your pocket</span>.</h1>
-      <p class="sub">CC Dispatch attaches to the Claude Code, Codex and Grok
-        sessions already running in your iTerm2 — reads them, answers their
-        permission prompts, and pushes you the moment one needs you. Nothing
-        gets restarted.</p>
-      <div class="cta-row">
-        <a class="btn primary" href="https://github.com/charlie-818/claude-dispatch">Get it on GitHub</a>
-        <a class="btn secondary" href="how-it-works.html">See how it works</a>
+      <h1>Watch the yard from your <em>pocket.</em></h1>
+      <p class="lede">CC Dispatch attaches to the Claude Code, Codex and Grok sessions <strong>already running in iTerm2</strong>. See who's working, answer the one that's asking, get pinged when one finishes. Nothing restarts.</p>
+      <div class="cta">
+        <a class="btn btn-clay" href="https://github.com/charlie-818/claude-dispatch">
+          <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+          Get it on GitHub
+        </a>
+        <a class="btn btn-ghost" href="how-it-works.html">How it works</a>
+      </div>
+      <div class="legend" aria-label="Status colours">
+        <span><i style="--c:var(--sun)"></i>working</span>
+        <span><i style="--c:var(--ember)"></i>needs you</span>
+        <span><i style="--c:var(--moss)"></i>done</span>
+        <span><i style="--c:var(--sky)"></i>Codex</span>
+        <span><i style="--c:var(--lilac)"></i>Grok</span>
+      </div>
+      <div class="req"><span>macOS + iTerm2</span><span>Python 3.11</span><span>Tailscale</span><span>Apache-2.0</span></div>
+    </div>
+
+    <div class="yard" aria-label="Animated fleet: one session asks permission, you approve it from your phone, another finishes and sends a push notification">
+      <svg class="scene" viewBox="0 0 560 600" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <rect class="ground" x="0" y="0" width="560" height="600" rx="22"/>
+        <!-- contour grass -->
+        <path class="contour" d="M0 90 Q140 70 280 90 T560 90"/>
+        <path class="contour" d="M0 190 Q140 170 280 190 T560 190"/>
+        <path class="contour" d="M0 290 Q140 270 280 290 T560 290"/>
+        <path class="contour" d="M0 390 Q140 370 280 390 T560 390"/>
+        <path class="contour" d="M0 490 Q140 470 280 490 T560 490"/>
+        <text class="tag" x="28" y="42">THE YARD · 4 PANES</text>
+        <text class="tag" x="532" y="42" text-anchor="end">bigmac.ts.net</text>
+
+        <!-- api-server: working -->
+        <g class="cr" transform="translate(28,112)">
+          <circle class="halo" cx="22" cy="24" r="26"/>
+          <rect class="head" x="5" y="10" width="34" height="30" rx="9"/>
+          <polygon class="ear" points="9,12 12,0 20,10"/>
+          <polygon class="ear" points="35,12 32,0 24,10"/>
+          <rect class="eye" x="14" y="22" width="4" height="6" rx="1.5"/>
+          <rect class="eye" x="26" y="22" width="4" height="6" rx="1.5"/>
+          <circle class="dot" cx="66" cy="18" r="4"/>
+          <text class="name" x="78" y="22">api-server</text>
+          <text class="line a" x="66" y="42">refactoring auth middleware…</text>
+        </g>
+
+        <!-- dashboard-ui: asks for permission -->
+        <g class="cr asks" transform="translate(28,212)">
+          <circle class="halo story" cx="22" cy="24" r="26"/>
+          <rect class="head story" x="5" y="10" width="34" height="30" rx="9"/>
+          <polygon class="ear story" points="9,12 12,0 20,10"/>
+          <polygon class="ear story" points="35,12 32,0 24,10"/>
+          <rect class="eye story" x="14" y="22" width="4" height="6" rx="1.5"/>
+          <rect class="eye story" x="26" y="22" width="4" height="6" rx="1.5"/>
+          <circle class="dot story" cx="66" cy="18" r="4"/>
+          <text class="name" x="78" y="22">dashboard-ui</text>
+          <text class="line a story" x="66" y="42">running vitest --coverage…</text>
+          <text class="line b alt story" x="66" y="42">wants to run  rm -rf dist/</text>
+        </g>
+
+        <!-- infra-scripts: Codex, finishes -->
+        <g class="cr codex finishes" transform="translate(28,312)">
+          <circle class="halo" cx="22" cy="24" r="26"/>
+          <rect class="head story" x="5" y="10" width="34" height="30" rx="9"/>
+          <polygon class="ear story" points="9,12 12,0 20,10"/>
+          <polygon class="ear story" points="35,12 32,0 24,10"/>
+          <rect class="eye story" x="14" y="22" width="4" height="6" rx="1.5"/>
+          <rect class="eye story" x="26" y="22" width="4" height="6" rx="1.5"/>
+          <circle class="dot story" cx="66" cy="18" r="4"/>
+          <text class="name" x="78" y="22">infra-scripts</text>
+          <text class="tag" x="190" y="22">CODEX</text>
+          <text class="line a story" x="66" y="42">applying terraform plan…</text>
+          <text class="line b alt story" x="66" y="42">done — 12 resources changed</text>
+        </g>
+
+        <!-- data-pipeline: Grok, idle -->
+        <g class="cr grok idle" transform="translate(28,412)">
+          <circle class="halo" cx="22" cy="24" r="26"/>
+          <rect class="head" x="5" y="10" width="34" height="30" rx="9"/>
+          <polygon class="ear" points="9,12 12,0 20,10"/>
+          <polygon class="ear" points="35,12 32,0 24,10"/>
+          <rect class="eye" x="14" y="22" width="4" height="6" rx="1.5"/>
+          <rect class="eye" x="26" y="22" width="4" height="6" rx="1.5"/>
+          <circle class="dot" cx="66" cy="18" r="4"/>
+          <text class="name" x="78" y="22">data-pipeline</text>
+          <text class="tag" x="196" y="22">GROK</text>
+          <text class="line a" x="66" y="42">idle — awaiting follow-up</text>
+        </g>
+      </svg>
+
+      <div class="toast story" aria-hidden="true">
+        <img src="assets/icon-512.png" alt="">
+        <div><b>infra-scripts finished</b><span class="moss">done</span> — 12 resources changed</div>
+      </div>
+
+      <div class="phone story" aria-hidden="true">
+        <div class="who"><i></i>dashboard-ui</div>
+        <div class="ask">wants to run <code>rm -rf dist/</code></div>
+        <div class="acts"><span class="allow">Allow</span><span>Deny</span></div>
+      </div>
+
+      <span class="fly" style="left:62%;top:30%"></span>
+      <span class="fly" style="left:80%;top:55%"></span>
+      <span class="fly" style="left:48%;top:75%"></span>
+      <span class="fly" style="left:88%;top:20%"></span>
+    </div>
+  </div>
+</section>
+
+<!-- ── Why ────────────────────────────────────────────────────────────── -->
+<section class="why">
+  <div class="wrap">
+    <p class="eyebrow mono r">the problem</p>
+    <h2 class="r">You left the desk. The fleet didn't.</h2>
+    <div class="truths">
+      <div class="truth r" data-d="1" style="--c:var(--ember)">
+        <h3>A prompt is a full stop.</h3>
+        <p>One agent wants to run a command. Until you say yes, that whole session sits idle. The other five carry on without you knowing which one stalled.</p>
+      </div>
+      <div class="truth r" data-d="2" style="--c:var(--sun)">
+        <h3>Status is invisible from the sofa.</h3>
+        <p>Working, stuck, or done? From across the room a terminal is just a rectangle. You end up walking back to check.</p>
+      </div>
+      <div class="truth r" data-d="3" style="--c:var(--moss)">
+        <h3>Reconnecting loses context.</h3>
+        <p>Most remote tools spin up a fresh session. CC Dispatch attaches to the one that's already running, with its history and its trust.</p>
       </div>
     </div>
-    <div class="phone" aria-hidden="true">
-      <div class="screen">
-        <div class="sbar"><span class="dot"></span> The Yard</div>
-        <div class="pane-row">
-          <span class="status working"></span>
-          <div class="meta">
-            <div class="name">api-server</div>
-            <div class="desc">refactoring auth middleware...</div>
-          </div>
-          <span class="tag">CC</span>
-        </div>
-        <div class="pane-row">
-          <span class="status needs"></span>
-          <div class="meta">
-            <div class="name">dashboard-ui</div>
-            <div class="desc">wants to run rm -rf dist/</div>
-          </div>
-          <span class="tag">CC</span>
-        </div>
-        <div class="pane-row">
-          <span class="status idle"></span>
-          <div class="meta">
-            <div class="name">infra-scripts</div>
-            <div class="desc">done — awaiting follow-up</div>
-          </div>
-          <span class="tag">CODEX</span>
-        </div>
-        <div class="pane-row">
-          <span class="status working"></span>
-          <div class="meta">
-            <div class="name">data-pipeline</div>
-            <div class="desc">running migration 0042...</div>
-          </div>
-          <span class="tag">GROK</span>
+  </div>
+</section>
+
+<!-- ── What it does ───────────────────────────────────────────────────── -->
+<section class="what">
+  <div class="wrap">
+    <p class="eyebrow mono r">what it does</p>
+    <h2 class="r">Everything the yard needs.<br>Nothing it doesn't.</h2>
+    <div class="ledger">
+      <div class="row r" style="--c:var(--sun)">
+        <svg class="glyph" viewBox="0 0 44 44" aria-hidden="true"><rect class="head" x="5" y="10" width="34" height="30" rx="9"/><polygon class="ear" points="9,12 12,0 20,10"/><polygon class="ear" points="35,12 32,0 24,10"/><rect class="eye" x="14" y="22" width="4" height="6" rx="1.5"/><rect class="eye" x="26" y="22" width="4" height="6" rx="1.5"/></svg>
+        <div><h3>Attach, never restart</h3><p>Reads the panes that already exist through the iTerm2 Python API. Kill the server and the fleet is exactly as it was.</p></div>
+      </div>
+      <div class="row r" style="--c:var(--ember)">
+        <svg class="glyph" viewBox="0 0 44 44" aria-hidden="true"><rect class="head" x="5" y="10" width="34" height="30" rx="9"/><polygon class="ear" points="9,12 12,0 20,10"/><polygon class="ear" points="35,12 32,0 24,10"/><rect class="eye" x="14" y="22" width="4" height="6" rx="1.5"/><rect class="eye" x="26" y="22" width="4" height="6" rx="1.5"/></svg>
+        <div><h3>Answer prompts from anywhere</h3><p>See exactly what an agent wants to do. Allow, deny, or pick an option. Numbered menus and checkbox lists both work.</p></div>
+      </div>
+      <div class="row r" style="--c:var(--moss)">
+        <svg class="glyph" viewBox="0 0 44 44" aria-hidden="true"><rect class="head" x="5" y="10" width="34" height="30" rx="9"/><polygon class="ear" points="9,12 12,0 20,10"/><polygon class="ear" points="35,12 32,0 24,10"/><rect class="eye" x="14" y="22" width="4" height="6" rx="1.5"/><rect class="eye" x="26" y="22" width="4" height="6" rx="1.5"/></svg>
+        <div><h3>A push when it needs you</h3><p>Web-push the moment a session finishes or stalls on input. No app open, no polling on your side.</p></div>
+      </div>
+      <div class="row r" style="--c:var(--clay)">
+        <svg class="glyph" viewBox="0 0 44 44" aria-hidden="true"><rect class="head" x="5" y="10" width="34" height="30" rx="9"/><polygon class="ear" points="9,12 12,0 20,10"/><polygon class="ear" points="35,12 32,0 24,10"/><rect class="eye" x="14" y="22" width="4" height="6" rx="1.5"/><rect class="eye" x="26" y="22" width="4" height="6" rx="1.5"/></svg>
+        <div><h3>Send the next thing</h3><p>Type a follow-up, dictate it, or drop a file into the pane. Switch a Claude session's permission mode, effort, or model.</p></div>
+      </div>
+      <div class="row r" style="--c:var(--lilac)">
+        <svg class="glyph" viewBox="0 0 44 44" aria-hidden="true"><rect class="head" x="5" y="10" width="34" height="30" rx="9"/><polygon class="ear" points="9,12 12,0 20,10"/><polygon class="ear" points="35,12 32,0 24,10"/><rect class="eye" x="14" y="22" width="4" height="6" rx="1.5"/><rect class="eye" x="26" y="22" width="4" height="6" rx="1.5"/></svg>
+        <div><h3>Passkey only</h3><p>The QR at startup carries a single-use bootstrap token. It registers your first passkey and then it's spent. Nothing else gets in.</p></div>
+      </div>
+      <div class="row r" style="--c:var(--sky)">
+        <svg class="glyph" viewBox="0 0 44 44" aria-hidden="true"><rect class="head" x="5" y="10" width="34" height="30" rx="9"/><polygon class="ear" points="9,12 12,0 20,10"/><polygon class="ear" points="35,12 32,0 24,10"/><rect class="eye" x="14" y="22" width="4" height="6" rx="1.5"/><rect class="eye" x="26" y="22" width="4" height="6" rx="1.5"/></svg>
+        <div><h3>Loopback behind Tailscale</h3><p>The server binds <code>127.0.0.1</code>. <code>tailscale serve</code> terminates TLS and proxies it to your Tailnet. No listener for a stranger to find.</p></div>
+      </div>
+      <div class="row r" style="--c:var(--sun)">
+        <svg class="glyph" viewBox="0 0 44 44" aria-hidden="true"><rect class="head" x="5" y="10" width="34" height="30" rx="9"/><polygon class="ear" points="9,12 12,0 20,10"/><polygon class="ear" points="35,12 32,0 24,10"/><rect class="eye" x="14" y="22" width="4" height="6" rx="1.5"/><rect class="eye" x="26" y="22" width="4" height="6" rx="1.5"/></svg>
+        <div><h3>Secrets on request</h3><p>An agent runs <code>dispatch-auth request github</code>. Your phone buzzes. You approve. The key is released from an encrypted vault, just in time, and never lands on disk in plaintext.</p></div>
+      </div>
+      <div class="row r" style="--c:var(--lilac)">
+        <svg class="glyph" viewBox="0 0 44 44" aria-hidden="true"><rect class="head" x="5" y="10" width="34" height="30" rx="9"/><polygon class="ear" points="9,12 12,0 20,10"/><polygon class="ear" points="35,12 32,0 24,10"/><rect class="eye" x="14" y="22" width="4" height="6" rx="1.5"/><rect class="eye" x="26" y="22" width="4" height="6" rx="1.5"/></svg>
+        <div><h3>Claude, Codex, and Grok</h3><p>Each pane gets its own critter, coloured by what's running in it. Claude-only controls hide themselves on the others.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Install ────────────────────────────────────────────────────────── -->
+<section class="install">
+  <div class="wrap split">
+    <div class="sticky">
+      <p class="eyebrow mono r">install</p>
+      <h2 class="r">Six commands.<br>Then scan.</h2>
+      <p class="lede r" data-d="1">The server runs on the Mac that owns the panes. Your phone reaches it over your Tailnet. Everything below is copy-paste.</p>
+    </div>
+    <div class="term r" data-d="2">
+      <div class="step"><span class="n">1</span>
+        <p class="say">Clone and install into a venv.</p>
+        <div class="cmd"><pre>git clone https://github.com/charlie-818/claude-dispatch.git
+cd claude-dispatch &amp;&amp; make venv</pre><button class="copy" type="button">copy</button></div>
+      </div>
+      <div class="step"><span class="n">2</span>
+        <p class="say">Turn on iTerm2's Python API. <code>Settings → General → Magic → Enable Python API</code>.</p>
+      </div>
+      <div class="step"><span class="n">3</span>
+        <p class="say">Install the fleet-status hooks so every pane shows up.</p>
+        <div class="cmd"><pre>make hooks   <span class="c"># then merge examples/settings.snippet.json into ~/.claude/settings.json</span></pre><button class="copy" type="button">copy</button></div>
+      </div>
+      <div class="step"><span class="n">4</span>
+        <p class="say">Publish the port over your Tailnet with TLS.</p>
+        <div class="cmd"><pre>tailscale serve --bg 8788</pre><button class="copy" type="button">copy</button></div>
+      </div>
+      <div class="step"><span class="n">5</span>
+        <p class="say">Start the server <strong>from inside an iTerm2 window</strong>, so it inherits <code>ITERM2_COOKIE</code>.</p>
+        <div class="cmd"><pre>make run</pre><button class="copy" type="button">copy</button></div>
+      </div>
+      <div class="step"><span class="n">6</span>
+        <p class="say">Scan the QR it prints, register a passkey, add the app to your home screen.</p>
+        <div class="qr">
+          <svg viewBox="0 0 56 56" aria-hidden="true"><g fill="var(--bone)"><rect x="4" y="4" width="16" height="16"/><rect x="36" y="4" width="16" height="16"/><rect x="4" y="36" width="16" height="16"/><rect x="24" y="4" width="4" height="4"/><rect x="24" y="12" width="8" height="4"/><rect x="24" y="24" width="4" height="8"/><rect x="32" y="28" width="8" height="4"/><rect x="44" y="24" width="4" height="4"/><rect x="28" y="36" width="4" height="4"/><rect x="36" y="40" width="8" height="4"/><rect x="48" y="36" width="4" height="8"/><rect x="24" y="44" width="4" height="8"/><rect x="32" y="48" width="12" height="4"/></g><g fill="var(--night)"><rect x="8" y="8" width="8" height="8"/><rect x="40" y="8" width="8" height="8"/><rect x="8" y="40" width="8" height="8"/></g><g fill="var(--clay)"><rect x="10" y="10" width="4" height="4"/><rect x="42" y="10" width="4" height="4"/><rect x="10" y="42" width="4" height="4"/></g></svg>
+          <p>After that it's passkeys only. The token in the QR is already spent.</p>
         </div>
       </div>
     </div>
   </div>
 </section>
 
-<section id="why">
+<!-- ── Security ───────────────────────────────────────────────────────── -->
+<section class="fence">
   <div class="wrap">
-    <p class="eyebrow">Why</p>
-    <h2>You're not at your desk. The fleet is still running.</h2>
-    <div class="why-grid">
-      <div class="why-item">
-        <h3>Permission prompts don't wait</h3>
-        <p>An agent stalls on an approval and the whole session sits idle
-          until you're back at the keyboard.</p>
-      </div>
-      <div class="why-item">
-        <h3>Status is invisible from afar</h3>
-        <p>Is it working, stuck, or done? Without eyes on the pane there's no
-          way to tell.</p>
-      </div>
-      <div class="why-item">
-        <h3>Restarting loses context</h3>
-        <p>Most remote-access tools mean spinning up a fresh session. CC
-          Dispatch just looks at the one that's already running.</p>
-      </div>
+    <p class="eyebrow mono r">the fence</p>
+    <h2 class="r">Four things that are true<br>by construction.</h2>
+    <div class="posts">
+      <div class="post r" data-d="1"><span class="k">reach</span><p>Loopback only. <b>Tailscale</b> is the only way in, and it terminates TLS before the server ever sees a packet.</p></div>
+      <div class="post r" data-d="2"><span class="k">identity</span><p><b>Passkeys</b> require a real HTTPS origin, so nobody registers one over a bare IP. The bootstrap token dies after one use.</p></div>
+      <div class="post r" data-d="3"><span class="k">writes</span><p>A pane only receives keystrokes if its foreground job is a <b>known agent</b>. Scratch shells are unreachable, on purpose.</p></div>
+      <div class="post r" data-d="4"><span class="k">secrets</span><p>Integration keys sit in a <b>Fernet-encrypted vault</b>. The key lives in the macOS login keychain, not in the repo, not on disk.</p></div>
     </div>
+    <p class="more r">What it does <em>not</em> protect against, and every control with the line of code that enforces it: <a href="how-it-works.html#threat-model">the threat model</a>.</p>
   </div>
 </section>
 
-<section id="features">
-  <div class="wrap">
-    <p class="eyebrow">Features</p>
-    <h2>Everything the fleet needs, nothing it doesn't</h2>
-    <div class="feat-grid">
-      <div class="feat-card">
-        <div class="ico">&gt;_</div>
-        <h3>Attach, not restart</h3>
-        <p>Reads existing iTerm2 panes via the Python API. Kill the server and
-          your fleet is exactly as it was.</p>
-      </div>
-      <div class="feat-card">
-        <div class="ico">✓</div>
-        <h3>Permission prompts from your pocket</h3>
-        <p>See what an agent wants to do and approve or deny it from your
-          phone.</p>
-      </div>
-      <div class="feat-card">
-        <div class="ico">🔔</div>
-        <h3>Push when it needs you</h3>
-        <p>Web-push notifications the moment a session finishes or stalls on
-          input.</p>
-      </div>
-      <div class="feat-card">
-        <div class="ico">🔑</div>
-        <h3>Passkey-only</h3>
-        <p>WebAuthn login. A single-use bootstrap token in the startup QR
-          registers your first passkey — then it's passkeys only.</p>
-      </div>
-      <div class="feat-card">
-        <div class="ico">🔒</div>
-        <h3>Loopback + Tailscale</h3>
-        <p>The server binds 127.0.0.1 only. <code>tailscale serve</code>
-          terminates TLS — no listener for a stranger to find.</p>
-      </div>
-      <div class="feat-card">
-        <div class="ico">⚿</div>
-        <h3>Credential broker</h3>
-        <p>An agent requests a secret, you approve on your phone, it's
-          released just-in-time from an encrypted vault.</p>
-      </div>
-      <div class="feat-card">
-        <div class="ico">🎤</div>
-        <h3>Voice input</h3>
-        <p>Local whisper.cpp transcription — nothing leaves the machine.</p>
-      </div>
-      <div class="feat-card">
-        <div class="ico">⌘</div>
-        <h3>Multi-agent</h3>
-        <p>Claude Code, Codex and Grok panes, side by side, each with its own
-          critter on the yard.</p>
-      </div>
+<!-- ── Contribute ─────────────────────────────────────────────────────── -->
+<section class="join">
+  <div class="wrap split">
+    <div>
+      <p class="eyebrow mono r">contribute</p>
+      <h2 class="r">Small codebase.<br>Real fleet needed.</h2>
+      <p class="lede r" data-d="1">One aiohttp server, one PWA, a pytest suite that runs offline. The parsers and gates are unit-tested; the iTerm2 side you check by hand against your own panes.</p>
     </div>
+    <ul class="paths r" data-d="2">
+      <li><a href="https://github.com/charlie-818/claude-dispatch">Read the source</a><small>Apache-2.0</small></li>
+      <li><a href="https://github.com/charlie-818/claude-dispatch/blob/main/CONTRIBUTING.md">Contributing guide</a><small>setup, style, what to work on</small></li>
+      <li><a href="https://github.com/charlie-818/claude-dispatch/issues">Open issues</a><small>bug forms and feature requests</small></li>
+      <li><a href="https://github.com/charlie-818/claude-dispatch/tree/main/docs">Architecture and API docs</a><small>every route, every env var</small></li>
+      <li><a href="https://github.com/charlie-818/claude-dispatch/blob/main/SECURITY.md">Report a vulnerability</a><small>privately, please</small></li>
+    </ul>
   </div>
 </section>
 
-<section id="install">
-  <div class="wrap">
-    <p class="eyebrow">Install</p>
-    <h2>Install in 5 minutes</h2>
-    <p class="lede">Runs on the Mac that's already running your iTerm2 fleet.
-      macOS, iTerm2 with the Python API enabled, and Tailscale.</p>
-    <div class="steps">
-      <div class="step">
-        <div class="num"></div>
-        <div>
-          <h3>Clone the repo</h3>
-          <div class="code-block">
-            <pre>git clone https://github.com/charlie-818/claude-dispatch.git
-cd claude-dispatch</pre>
-            <button class="copy-btn" type="button">copy</button>
-          </div>
-        </div>
-      </div>
-      <div class="step">
-        <div class="num"></div>
-        <div>
-          <h3>Set up the virtualenv</h3>
-          <div class="code-block">
-            <pre>python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt</pre>
-            <button class="copy-btn" type="button">copy</button>
-          </div>
-        </div>
-      </div>
-      <div class="step">
-        <div class="num"></div>
-        <div>
-          <h3>Wire up the fleet-status hooks</h3>
-          <p>So every Claude Code pane shows up in the fleet view.</p>
-          <div class="code-block">
-            <pre>cp examples/statusline.sh examples/cc-state.sh ~/.claude/
-chmod +x ~/.claude/statusline.sh ~/.claude/cc-state.sh</pre>
-            <button class="copy-btn" type="button">copy</button>
-          </div>
-        </div>
-      </div>
-      <div class="step">
-        <div class="num"></div>
-        <div>
-          <h3>Expose the port over your Tailnet</h3>
-          <div class="code-block">
-            <pre>tailscale serve --bg 8788</pre>
-            <button class="copy-btn" type="button">copy</button>
-          </div>
-        </div>
-      </div>
-      <div class="step">
-        <div class="num"></div>
-        <div>
-          <h3>Start the server</h3>
-          <p>Run it from inside iTerm2, so it inherits <code>ITERM2_COOKIE</code>.</p>
-          <div class="code-block">
-            <pre>.venv/bin/python server.py</pre>
-            <button class="copy-btn" type="button">copy</button>
-          </div>
-        </div>
-      </div>
-      <div class="step">
-        <div class="num"></div>
-        <div>
-          <h3>Scan the QR code</h3>
-          <p>The server prints a QR with the bootstrap token baked in. Scan
-            it, register a passkey, add the PWA to your home screen. Every
-            visit after that is passkey-only.</p>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<section id="security">
-  <div class="wrap">
-    <p class="eyebrow">Security posture</p>
-    <div class="sec-grid">
-      <div class="sec-item"><p>Binds loopback (127.0.0.1) only — reachability
-        is Tailscale's job.</p></div>
-      <div class="sec-item"><p>Passkey registration requires the one-time
-        bootstrap token and a real TLS origin.</p></div>
-      <div class="sec-item"><p>Writes are gated — keystrokes only reach panes
-        confirmed to be running a known agent.</p></div>
-      <div class="sec-item"><p>Integration secrets live in an encrypted
-        vault, key held in the macOS keychain.</p></div>
-    </div>
-  </div>
-</section>
-
-<section id="contribute" class="contrib">
-  <div class="wrap">
-    <p class="eyebrow">Contribute</p>
-    <h2>Built in the open</h2>
-    <p class="lede">Fork it, pick up a good-first-issue, or read the
-      contributing guide before opening a PR.</p>
-    <div class="cta-row">
-      <a class="btn primary" href="https://github.com/charlie-818/claude-dispatch/fork">Fork the repo</a>
-      <a class="btn secondary" href="https://github.com/charlie-818/claude-dispatch/issues">Good first issues</a>
-      <a class="btn secondary" href="https://github.com/charlie-818/claude-dispatch/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a>
-    </div>
-  </div>
-</section>
+</main>
 
 <footer>
   <div class="wrap">
-    <span>Apache-2.0</span>
-    <a href="https://github.com/charlie-818/claude-dispatch">github.com/charlie-818/claude-dispatch</a>
+    <span>CC Dispatch · Apache-2.0</span>
+    <nav>
+      <a href="how-it-works.html">How it works</a>
+      <a href="https://github.com/charlie-818/claude-dispatch/tree/main/docs">Docs</a>
+      <a href="https://github.com/charlie-818/claude-dispatch">GitHub</a>
+    </nav>
   </div>
 </footer>
 

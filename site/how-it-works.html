@@ -9,8 +9,11 @@
 <meta property="og:description" content="Architecture, request lifecycle, auth flow and threat model for CC Dispatch.">
 <meta property="og:type" content="website">
 <meta property="og:image" content="assets/icon-512.png">
-<meta name="theme-color" content="#14171b">
+<meta name="theme-color" content="#0b1414">
 <link rel="icon" type="image/png" href="assets/icon-512.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,100..112,700..800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -18,11 +21,11 @@
 <header class="nav">
   <div class="wrap">
     <a class="brand" href="index.html">
-      <img src="assets/icon-512.png" alt="CC Dispatch logo">
+      <img src="assets/icon-512.png" alt="">
       <span>CC <b>Dispatch</b></span>
     </a>
     <nav>
-      <a href="how-it-works.html">How it works</a>
+      <a href="how-it-works.html" aria-current="page">How it works</a>
       <a href="https://github.com/charlie-818/claude-dispatch/tree/main/docs">Docs</a>
       <a class="gh" href="https://github.com/charlie-818/claude-dispatch">GitHub</a>
     </nav>
@@ -78,15 +81,15 @@
           <desc id="arch-desc">iTerm2 panes connect through the iTerm2 Python API to server.py. Statusline and cc-state hooks write fleet status files that server.py also reads. server.py talks to the PWA on your phone over WebSocket and HTTP via tailscale serve, and pushes notifications through web-push.</desc>
           <defs>
             <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-              <path d="M0,0 L6,3 L0,6 Z" fill="#a8b2bf"></path>
+              <path d="M0,0 L6,3 L0,6 Z" fill="#a9b8a6"></path>
             </marker>
           </defs>
           <style>
-            .box{fill:#22262d;stroke:#333944;stroke-width:1}
-            .lbl{fill:#f2f5f9;font:600 13px ui-monospace,monospace;text-anchor:middle}
-            .sub{fill:#a8b2bf;font:11px ui-monospace,monospace;text-anchor:middle}
-            .edge{stroke:#a8b2bf;stroke-width:1.5;fill:none;marker-end:url(#arrow)}
-            .accent{stroke:#d77757}
+            .box{fill:#122020;stroke:#203333;stroke-width:1}
+            .lbl{fill:#f3efe4;font:600 13px ui-monospace,monospace;text-anchor:middle}
+            .sub{fill:#a9b8a6;font:11px ui-monospace,monospace;text-anchor:middle}
+            .edge{stroke:#6f8079;stroke-width:1.5;fill:none;marker-end:url(#arrow)}
+            .accent{stroke:#e0784e}
           </style>
 
           <rect class="box" x="20" y="30" width="150" height="60" rx="8"></rect>
@@ -97,7 +100,7 @@
           <text class="lbl" x="305" y="55">iTerm2 Python API</text>
           <text class="sub" x="305" y="72">screen + transcript read</text>
 
-          <rect class="box" x="440" y="130" width="140" height="60" rx="8" stroke="#d77757"></rect>
+          <rect class="box" x="440" y="130" width="140" height="60" rx="8" stroke="#e0784e" stroke-width="1.6"></rect>
           <text class="lbl" x="510" y="155">server.py</text>
           <text class="sub" x="510" y="172">aiohttp</text>
 
