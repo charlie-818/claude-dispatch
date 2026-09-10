@@ -228,7 +228,15 @@ def remember(host, ip=None, mac=None):
     if not entry:
         return entry
 
-    if (entry.get("ip"), entry.get("mac")) != (before.get("ip"), before.get("mac")) or stale:
+    # Compare on facts about the peer, not on bookkeeping: mac_seen is written by
+    # this branch, so including it would compare a value that cannot have changed
+    # yet — which is how mac_first_seen/private silently failed to persist on the
+    # first observation after an upgrade, leaving the Fixed-vs-Rotating evidence
+    # permanently empty.
+    def facts(d):
+        return {k: v for k, v in d.items() if k != "mac_seen"}
+
+    if facts(entry) != facts(before) or stale:
         if entry.get("mac"):
             entry["mac_seen"] = int(time.time())
         data[host] = entry

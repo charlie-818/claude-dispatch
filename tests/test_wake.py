@@ -140,3 +140,15 @@ def test_wake_reports_no_false_success(tmp_path, monkeypatch):
     monkeypatch.setattr(wake, "is_up", lambda ip, timeout=1.5: False)
     r = wake.wake("mac.example.ts.net", wait=1)
     assert r["ok"] is True and r["woke"] is False and "did not answer" in r["reason"]
+
+
+def test_remember_persists_new_fields_when_mac_is_unchanged(tmp_path, monkeypatch):
+    # Regression: an entry written by an older version has no mac_first_seen. Seeing
+    # the same MAC again must WRITE that field, or the Fixed-vs-Rotating evidence
+    # never accumulates and preflight stays undecided forever.
+    monkeypatch.setattr(wake, "TARGETS_FILE", tmp_path / "t.json")
+    wake.save({"mac.example.ts.net": {"ip": "192.168.1.45", "mac": "da:b9:f2:2f:3b:02"}})
+    wake.remember("mac.example.ts.net", ip="192.168.1.45", mac="da:b9:f2:2f:3b:02")
+    on_disk = wake.load()["mac.example.ts.net"]
+    assert on_disk.get("mac_first_seen")
+    assert on_disk.get("private") is True
