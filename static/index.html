@@ -98,24 +98,32 @@
   /* tapped → hopping: dim + pulse so the cross-origin nav gap reads as "going" */
   .devrow.going{opacity:.55;animation:goingpulse .8s ease-in-out infinite}
   @keyframes goingpulse{50%{opacity:.3}}
-  /* Two-line session brief under the chat header: overall summary + (while
-     running) the condition that ends the task. */
-  .sessinfo{padding:11px 14px 12px;border-bottom:1px solid var(--line2);
-    background:var(--panel2);display:flex;flex-direction:column;gap:9px;
-    box-shadow:inset 3px 0 0 var(--blue)}
+  /* Session brief under the chat header: overall summary + (while running) the
+     condition that ends the task. Same floating card as the answer options and
+     the composer — panel, hairline, soft shadow — dropped in under the header
+     rather than a tinted bar welded to it. */
+  .sessinfo{margin:8px 10px 2px;padding:11px 12px 12px;
+    background:var(--panel);border:1px solid var(--line2);border-radius:var(--r3);
+    box-shadow:0 5px 16px rgba(0,0,0,.5);
+    display:flex;flex-direction:column;gap:10px;
+    animation:briefdrop .18s ease both}
   .sessinfo[hidden]{display:none}   /* beat the display:flex above */
+  @keyframes briefdrop{from{opacity:0;transform:translateY(-6px)}}
   /* Each brief block stacks an icon+label header above its text, so summary vs
      goal reads at a glance and the text wraps full-width (scales cleanly). */
-  .sessinfo .ss-row{display:flex;flex-direction:column;gap:4px}
+  .sessinfo .ss-row{display:flex;flex-direction:column;gap:5px}
   .sessinfo .ss-row[hidden]{display:none}   /* beat the flex rule above */
+  /* a hairline, not a second colour, is what separates the two blocks */
+  .sessinfo .ss-row + .ss-row{border-top:1px solid var(--line);padding-top:10px}
   .sessinfo .ss-head{display:flex;align-items:center;gap:6px;user-select:none}
-  .sessinfo .ss-ico{width:14px;height:14px;flex:none;color:var(--dim)}
-  .sessinfo .ss-ico-goal{color:var(--st-warn)}
-  .sessinfo .ss-lab{font:700 9.5px/1 var(--ui);letter-spacing:.09em;
-    text-transform:uppercase;color:var(--dim)}
-  .sessinfo .ss-lab-goal{color:var(--st-warn)}
-  .sessinfo .ss-sum{font:500 13.5px/1.5 var(--ui);color:var(--fg)}
-  .sessinfo .ss-goal{font:500 12.5px/1.5 var(--ui);color:var(--fg2)}
+  .sessinfo .ss-ico{width:14px;height:14px;flex:none;color:var(--dimmer)}
+  /* blue marks the live thing here too: the goal is what the run is aiming at */
+  .sessinfo .ss-ico-goal{color:var(--blue)}
+  .sessinfo .ss-lab{font:600 9.5px/1 var(--ui);letter-spacing:.1em;
+    text-transform:uppercase;color:var(--dimmer)}
+  .sessinfo .ss-lab-goal{color:var(--blue)}
+  .sessinfo .ss-sum{font:400 13.5px/1.55 var(--ui);color:var(--fg)}
+  .sessinfo .ss-goal{font:400 13px/1.55 var(--ui);color:var(--fg2)}
   /* no clear goal yet — say so plainly rather than hiding the block */
   .sessinfo .ss-goal.unsure{color:var(--dim);font-style:italic}
   .sessinfo.loading .ss-sum{color:var(--dim);font-style:italic}
@@ -433,6 +441,7 @@
     -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
     animation:shimmer 1.6s linear infinite}
   @media(prefers-reduced-motion:reduce){
+    .sessinfo{animation:none}
     .sk-line,.sk-tag{animation:none;background:var(--panel2)}
     .sessinfo.loading .ss-sum{animation:none;-webkit-text-fill-color:var(--dim)}
     .dots i{animation:dotfade 1.2s ease-in-out infinite}
@@ -1119,9 +1128,9 @@
     <div class="ss-row ss-goalrow" id="ss-goalrow" hidden>
       <div class="ss-head">
         <svg class="ss-ico ss-ico-goal" viewBox="0 0 24 24" fill="none"
-          stroke="currentColor" stroke-width="2" aria-hidden="true">
-          <circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4"/>
-          <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/>
+          stroke="currentColor" stroke-width="2" stroke-linecap="round"
+          aria-hidden="true">
+          <circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.5"/>
         </svg>
         <span class="ss-lab ss-lab-goal">Goal</span>
       </div>
