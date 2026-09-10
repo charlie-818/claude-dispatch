@@ -86,11 +86,19 @@ Run `python3 wake.py status <host>` on the waking machine first — it reports w
 is cached and warns about a rotating MAC. Then check, on the *target*:
 
 **Cause 1**: Wake-on-LAN was never armed. `pmset -g | grep womp` must be `1`.
-**Cause 2**: the MAC rotates. macOS "Private Wi-Fi Address" hands out a
-locally-administered MAC that changes, so the cached one goes stale and the
-packets are aimed at an address that no longer exists. `wake.py status` flags this
-as a warning. Turn it off: System Settings → Wi-Fi → network → Details… → Private
-Wi-Fi Address → Off.
+**Cause 2**: the MAC rotates. System Settings → Wi-Fi → network → Details… →
+Private Wi-Fi Address has three settings, and only one of them breaks waking:
+
+| Setting | Wakeable | Notes |
+|---|---|---|
+| Off | yes | uses the burned-in hardware address |
+| **Fixed** | **yes** | stable per network — keeps the privacy benefit, recommended |
+| Rotating | **no** | the address changes; the waker keeps aiming at a dead one |
+
+Fixed and Rotating set the same locally-administered bit, so the address alone
+cannot tell you which is selected. `wake.py status` therefore reports "not yet
+observed long enough" until it has watched the address hold still, and only says
+"set to Rotating" once it has actually caught it changing.
 **Cause 3**: deep hibernate — RAM is unpowered and nothing is listening. Needs
 `hibernatemode 0` and `standby 0`.
 **Cause 4**: it's on battery. macOS ignores wake-on-network unless on AC.

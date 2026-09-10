@@ -67,13 +67,22 @@ def normalize_mac(raw):
     return ":".join(out)
 
 
-def is_randomized(mac):
-    """True if the locally-administered bit is set — i.e. macOS Private Wi-Fi
-    Address is on and this MAC will rotate out from under any cache."""
+def is_private(mac):
+    """True if the locally-administered bit is set: a macOS Private Wi-Fi Address.
+
+    This bit CANNOT distinguish "Fixed" from "Rotating" — macOS sets it for both.
+    Fixed is perfectly wakeable (stable per network); Rotating is not. So the bit
+    alone is never grounds for a warning: preflight() decides from observed
+    stability instead, and only calls it rotating once it has seen it change.
+    """
     mac = normalize_mac(mac)
     if not mac:
         return False
     return bool(int(mac.split(":")[0], 16) & 0x02)
+
+
+# Back-compat alias: the bit means "locally administered", not "will rotate".
+is_randomized = is_private
 
 
 def magic_packet(mac):
@@ -182,6 +191,9 @@ def save(data):
 # is enough to keep a known address fresh in between.
 STALE_AFTER = 3600
 
+# Observe a private MAC unchanged for this long before trusting it as Fixed.
+SETTLE_AFTER = 86400
+
 
 def remember(host, ip=None, mac=None):
     """Record what we can see about `host` right now. Only ever *improves* an
@@ -202,8 +214,17 @@ def remember(host, ip=None, mac=None):
         entry["ip"] = ip
     mac = normalize_mac(mac) or (arp_mac(entry["ip"]) if entry.get("ip") else None)
     if mac:
+        now = int(time.time())
+        if before.get("mac") and before["mac"] != mac:
+            # Caught it changing: proof of Rotating, not Fixed. This is the only
+            # evidence that actually separates the two.
+            entry["mac_changes"] = int(before.get("mac_changes") or 0) + 1
+            entry["mac_first_seen"] = now
+        elif not before.get("mac_first_seen"):
+            entry["mac_first_seen"] = now
         entry["mac"] = mac
-        entry["randomized"] = is_randomized(mac)
+        entry["private"] = is_private(mac)
+        entry["randomized"] = entry["private"]      # legacy key, same fact
     if not entry:
         return entry
 
@@ -269,11 +290,25 @@ def preflight(host):
         return {"ready": False, "host": host, "ip": ip,
                 "reason": "no MAC learned yet — bring the machine online once so its "
                           "address can be cached from ARP, then it can be woken"}
-    if entry.get("randomized"):
-        return {"ready": True, "host": host, "ip": ip, "mac": mac, "warn":
-                "MAC is a rotating Private Wi-Fi Address — turn that off for this "
-                "network on the target or the cached MAC will go stale"}
-    return {"ready": True, "host": host, "ip": ip, "mac": mac}
+    out = {"ready": True, "host": host, "ip": ip, "mac": mac}
+    if not entry.get("private", entry.get("randomized")):
+        return out                                   # burned-in address, nothing to say
+
+    # A private address only matters if it ROTATES. Fixed is stable and wakes fine,
+    # and the locally-administered bit cannot tell the two apart — so judge on what
+    # we have actually observed rather than warning about every private address.
+    changes = int(entry.get("mac_changes") or 0)
+    # A cache entry written before we tracked first-seen has no evidence either way;
+    # treat it as undecided rather than as "stable since 1970".
+    first_seen = int(entry.get("mac_first_seen") or 0)
+    stable_for = (int(time.time()) - first_seen) if first_seen else 0
+    if changes:
+        out["warn"] = (f"this address has changed {changes}x — the target is set to "
+                       "Rotating; switch it to Fixed (or Off), Fixed wakes fine")
+    elif stable_for < SETTLE_AFTER:
+        out["warn"] = ("private Wi-Fi address, not yet observed long enough to tell "
+                       "Fixed from Rotating — if it is set to Fixed, nothing to do")
+    return out
 
 
 def wake(host, wait=0):

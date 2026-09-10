@@ -14,8 +14,9 @@
 #   1. `womp` off          — the NIC is not armed for magic packets at all.
 #   2. deep hibernate      — RAM is powered down, so nothing is listening.
 #   3. no Dispatch on wake — the machine wakes but the Yard never comes back.
-#   4. rotating Wi-Fi MAC  — "Private Wi-Fi Address" changes the address the
-#                            waker aims at. NOT scriptable; we detect and report.
+#   4. rotating Wi-Fi MAC  — "Private Wi-Fi Address = Rotating" changes the address
+#                            the waker aims at. "Fixed" is stable and wakes fine.
+#                            NOT scriptable; we detect and report.
 #
 # A magic packet is not routable, so the waking machine must be on this same LAN.
 set -euo pipefail
@@ -43,12 +44,17 @@ else
   FIRST_OCTET=$(( 16#$(echo "$MAC" | cut -d: -f1) ))
   echo "  $WIFI_DEV MAC: $MAC"
   if (( FIRST_OCTET & 2 )); then
-    bad "this is a ROTATING Private Wi-Fi Address — it will change, and the waker"
-    echo "     will keep aiming at an address that no longer exists."
-    echo "     Fix (not scriptable, Apple exposes no CLI for it):"
-    echo "       System Settings → Wi-Fi → your network → Details… →"
-    echo "       Private Wi-Fi Address → Off, then rejoin the network."
-    echo "     Re-run this script afterwards to confirm."
+    # The locally-administered bit is set for BOTH "Fixed" and "Rotating", and
+    # there is no way to read which one is selected — so this can only tell you
+    # what to go and check.
+    warn "this is a Private Wi-Fi Address. That is fine IF it is set to Fixed."
+    echo "     Check: System Settings → Wi-Fi → your network → Details… →"
+    echo "            Private Wi-Fi Address"
+    echo "       Fixed    → stable per network, wakes fine, keeps the privacy win"
+    echo "       Rotating → BREAKS waking: the address changes and the waker keeps"
+    echo "                  aiming at one that no longer exists. Switch to Fixed."
+    echo "       Off      → also fine (uses the burned-in hardware address)."
+    echo "     Apple exposes no CLI for this, so it cannot be set from here."
   else
     ok "burned-in MAC — stable, safe to cache"
   fi

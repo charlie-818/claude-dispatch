@@ -3439,8 +3439,11 @@ async def api_devices(request):
             continue
         entry = cache.get(d["host"]) or {}
         d["wakeable"] = bool(entry.get("mac"))
-        if entry.get("randomized"):
-            d["wake_warn"] = "rotating Private Wi-Fi Address on the target"
+        # Only flag an address we have actually watched change. A macOS "Fixed"
+        # private address sets the same locally-administered bit as "Rotating" but
+        # is stable and wakes fine, so the bit alone must not raise a warning.
+        if int(entry.get("mac_changes") or 0):
+            d["wake_warn"] = "the target's Wi-Fi address rotates — set it to Fixed"
     return web.json_response({"self": ts_self_host(), "devices": devices})
 
 

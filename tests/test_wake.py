@@ -25,13 +25,17 @@ def test_normalize_mac_rejects_junk():
 
 # ── is_randomized ────────────────────────────────────────────────────────────
 
-def test_is_randomized_detects_private_wifi_address():
+def test_is_private_detects_locally_administered_bit():
     # 0xda has the locally-administered bit (0x02) set.
-    assert wake.is_randomized("da:b9:f2:2f:3b:02") is True
+    assert wake.is_private("da:b9:f2:2f:3b:02") is True
 
 
-def test_is_randomized_false_for_burned_in_oui():
-    assert wake.is_randomized("a4:83:e7:11:22:33") is False
+def test_is_private_false_for_burned_in_oui():
+    assert wake.is_private("a4:83:e7:11:22:33") is False
+
+
+def test_is_randomized_is_kept_as_an_alias():
+    assert wake.is_randomized is wake.is_private
 
 
 # ── magic_packet ─────────────────────────────────────────────────────────────
@@ -91,12 +95,34 @@ def test_preflight_reports_missing_mac(tmp_path, monkeypatch):
     assert "no MAC" in p["reason"]
 
 
-def test_preflight_warns_about_rotating_mac(tmp_path, monkeypatch):
+def test_preflight_is_quiet_about_a_burned_in_mac(tmp_path, monkeypatch):
+    monkeypatch.setattr(wake, "TARGETS_FILE", tmp_path / "t.json")
+    wake.remember("mac.example.ts.net", ip="192.168.1.45", mac="a4:83:e7:11:22:33")
+    assert "warn" not in wake.preflight("mac.example.ts.net")
+
+
+def test_preflight_only_says_rotating_once_it_has_seen_a_change(tmp_path, monkeypatch):
+    # macOS "Fixed" sets the same locally-administered bit as "Rotating", so the bit
+    # alone must not be called rotating — only an observed change proves it.
     monkeypatch.setattr(wake, "TARGETS_FILE", tmp_path / "t.json")
     wake.remember("mac.example.ts.net", ip="192.168.1.45", mac="da:b9:f2:2f:3b:02")
-    p = wake.preflight("mac.example.ts.net")
-    assert p["ready"] is True
-    assert "Private Wi-Fi Address" in p["warn"]
+    first = wake.preflight("mac.example.ts.net")
+    assert "not yet observed long enough" in first["warn"]      # undecided, not accused
+
+    wake.remember("mac.example.ts.net", ip="192.168.1.45", mac="da:b9:f2:2f:3b:99")
+    after = wake.preflight("mac.example.ts.net")
+    assert "set to Rotating" in after["warn"]
+    assert "changed 1x" in after["warn"]
+
+
+def test_preflight_trusts_a_private_mac_that_has_settled(tmp_path, monkeypatch):
+    # A Fixed address observed unchanged past the settle window is just fine.
+    monkeypatch.setattr(wake, "TARGETS_FILE", tmp_path / "t.json")
+    wake.remember("mac.example.ts.net", ip="192.168.1.45", mac="da:b9:f2:2f:3b:02")
+    data = wake.load()
+    data["mac.example.ts.net"]["mac_first_seen"] -= wake.SETTLE_AFTER + 60
+    wake.save(data)
+    assert "warn" not in wake.preflight("mac.example.ts.net")
 
 
 def test_wake_refuses_without_a_mac(tmp_path, monkeypatch):
