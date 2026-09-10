@@ -37,6 +37,7 @@ from aiohttp import web
 
 import auth
 import vault
+import wake
 
 HERE = pathlib.Path(__file__).parent
 PORT = int(os.environ.get("DISPATCH_PORT", 8788))
@@ -3412,10 +3413,58 @@ def tailnet_macs():
 
 
 async def api_devices(request):
-    """The tailnet Macs the swapper can hop between, plus which one is us."""
+    """The tailnet Macs the swapper can hop between, plus which one is us.
+
+    Offline Macs carry `wakeable`: whether we hold a cached MAC for them and can
+    therefore offer a Wake button instead of a dead entry. Reading the cache is a
+    file read, so this stays as cheap as it was."""
     if not authed(request):
         return web.json_response({"error": "locked"}, status=401)
-    return web.json_response({"self": ts_self_host(), "devices": tailnet_macs()})
+    devices = tailnet_macs()
+
+    # Keep the cache warm off the request path: for a peer that is up and already
+    # has a known IP this is one `arp` call, and it is the only chance we get to
+    # learn a MAC before the machine sleeps and ARP forgets it.
+    live = [d["host"] for d in devices if d["online"] and not d["self"]]
+    if live:
+        loop = asyncio.get_running_loop()
+        try:
+            await asyncio.wait_for(loop.run_in_executor(None, wake.refresh, live), 8)
+        except Exception:
+            pass  # a cold cache is a missing Wake button, never a broken device list
+
+    cache = wake.load()
+    for d in devices:
+        if d["self"] or d["online"]:
+            continue
+        entry = cache.get(d["host"]) or {}
+        d["wakeable"] = bool(entry.get("mac"))
+        if entry.get("randomized"):
+            d["wake_warn"] = "rotating Private Wi-Fi Address on the target"
+    return web.json_response({"self": ts_self_host(), "devices": devices})
+
+
+@writes("wake")
+async def api_wake(request):
+    """Send a Wake-on-LAN magic packet to a sleeping tailnet Mac.
+
+    Returns as soon as the burst is away rather than blocking the event loop for
+    the ~30s a Mac takes to come back: WoL is unacknowledged, so there is nothing
+    to await. The UI polls /api/devices and lights the dot when the peer returns.
+    """
+    host = (request["_body"].get("host") or "").strip().rstrip(".")
+    if not host:
+        return web.json_response({"error": "no host"}, status=400)
+    known = {d["host"] for d in tailnet_macs()}
+    if host not in known:
+        return web.json_response({"error": "not a tailnet Mac"}, status=404)
+
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, wake.wake, host)
+    # Always 200: the call itself succeeded. Whether the Mac actually woke is an
+    # outcome in the body (`ok`/`woke`/`reason`), not a transport error — a non-2xx
+    # here would just make the client's post() helper throw away the explanation.
+    return web.json_response(result)
 
 
 async def api_ping(request):
@@ -3516,6 +3565,7 @@ async def main(connection):
     app.router.add_get("/api/usage", api_usage)
     app.router.add_get("/api/devices", api_devices)
     app.router.add_get("/api/ping", api_ping)
+    app.router.add_post("/api/wake", api_wake)
     app.router.add_get("/api/history", api_history)
     app.router.add_post("/api/resume", api_resume)
     app.router.add_get("/api/vapid", api_vapid)

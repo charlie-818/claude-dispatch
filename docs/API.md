@@ -33,6 +33,7 @@ Every route CC Dispatch exposes, its auth class, and the shape of its request/re
 | GET | `/api/usage` | session | Today/30-day/all-time spend + token usage | — | `{today, daily[], all_time}` |
 | GET | `/api/devices` | session (manual check) | Tailnet Macs the swapper can hop to | — | `{self, devices: [...]}` |
 | GET | `/api/ping` | public, CORS-open | Cross-origin reachability probe | — | `{dispatch, host, url, name}` |
+| POST | `/api/wake` | write-gate | Wake-on-LAN a sleeping tailnet Mac | `host` | `{ok, woke, sent, mac, ip, reason?, warn?}` |
 | GET | `/api/history` | session | Every past top-level session transcript | — | `{history: [...]}` |
 | POST | `/api/resume` | write-gate | `claude --resume <id>` in a fresh pane | `session_id` | `{uuid, session_id}` |
 | GET | `/api/vapid` | session | Web-push public key | — | `{key, enabled, subs}` |

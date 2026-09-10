@@ -70,3 +70,33 @@
 
 **Cause**: the QR scanner app opened the link in its own in-app browser, which received the session cookie for itself; switching to Chrome/Safari afterward finds no session there.
 **Fix**: use the "paste the token" form in the fallback locked page (posts to `/auth/bootstrap` from whichever browser you're actually holding), or open the QR link directly in your real browser instead of the scanner's preview.
+
+## The Wake button doesn't appear on a sleeping Mac
+
+**Cause**: no MAC has ever been cached for it. Dispatch learns a peer's LAN IP and
+MAC from ARP *while that peer is awake* — a machine that has been asleep since
+before this feature shipped was never seen.
+**Fix**: bring it online once (any means — a keypress will do). The next
+`/api/devices` poll caches it, and the Wake button is there from then on. To seed
+it by hand: `python3 wake.py learn <host>.<tailnet>.ts.net <mac>`.
+
+## Wake button sends, but the Mac never comes back
+
+Run `python3 wake.py status <host>` on the waking machine first — it reports what
+is cached and warns about a rotating MAC. Then check, on the *target*:
+
+**Cause 1**: Wake-on-LAN was never armed. `pmset -g | grep womp` must be `1`.
+**Cause 2**: the MAC rotates. macOS "Private Wi-Fi Address" hands out a
+locally-administered MAC that changes, so the cached one goes stale and the
+packets are aimed at an address that no longer exists. `wake.py status` flags this
+as a warning. Turn it off: System Settings → Wi-Fi → network → Details… → Private
+Wi-Fi Address → Off.
+**Cause 3**: deep hibernate — RAM is unpowered and nothing is listening. Needs
+`hibernatemode 0` and `standby 0`.
+**Cause 4**: it's on battery. macOS ignores wake-on-network unless on AC.
+**Cause 5**: it isn't on the same LAN. A magic packet is not routable, so this
+only ever works between machines on one network segment.
+
+`bash deploy/setup-wake-target.sh`, run once physically on the target, fixes 1, 3
+and reports 2. There is no remote fix — a Mac that isn't already set up this way
+cannot be reached while it sleeps.

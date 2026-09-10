@@ -86,6 +86,15 @@
   .devrow .tag{font:600 9.5px var(--mono);letter-spacing:.06em;color:var(--dimmer);
     text-transform:uppercase}
   .devrow.cur .tag{color:var(--green)}
+  /* An offline peer we hold a cached MAC for is actionable, not dead weight: it
+     gets a Wake button. It lives inside a row whose own click hops device, so it
+     must swallow the tap. */
+  .devrow .wake{flex:none;font:700 9.5px var(--ui);letter-spacing:.08em;text-transform:uppercase;
+    padding:4px 9px;border-radius:999px;border:1px solid var(--line);background:var(--panel3);
+    color:var(--fg);cursor:pointer}
+  .devrow .wake[disabled]{opacity:.55;cursor:default}
+  .devrow .wmsg{display:block;font:400 10px var(--mono);color:var(--dimmer);
+    white-space:normal;margin-top:3px}
   .devrow .host{display:block;font:400 10px var(--mono);color:var(--dimmer)}
   /* tapped → hopping: dim + pulse so the cross-origin nav gap reads as "going" */
   .devrow.going{opacity:.55;animation:goingpulse .8s ease-in-out infinite}
@@ -4309,12 +4318,77 @@ function renderDevMenu(){
   document.getElementById('devmenu').innerHTML = DEVICES.map(d => {
     const cur = d.self;
     const cls = 'devrow' + (cur ? ' cur on' : (d.online ? '' : ' off'));
-    const tag = cur ? 'here' : (d.online ? '' : 'offline');
+    // Offline + a MAC cached while it was last awake = we can try to wake it.
+    const canWake = !cur && !d.online && d.wakeable;
+    const tail = cur      ? '<span class="tag">here</span>'
+               : d.online ? '<span class="tag"></span>'
+               : canWake  ? `<button class="wake"${d._waking ? ' disabled' : ''} `
+                            + `onclick="wakeDevice(event,'${_esc(d.host)}')">`
+                            + `${_esc(d._wlabel || 'wake')}</button>`
+               :            '<span class="tag">offline</span>';
+    // Wake progress is rendered from the device object, never held in the DOM:
+    // probePeers() rebuilds this innerHTML every few seconds and would otherwise
+    // wipe the button's state out from under an in-flight wake.
+    const note = d._wmsg ? `<span class="wmsg">${_esc(d._wmsg)}</span>` : '';
     return `<div class="${cls}" data-url="${_esc(d.url||('https://'+d.host))}" data-self="${cur?1:0}"`
-      + `${cur?' aria-disabled="true"':''} onclick="pickDevice(this)">`
-      + `<span class="nm">${_esc(d.name)}<span class="host">${_esc(d.host)}</span></span>`
-      + `<span class="tag">${tag}</span></div>`;
+      + ` data-host="${_esc(d.host)}"${cur?' aria-disabled="true"':''} onclick="pickDevice(this)">`
+      + `<span class="nm">${_esc(d.name)}<span class="host">${_esc(d.host)}</span>${note}</span>`
+      + tail + `</div>`;
   }).join('');
+}
+
+/* Wake a sleeping peer with a Wake-on-LAN magic packet.
+
+   The packet is unacknowledged, so the server returns the moment it is away and
+   we poll here instead. What we wait for is the peer's own CORS-open /api/ping —
+   Tailscale reporting the machine "online" only means the tunnel came up, which
+   happens well before Dispatch is actually serving. */
+async function wakeDevice(ev, host){
+  ev.stopPropagation();                       // don't hop to a device that's asleep
+  const dev = () => (DEVICES || []).find(x => x.host === host);
+  const set = (label, msg) => {
+    const d = dev();
+    if(!d) return;
+    d._wlabel = label; d._wmsg = msg; d._waking = (label === 'waking' || label === 'sending');
+    renderDevMenu();
+  };
+
+  set('sending', '');
+  let r;
+  try { r = await post('/api/wake', {host}); }
+  catch(e){ set('retry', String((e && e.message) || e)); return; }
+
+  if(!r.ok){ set('retry', r.reason || 'not wakeable'); return; }
+  set('waking', r.warn || 'magic packet sent — waiting for it to boot');
+
+  // Cold boot from deep sleep to Dispatch serving is comfortably under a minute
+  // on these Macs; give it 90s before calling it a miss.
+  const until = Date.now() + 90000;
+  const tick = async () => {
+    // Two different questions, and the wake only depends on the first: Tailscale
+    // says the MACHINE is back; the peer's own /api/ping says DISPATCH is back.
+    // Don't gate success on the ping — a peer with no .peers.json entry is probed
+    // at :443 while Dispatch serves :8443, so it can stay grey on a live machine.
+    let onTailnet = false;
+    try {
+      const j = await (await fetch('/api/devices', {cache:'no-store'})).json();
+      const fresh = (j.devices || []).find(x => x.host === host);
+      onTailnet = !!(fresh && fresh.online);
+    } catch(e){ /* transient — the deadline is the backstop */ }
+
+    await probePeers();                       // this re-renders; state survives on `dev`
+    const d = dev();
+    if(!d || d.online){ if(d){ d._wlabel = d._wmsg = ''; d._waking = false; renderDevMenu(); } return; }
+    if(Date.now() > until){
+      set('retry', onTailnet
+        ? 'it woke, but Dispatch isn\u2019t answering there yet'
+        : 'no answer — check Wake-on-LAN is enabled on that Mac');
+      return;
+    }
+    if(onTailnet) set('waking', 'awake — waiting for Dispatch to come back');
+    setTimeout(tick, 5000);
+  };
+  setTimeout(tick, 6000);
 }
 function toggleDevMenu(ev){
   ev.stopPropagation();

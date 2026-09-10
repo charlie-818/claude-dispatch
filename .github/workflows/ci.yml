@@ -40,4 +40,4 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m compileall -q server.py auth.py vault.py sweep_auth.py prune_vault.py reprovider.py scan_deploy_env.py icon.py import_auths.py export_auths.py
+      - run: python -m compileall -q server.py auth.py vault.py wake.py sweep_auth.py prune_vault.py reprovider.py scan_deploy_env.py icon.py import_auths.py export_auths.py
