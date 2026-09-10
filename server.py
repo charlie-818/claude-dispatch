@@ -26,10 +26,12 @@ import os
 import pathlib
 import re
 import secrets
+import shlex
 import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 
 import iterm2
@@ -2142,6 +2144,58 @@ async def _auto_trust(sess):
         return
 
 
+# ── how a pane is born ──────────────────────────────────────────────────────
+# A pane runs a launcher script as its own process instead of a login shell that
+# we then type a command into. Typing into a login shell is what put the noise at
+# the top of every phone transcript: `login` prints "Last login: ...", an
+# interactive bash prints Apple's zsh-deprecation notice, the typed line is echoed
+# once as type-ahead and again by the prompt that finally reads it, and `clear`
+# only wipes the visible screen -- all of it stays in the scrollback the phone
+# reads. Hosts differed only in how loud their shell was (bash and no ~/.hushlogin
+# on Big Mac, a quiet zsh on the MacBook), never in what Dispatch did. Booting the
+# pane straight into the launcher makes Claude's first frame the pane's first line
+# on every host.
+
+
+def _pane_launcher(workdir, env_lines=(), args=""):
+    """Write a self-deleting launcher for a new pane; return (command, tmpdir).
+
+    Secrets ride in the file (0600, unlinked before Claude starts), never as
+    keystrokes, so they cannot land in the pane's scrollback or shell history --
+    the same contract the old .cc-inject.env had, minus the dotfile dropped into
+    the owner's own repo. `bash -l` on a *script* reads the login profile (so the
+    pane keeps the owner's PATH) without being interactive (so it prints nothing).
+    """
+    d = tempfile.mkdtemp(prefix="cc-launch-")
+    path = os.path.join(d, "launch.sh")
+    body = [
+        "# CC Dispatch pane launcher. Deletes itself before Claude takes the pane.",
+        "export BASH_SILENCE_DEPRECATION_WARNING=1",
+        *env_lines,
+        f"cd {shlex.quote(workdir)} || exit 1",
+        f"rm -f {shlex.quote(path)}; rmdir {shlex.quote(d)} 2>/dev/null",
+        f"{shlex.quote(_claude_bin())} {args}".rstrip(),
+        "exec /bin/bash -il",          # Claude exited: leave the live shell it used to
+    ]
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.write(fd, ("\n".join(body) + "\n").encode())
+    os.close(fd)
+    return f"/bin/bash -l {path}", d
+
+
+def _launch_profile(cmd):
+    """Profile override that starts a split on `cmd` rather than on a login shell."""
+    chg = iterm2.LocalWriteOnlyProfile()
+    chg.set_use_custom_command("Yes")
+    chg.set_command(cmd)
+    return chg
+
+
+def _discard_launcher(d):
+    """Drop an unused launcher (and the secrets in it) when the split never opened."""
+    shutil.rmtree(d, ignore_errors=True)
+
+
 @writes("spawn")
 async def api_spawn(request):
     """Open a brand-new Claude pane in the iTerm window and hand back its UUID.
@@ -2152,8 +2206,6 @@ async def api_spawn(request):
     to KNOWN_AGENTS up front so it lands in the fleet the instant it opens, before
     its jobName has even settled to `node`.
     """
-    import shlex
-    import tempfile
     await APP.async_refresh()
     body = request.get("_body") or {}
     # Chosen dir from the picker: cd straight there. Absent → throwaway scratch, so
@@ -2170,45 +2222,24 @@ async def api_spawn(request):
     scratch = workdir
     is_scratch = not chosen
     trust_dir(scratch)                     # skip Claude's first-run trust prompt
-    # Grow the fleet's own tab into a grid instead of opening a new tab. Panes are
-    # placed row-major (see GRID_MAX_COLS) so the split lands in an aligned column
-    # or row rather than as a random narrow sliver.
-    try:
-        tab = fleet_tab(APP)
-        if tab is None:
-            return web.json_response(
-                {"error": "no iTerm window open to spawn into"}, status=409)
-        src, vertical = pick_grid_split(tab)
-        sess = await src.async_split_pane(vertical=vertical, before=False)
-    except Exception as e:
-        return web.json_response(
-            {"error": f"could not open pane: {type(e).__name__}: {e}"}, status=500)
-    uuid = sess.session_id.upper()
-    KNOWN_AGENTS[uuid] = "claude"
-    await normalize_pane(sess)             # land at the canonical width from birth
 
     # Hand the pane a capability handle for the auth broker, plus any credentials
-    # the owner chose to pre-inject. All of it goes through a 0600 file the shell
-    # sources and deletes — the raw values are NEVER keystroked, so they can't land
-    # in the pane's scrollback or shell history. DISPATCH_AGENT_TOKEN + DISPATCH_URL
-    # are capability handles (not secrets); pre-injected service tokens are secrets.
+    # the owner chose to pre-inject. All of it goes into the launcher the pane runs
+    # as its own process — a 0600 file it deletes before Claude starts — so the raw
+    # values are NEVER keystroked and can't land in the pane's scrollback or shell
+    # history. DISPATCH_AGENT_TOKEN + DISPATCH_URL are capability handles (not
+    # secrets); pre-injected service tokens are secrets.
     tok = secrets.token_urlsafe(24)
-    PANE_TOKENS[tok] = uuid
     lines = [f'export PATH={shlex.quote(str(HERE))}:"$PATH"',
              f'export DISPATCH_URL="http://127.0.0.1:{PORT}"',
              f'export DISPATCH_AGENT_TOKEN={shlex.quote(tok)}']
+    released = []
     for cid in (body.get("integrations") or []):
         cred = vault.get_cred(cid)
         if not cred:
             continue
         lines.append(f'export {cred["env_var"]}={shlex.quote(cred["secret"])}')
-        vault.add_grant(uuid, cid, scopes=cred.get("scopes") or [])   # visible + revocable
-        auth.audit(request, "integ.release",
-                   {"uuid": uuid, "cred": cid, "last4": cred["last4"], "via": "spawn"})
-    envfile = os.path.join(scratch, ".cc-inject.env")
-    fd = os.open(envfile, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    os.write(fd, ("\n".join(lines) + "\n").encode())
-    os.close(fd)
+        released.append((cid, cred))
     # Teach the agent the protocol so it knows it can ask for what it lacks. Only
     # in a scratch dir — never drop a CLAUDE.md into a real repo the owner picked.
     if is_scratch:
@@ -2217,10 +2248,31 @@ async def api_spawn(request):
         except Exception:
             pass
 
-    q = shlex.quote(scratch)
-    await sess.async_send_text(
-        f"cd {q} && set -a && . ./.cc-inject.env && rm -f ./.cc-inject.env && set +a"
-        f" && clear && claude\n")
+    cmd, launch_dir = _pane_launcher(scratch, lines)
+    # Grow the fleet's own tab into a grid instead of opening a new tab. Panes are
+    # placed row-major (see GRID_MAX_COLS) so the split lands in an aligned column
+    # or row rather than as a random narrow sliver.
+    try:
+        tab = fleet_tab(APP)
+        if tab is None:
+            _discard_launcher(launch_dir)
+            return web.json_response(
+                {"error": "no iTerm window open to spawn into"}, status=409)
+        src, vertical = pick_grid_split(tab)
+        sess = await src.async_split_pane(vertical=vertical, before=False,
+                                          profile_customizations=_launch_profile(cmd))
+    except Exception as e:
+        _discard_launcher(launch_dir)
+        return web.json_response(
+            {"error": f"could not open pane: {type(e).__name__}: {e}"}, status=500)
+    uuid = sess.session_id.upper()
+    KNOWN_AGENTS[uuid] = "claude"
+    PANE_TOKENS[tok] = uuid
+    for cid, cred in released:
+        vault.add_grant(uuid, cid, scopes=cred.get("scopes") or [])   # visible + revocable
+        auth.audit(request, "integ.release",
+                   {"uuid": uuid, "cred": cid, "last4": cred["last4"], "via": "spawn"})
+    await normalize_pane(sess)             # land at the canonical width from birth
     # Fallback in case the pre-trust key got clobbered — auto-accept the trust
     # dialog if it still shows. Fire-and-forget so the spawn returns immediately.
     asyncio.create_task(_auto_trust(sess))
@@ -2745,7 +2797,6 @@ def _cwd_for_session(session_id):
 async def api_resume(request):
     """Resume a past session in a fresh iTerm pane: `claude --resume <id>` run in
     that session's own working dir (looked up server-side from the transcript)."""
-    import shlex
     body = request.get("_body") or {}
     session_id = (body.get("session_id") or "").strip()
     cwd = await asyncio.to_thread(_cwd_for_session, session_id)
@@ -2756,21 +2807,24 @@ async def api_resume(request):
             {"error": f"working dir is gone: {cwd}"}, status=409)
     await APP.async_refresh()
     trust_dir(cwd)
+    cmd, launch_dir = _pane_launcher(
+        cwd, args=f"--resume {shlex.quote(session_id)}")
     try:
         tab = fleet_tab(APP)
         if tab is None:
+            _discard_launcher(launch_dir)
             return web.json_response(
                 {"error": "no iTerm window open to resume into"}, status=409)
         src, vertical = pick_grid_split(tab)
-        sess = await src.async_split_pane(vertical=vertical, before=False)
+        sess = await src.async_split_pane(vertical=vertical, before=False,
+                                          profile_customizations=_launch_profile(cmd))
     except Exception as e:
+        _discard_launcher(launch_dir)
         return web.json_response(
             {"error": f"could not open pane: {type(e).__name__}: {e}"}, status=500)
     uuid = sess.session_id.upper()
     KNOWN_AGENTS[uuid] = "claude"
     await normalize_pane(sess)             # land at the canonical width from birth
-    await sess.async_send_text(
-        f"cd {shlex.quote(cwd)} && clear && claude --resume {shlex.quote(session_id)}\n")
     asyncio.create_task(_auto_trust(sess))
     print(f"  [resume] {session_id} → pane {uuid} in {cwd}", flush=True)
     return web.json_response({"uuid": uuid, "session_id": session_id})
