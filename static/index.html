@@ -1327,7 +1327,7 @@ const LINE_RULES = {
 /* Rules shared by every client: errors, progress bars, quoted input, rules. */
 const COMMON_RULES = [
   [/(error|failed|refus)/i, 'c-red'],
-  [/[█▓]|\d+%/,             'c-cyan'],
+  [/[█▓]/,                  'c-cyan'],
   [/^\s*>/,                 'c-green'],
   [/^\s*[─━]{4,}/,          'c-dim'],
 ];

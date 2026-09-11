@@ -210,6 +210,10 @@ GRID_MAX_COLS = 3    # top row grows to this many columns before rows start fill
 # ~456px tall → 11 rows) crushes Claude's TUI vertically, cutting off the top and
 # never reaching the bottom, even when the width already matches.
 PANE_COLS = 52
+# Rows are the whole conversation on a client with no scrollback (Grok redraws a
+# single alt-screen), but a dozen tiled panes cannot each be phone-height in one
+# window — iTerm refuses the resize. So this stays the floor for a normal pane,
+# and height for the pane a phone is actually watching comes from grow_pane().
 PANE_ROWS = 25
 COL_TOL = 3              # accept 52..55 cols (a tiled window fills to 53/54); only
                         # a pane outside this band (e.g. font-drift balloon) is reset
@@ -1410,6 +1414,9 @@ def churn_for(key, snap):
     return {"add": c["add"], "del": c["del"], "files": len(c["files"])}
 
 
+_FLEET_CACHE = []      # last full yard, for while a pane is maximized
+
+
 async def build_fleet():
     sessions = await all_sessions()
     files = read_fleet_files()
@@ -1480,6 +1487,15 @@ async def build_fleet():
             # this backwards for the newest tool call to show what Claude's doing.
             "tail": lines[-14:],
         })
+    # Maximizing a watched pane (grow_pane) hides its tab-mates from iTerm's API,
+    # which would empty the yard for everyone else while one phone reads a chat.
+    # Serve the last full picture for the panes that are merely out of view.
+    global _FLEET_CACHE
+    if _GROWN:
+        have = {r["uuid"] for r in rows}
+        rows += [r for r in _FLEET_CACHE if r["uuid"] not in have]
+    else:
+        _FLEET_CACHE = rows
     # anything blocked on a human answer outranks everything else
     rows.sort(key=lambda r: (0 if r.get("prompt") else 1,
                              {"working": 0, "idle": 1, "ended": 2}.get(r["state"], 3),
@@ -3134,6 +3150,86 @@ async def serve_sw(request):
     return resp
 
 
+# ── watching a pane makes it full height ───────────────────────────────────
+# A pane in the fleet grid is ~17 rows tall, and 17 rows is the whole
+# conversation on a client with no scrollback: Grok redraws one alt-screen, so
+# anything off its grid is simply not in the phone view. Rows cannot be grown by
+# fiat — 12 tiled panes cannot each be 45 rows in one window — so while a phone
+# is actually watching a pane, maximize it inside its tab. The agent redraws at
+# the window's full height (~49 rows) and the tab goes back the moment the phone
+# leaves.
+_GROWN = None      # (uuid, prior active session id, window id) or None
+# The menu API takes the identifier string, not the enum member.
+_MAXIMIZE_ID = iterm2.MainMenu.View.MAXIMIZE_ACTIVE_PANE.value.identifier
+
+
+def _locate(uuid):
+    """The window, tab and session for a pane uuid — (None, None, None) if gone."""
+    want = (uuid or "").upper()
+    for w in (APP.terminal_windows if APP else []):
+        for t in w.tabs:
+            for sess in t.sessions:
+                if sess.session_id.upper() == want:
+                    return w, t, sess
+    return None, None, None
+
+
+async def _maximized():
+    st = await iterm2.MainMenu.async_get_menu_item_state(
+        CONN, _MAXIMIZE_ID)
+    return bool(getattr(st, "checked", False))
+
+
+async def _toggle_maximize():
+    await iterm2.MainMenu.async_select_menu_item(CONN, _MAXIMIZE_ID)
+
+
+async def grow_pane(uuid):
+    """Maximize a watched pane in its tab. Best effort: the menu command acts on
+    the key window, so if the pane is not in it we leave the layout alone rather
+    than maximize somebody else's pane."""
+    global _GROWN
+    if _GROWN and _GROWN[0] == uuid:
+        return
+    await ungrow_pane()
+    w, t, sess = _locate(uuid)
+    if sess is None or len(t.sessions) < 2:
+        return
+    try:
+        prior = t.active_session_id
+        await sess.async_activate(select_tab=True, order_window_front=False)
+        cur = APP.current_window
+        if cur is None or cur.window_id != w.window_id:
+            return
+        if not await _maximized():
+            await _toggle_maximize()
+        _GROWN = (uuid, prior, w.window_id)
+    except Exception as e:
+        print(f"  [grow] {type(e).__name__}: {e}", flush=True)
+
+
+async def ungrow_pane():
+    """Put the tab back the way the viewer found it."""
+    global _GROWN
+    if not _GROWN:
+        return
+    uuid, prior, _wid = _GROWN
+    _GROWN = None
+    w, t, sess = _locate(uuid)
+    if sess is None:
+        return
+    try:
+        await sess.async_activate(select_tab=True, order_window_front=False)
+        if await _maximized():
+            await _toggle_maximize()
+        if prior and prior.upper() != uuid.upper():
+            _w2, _t2, back = _locate(prior)
+            if back is not None:
+                await back.async_activate(select_tab=True, order_window_front=False)
+    except Exception as e:
+        print(f"  [grow] restore {type(e).__name__}: {e}", flush=True)
+
+
 async def ws_pane(request):
     if not authed(request):
         return web.json_response({"error": "locked"}, status=401)
@@ -3142,10 +3238,16 @@ async def ws_pane(request):
     await ws.prepare(request)
     last = None
     sent_history = False
+    await grow_pane(uuid)          # watched panes get the window's full height
     try:
         while not ws.closed:
             s = (await all_sessions()).get(uuid)
             if not s:
+                # A maximized pane hides its tab-mates from the API. That is not
+                # the same as the pane having ended — wait it out instead.
+                if _GROWN and _GROWN[0] != uuid:
+                    await asyncio.sleep(POLL)
+                    continue
                 await ws.send_json({"gone": True})
                 break
             if not sent_history:
@@ -3165,6 +3267,7 @@ async def ws_pane(request):
     except (asyncio.CancelledError, ConnectionResetError):
         pass
     finally:
+        await ungrow_pane()
         if not ws.closed:
             await ws.close()
     return ws
