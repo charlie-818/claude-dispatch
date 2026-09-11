@@ -314,6 +314,24 @@
   .dp-start{flex:1;background:#d77757;border-color:#d77757;color:#2a1206}
   .dp-start:active{background:#c56b4a}
   .dp-start:disabled{opacity:.4}
+  /* Agent picker — which client the new pane boots into. It lives in the same
+     sheet as the folder choice so starting an agent stays one decision, one tap:
+     pick who, click through to where, Start here. The tiles wear the same block
+     sprites the yard uses, so the pane you get looks like the tile you picked. */
+  .ap{display:flex;gap:7px;margin-bottom:10px}
+  .ap-opt{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;
+    background:var(--panel3);border:1px solid var(--line2);border-radius:var(--r);
+    padding:9px 4px 8px;cursor:pointer;color:var(--fg2);font:600 12px var(--ui)}
+  .ap-opt .clawd{position:static;transform:none;width:30px;height:27px}
+  .ap-opt.p-codex .clawd{--skin:#ececea;--skin-dark:#c3c3bd}
+  .ap-opt.p-grok  .clawd{--skin:#b9bec7;--skin-dark:#8c929c}
+  /* the sprite's face is cut out in the page background, so the tile must sit on
+     that same ground for the mark to read — hence the swap on select, not a tint */
+  .ap-opt .clawd .eye{fill:var(--panel3)}
+  .ap-opt[aria-pressed="true"]{border-color:#d77757;color:var(--fg);
+    background:rgba(215,119,87,.14)}
+  .ap-opt[aria-pressed="true"] .clawd .eye{fill:#2e1b13}
+  .ap-opt:active{background:var(--line2)}
   .c-dim{color:var(--dim)} .c-green{color:var(--green)} .c-red{color:var(--red)}
   .c-amber{color:var(--amber)} .c-blue{color:var(--blue)} .c-violet{color:var(--violet)}
   .c-cyan{color:var(--cyan)} .c-sel{color:var(--fg);font-weight:600}
@@ -3289,11 +3307,14 @@ async function post(path, body){
   return d;
 }
 
-/* Spawn a fresh Claude pane on the Mac. Tapping the FAB opens a directory picker
-   sheet — you click through from the roots (home, mounted volumes) to the folder
-   you want, then hit "Start here". The server splits a new iTerm pane in that dir;
-   we arm PENDING_PANE with its UUID so the moment it lands in the fleet we drop
-   straight into it — you answer its first-run trust prompt there. */
+/* Spawn a fresh agent pane on the Mac. Tapping the FAB opens the start sheet —
+   you pick which client to run (Claude, Codex, Grok — whichever the host has
+   installed), click through from the roots (home, mounted volumes) to the folder
+   you want, then hit "Start here". The server splits a new iTerm pane in that dir
+   running that client; we arm PENDING_PANE with its UUID so the moment it lands
+   in the fleet we drop straight into it — you answer its first-run prompt there. */
+const AGENT_LABEL = {claude:'Claude', codex:'Codex', grok:'Grok'};
+let SPAWN_AGENT = localStorage.getItem('spawnAgent') || 'claude';
 function spawnSession(){ buzz(14); openDirPicker(''); }
 
 /* Directory picker, rendered into the shared sheet. `path === ''` shows the roots;
@@ -3359,12 +3380,47 @@ function renderDirPicker(data){
   body.innerHTML = '';
   const atRoot = !data.path;
 
-  // pinned crumb — where this agent will start
+  // who runs — only the clients this host actually has, resolved before anything
+  // renders so the crumb and the launch agree on one answer
+  const agents = data.agents || ['claude'];
+  if (!agents.includes(SPAWN_AGENT)) SPAWN_AGENT = agents[0] || 'claude';
+
+  // pinned crumb — which agent starts, and where
   const crumb = document.createElement('div');
   crumb.className = 'dp-crumb';
-  crumb.innerHTML = atRoot ? 'pick where this agent starts'
-    : 'start in <b>' + esc(data.path) + '</b>';
+  const drawCrumb = () => {
+    const who = esc(AGENT_LABEL[SPAWN_AGENT] || SPAWN_AGENT);
+    crumb.innerHTML = atRoot ? ('pick where ' + who + ' starts')
+      : ('start ' + who + ' in <b>' + esc(data.path) + '</b>');
+  };
+  drawCrumb();
   body.appendChild(crumb);
+
+  // One agent installed is no choice at all, so the row is dropped rather than
+  // shown as a single dead tile.
+  if (agents.length > 1){
+    const ap = document.createElement('div');
+    ap.className = 'ap';
+    agents.forEach(a => {
+      const b = document.createElement('button');
+      b.className = 'ap-opt p-' + a;
+      b.setAttribute('aria-pressed', String(a === SPAWN_AGENT));
+      b.innerHTML = (SPRITES[a] || SPRITES.claude)
+                  + '<span>' + esc(AGENT_LABEL[a] || a) + '</span>';
+      b.onclick = () => {
+        buzz(8);
+        SPAWN_AGENT = a;
+        try { localStorage.setItem('spawnAgent', a); } catch(_){}
+        // re-flag in place: re-rendering the sheet would throw away the folder
+        // you have already clicked down into
+        ap.querySelectorAll('.ap-opt').forEach((o, i) =>
+          o.setAttribute('aria-pressed', String(agents[i] === a)));
+        drawCrumb();
+      };
+      ap.appendChild(b);
+    });
+    body.appendChild(ap);
+  }
 
   const rows = atRoot ? data.roots : data.dirs;
 
@@ -3439,9 +3495,9 @@ function filterDirRows(list, empty, q){
 async function spawnInDir(dir){
   buzz(18);
   try {
-    const r = await post('/api/spawn', {dir});
+    const r = await post('/api/spawn', {dir, provider: SPAWN_AGENT});
     PENDING_PANE = r.uuid;
-    toast('starting agent…');
+    toast('starting ' + (AGENT_LABEL[r.provider] || 'agent') + '…');
   } catch(e){ toast(String(e.message), true); }
   finally { closeSheet(); }
 }

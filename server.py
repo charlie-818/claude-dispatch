@@ -64,6 +64,10 @@ _FLEET_BY_TTY = {}               # /dev/ttysNNN -> record, for panes with no ses
 PROVIDERS = ("claude", "codex", "grok")
 DEFAULT_PROVIDER = "claude"
 
+# The project-instructions file each client reads on startup. Codex and Grok both
+# read AGENTS.md; Claude reads CLAUDE.md. Only ever written into a scratch dir.
+AGENT_NOTE_FILE = {"claude": "CLAUDE.md", "codex": "AGENTS.md", "grok": "AGENTS.md"}
+
 # A pane may receive keystrokes if its foreground job is an agent CLI itself, OR if
 # a fleet file was recently written for it. The second clause matters: while an
 # agent runs a Bash tool the foreground job is that child process
@@ -1560,29 +1564,45 @@ def _transcript_digest(path, max_chars=20000):
     return (first + "\n" + tail)[:max_chars + 2000]
 
 
-def _claude_bin():
-    """Absolute path to the `claude` CLI. The server is started by launchd/iTerm2
-    with a minimal PATH, so a bare "claude" raises FileNotFoundError and every
-    brief comes back blank — look it up on PATH first, then the usual install
-    locations, and cache the answer."""
-    global _CLAUDE_BIN
-    if _CLAUDE_BIN is not None:
-        return _CLAUDE_BIN
-    found = shutil.which("claude")
+# Where each client installs itself, checked in order after PATH. The server is
+# started by launchd/iTerm2 with a minimal PATH, so a bare binary name raises
+# FileNotFoundError — look it up on PATH first, then these, and cache the answer.
+BIN_PATHS = {
+    "claude": ("~/.npm-packages/bin/claude", "~/.claude/local/claude",
+               "~/.local/bin/claude", "/opt/homebrew/bin/claude",
+               "/usr/local/bin/claude"),
+    "codex":  ("~/.npm-packages/bin/codex", "~/.codex/bin/codex",
+               "~/.local/bin/codex", "/opt/homebrew/bin/codex",
+               "/usr/local/bin/codex"),
+    "grok":   ("~/.grok/bin/grok", "~/.npm-packages/bin/grok",
+               "~/.local/bin/grok", "/opt/homebrew/bin/grok",
+               "/usr/local/bin/grok"),
+}
+
+
+def agent_bin(provider=DEFAULT_PROVIDER):
+    """Absolute path to one client's CLI, cached per provider."""
+    provider = provider if provider in PROVIDERS else DEFAULT_PROVIDER
+    hit = _BINS.get(provider)
+    if hit is not None:
+        return hit
+    found = shutil.which(provider)
     if not found:
-        for c in (pathlib.Path.home() / ".npm-packages/bin/claude",
-                  pathlib.Path.home() / ".claude/local/claude",
-                  pathlib.Path.home() / ".local/bin/claude",
-                  pathlib.Path("/opt/homebrew/bin/claude"),
-                  pathlib.Path("/usr/local/bin/claude")):
+        for c in BIN_PATHS[provider]:
+            c = os.path.expanduser(c)
             if os.access(c, os.X_OK):
-                found = str(c)
+                found = c
                 break
-    _CLAUDE_BIN = found or "claude"
-    return _CLAUDE_BIN
+    _BINS[provider] = found or provider
+    return _BINS[provider]
 
 
-_CLAUDE_BIN = None
+def _claude_bin():
+    """The `claude` CLI specifically — the brief always runs on Claude."""
+    return agent_bin(DEFAULT_PROVIDER)
+
+
+_BINS = {}
 
 
 async def _claude_summary(digest, running):
@@ -2157,10 +2177,10 @@ async def _auto_trust(sess):
 # on every host.
 
 
-def _pane_launcher(workdir, env_lines=(), args=""):
+def _pane_launcher(workdir, env_lines=(), args="", provider=DEFAULT_PROVIDER):
     """Write a self-deleting launcher for a new pane; return (command, tmpdir).
 
-    Secrets ride in the file (0600, unlinked before Claude starts), never as
+    Secrets ride in the file (0600, unlinked before the client starts), never as
     keystrokes, so they cannot land in the pane's scrollback or shell history --
     the same contract the old .cc-inject.env had, minus the dotfile dropped into
     the owner's own repo. `bash -l` on a *script* reads the login profile (so the
@@ -2169,13 +2189,13 @@ def _pane_launcher(workdir, env_lines=(), args=""):
     d = tempfile.mkdtemp(prefix="cc-launch-")
     path = os.path.join(d, "launch.sh")
     body = [
-        "# CC Dispatch pane launcher. Deletes itself before Claude takes the pane.",
+        "# CC Dispatch pane launcher. Deletes itself before the agent takes the pane.",
         "export BASH_SILENCE_DEPRECATION_WARNING=1",
         *env_lines,
         f"cd {shlex.quote(workdir)} || exit 1",
         f"rm -f {shlex.quote(path)}; rmdir {shlex.quote(d)} 2>/dev/null",
-        f"{shlex.quote(_claude_bin())} {args}".rstrip(),
-        "exec /bin/bash -il",          # Claude exited: leave the live shell it used to
+        f"{shlex.quote(agent_bin(provider))} {args}".rstrip(),
+        "exec /bin/bash -il",          # agent exited: leave the live shell it used to
     ]
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     os.write(fd, ("\n".join(body) + "\n").encode())
@@ -2198,16 +2218,25 @@ def _discard_launcher(d):
 
 @writes("spawn")
 async def api_spawn(request):
-    """Open a brand-new Claude pane in the iTerm window and hand back its UUID.
+    """Open a brand-new agent pane in the iTerm window and hand back its UUID.
 
-    It starts in a throwaway scratch dir so nothing real is touched until you tell
-    it where to work. The scratch dir is pre-trusted in ~/.claude.json so Claude's
-    first-run "trust the files in this folder?" prompt never fires. We add the UUID
-    to KNOWN_AGENTS up front so it lands in the fleet the instant it opens, before
-    its jobName has even settled to `node`.
+    `provider` picks which CLI the pane boots into — claude, codex or grok. It
+    starts in a throwaway scratch dir so nothing real is touched until you tell it
+    where to work. For Claude the scratch dir is pre-trusted in ~/.claude.json so
+    the first-run "trust the files in this folder?" prompt never fires. We add the
+    UUID to KNOWN_AGENTS up front, under the provider we launched, so it lands in
+    the fleet the instant it opens — before its jobName has settled to `node` and
+    before any of the marker heuristics have a screen to read.
     """
     await APP.async_refresh()
     body = request.get("_body") or {}
+    provider = (body.get("provider") or DEFAULT_PROVIDER).strip().lower()
+    if provider not in PROVIDERS:
+        return web.json_response(
+            {"error": f"unknown agent {provider!r}"}, status=400)
+    if not os.path.isabs(agent_bin(provider)):
+        return web.json_response(
+            {"error": f"{provider} is not installed on this host"}, status=409)
     # Chosen dir from the picker: cd straight there. Absent → throwaway scratch, so
     # nothing real is touched until the owner picks a folder. Either way the launch
     # dir is trusted up front so Claude's first-run trust prompt never fires.
@@ -2221,7 +2250,8 @@ async def api_spawn(request):
         workdir = tempfile.mkdtemp(prefix="cc-scratch-")
     scratch = workdir
     is_scratch = not chosen
-    trust_dir(scratch)                     # skip Claude's first-run trust prompt
+    if provider == DEFAULT_PROVIDER:
+        trust_dir(scratch)                 # skip Claude's first-run trust prompt
 
     # Hand the pane a capability handle for the auth broker, plus any credentials
     # the owner chose to pre-inject. All of it goes into the launcher the pane runs
@@ -2244,11 +2274,11 @@ async def api_spawn(request):
     # in a scratch dir — never drop a CLAUDE.md into a real repo the owner picked.
     if is_scratch:
         try:
-            (pathlib.Path(scratch) / "CLAUDE.md").write_text(_AGENT_NOTE)
+            (pathlib.Path(scratch) / AGENT_NOTE_FILE[provider]).write_text(_AGENT_NOTE)
         except Exception:
             pass
 
-    cmd, launch_dir = _pane_launcher(scratch, lines)
+    cmd, launch_dir = _pane_launcher(scratch, lines, provider=provider)
     # Grow the fleet's own tab into a grid instead of opening a new tab. Panes are
     # placed row-major (see GRID_MAX_COLS) so the split lands in an aligned column
     # or row rather than as a random narrow sliver.
@@ -2266,7 +2296,7 @@ async def api_spawn(request):
         return web.json_response(
             {"error": f"could not open pane: {type(e).__name__}: {e}"}, status=500)
     uuid = sess.session_id.upper()
-    KNOWN_AGENTS[uuid] = "claude"
+    KNOWN_AGENTS[uuid] = provider
     PANE_TOKENS[tok] = uuid
     for cid, cred in released:
         vault.add_grant(uuid, cid, scopes=cred.get("scopes") or [])   # visible + revocable
@@ -2274,10 +2304,12 @@ async def api_spawn(request):
                    {"uuid": uuid, "cred": cid, "last4": cred["last4"], "via": "spawn"})
     await normalize_pane(sess)             # land at the canonical width from birth
     # Fallback in case the pre-trust key got clobbered — auto-accept the trust
-    # dialog if it still shows. Fire-and-forget so the spawn returns immediately.
-    asyncio.create_task(_auto_trust(sess))
-    print(f"  [spawn] new pane {uuid} in {scratch}", flush=True)
-    return web.json_response({"uuid": uuid, "dir": scratch})
+    # dialog if it still shows. Claude's dialog only; the others do not ask.
+    # Fire-and-forget so the spawn returns immediately.
+    if provider == DEFAULT_PROVIDER:
+        asyncio.create_task(_auto_trust(sess))
+    print(f"  [spawn] new {provider} pane {uuid} in {scratch}", flush=True)
+    return web.json_response({"uuid": uuid, "dir": scratch, "provider": provider})
 
 
 _AGENT_NOTE = """\
@@ -2315,15 +2347,23 @@ def _browse_roots():
     return roots
 
 
+def installed_agents():
+    """Which client CLIs this host actually has — the picker only offers these.
+    An unresolved lookup falls back to the bare name, which is never absolute."""
+    return [p for p in PROVIDERS if os.path.isabs(agent_bin(p))]
+
+
 @guard
 async def api_browse(request):
     """List directories under `path` so the phone can click through the filesystem
     and pick where a new pane starts. No path → the roots (home + volumes). Read
-    only; never returns files, only sub-directories."""
+    only; never returns files, only sub-directories. `agents` rides along so the
+    picker can offer the agent choice in the same sheet it picks the folder in."""
     path = request.query.get("path", "")
     if not path:
-        return web.json_response({"path": "", "parent": None,
-                                  "roots": _browse_roots(), "dirs": []})
+        return web.json_response({"path": "", "parent": None, "dirs": [],
+                                  "roots": _browse_roots(),
+                                  "agents": installed_agents()})
     path = os.path.abspath(os.path.expanduser(path))
     if not os.path.isdir(path):
         return web.json_response({"error": "not a directory"}, status=404)
@@ -2344,7 +2384,8 @@ async def api_browse(request):
     if parent == path or not parent:
         parent = None
     return web.json_response({"path": path, "parent": parent,
-                              "roots": _browse_roots(), "dirs": dirs})
+                              "roots": _browse_roots(), "dirs": dirs,
+                              "agents": installed_agents()})
 
 
 # How each client is asked to shut itself down before the pane is closed.

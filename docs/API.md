@@ -19,11 +19,11 @@ Every route CC Dispatch exposes, its auth class, and the shape of its request/re
 | POST | `/api/key` | write-gate | Send one named key (arrows, esc, etc.) | `uuid, key` | `{ok, sent}` |
 | POST | `/api/select` | write-gate | Drive a checkbox multi-select | `uuid, indices[], submit` | `{ok, toggled, submitted}` |
 | POST | `/api/send` | write-gate | Send literal text, optional submit | `uuid, text, submit` | `{ok, chars}` |
-| GET | `/api/browse` | session | List directories for the spawn/resume picker | query `?path=` | `{path, parent, roots, dirs}` |
+| GET | `/api/browse` | session | Directories for the spawn/resume picker, plus the agent CLIs this host has | query `?path=` | `{path, parent, roots, dirs, agents}` |
 | POST | `/api/upload` | session (`@guard`) | Save a phone file into the pane's cwd | headers `X-Uuid, X-Filename`; raw body | `{ok, path, name}` |
 | POST | `/api/whisper` | session (`@guard`) | Transcribe recorded audio locally | raw audio body | `{ok, text}` |
 | POST | `/api/submit` | write-gate | Press Enter (or retype a ghost suggestion first) | `uuid` | `{ok, kind, sent}` |
-| POST | `/api/spawn` | write-gate | Open a new Claude pane | `dir?, integrations[]?` | `{uuid, dir}` |
+| POST | `/api/spawn` | write-gate | Open a new agent pane (`provider`: claude \| codex \| grok) | `dir?, provider?, integrations[]?` | `{uuid, dir, provider}` |
 | POST | `/api/kill` | write-gate | Gracefully quit and close a pane | `uuid` | `{ok, uuid}` |
 | POST | `/api/mode` | write-gate | Shift-Tab to a permission mode (Claude only) | `uuid, mode` | `{ok, mode, path}` |
 | POST | `/api/effort` | write-gate | `/effort <level>` (Claude only) | `uuid, level` | `{ok, level}` |
