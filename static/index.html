@@ -2383,7 +2383,11 @@ const PROMPT_GLYPH = {claude: '❯', codex: '›', grok: '❯'};
 const CODEX_BANNER = /^\s*•\s*Session renamed/;
 // Grok paints a scrollbar in the rightmost column and indents the whole
 // transcript five spaces. On a 52-column pane both are width we do not have.
-const GROK_BAR = / {3,}[█▌│]+\s*$/;
+const GROK_BAR = / {2,}[█▌│]+\s*$/;
+// Codex sprinkles a braille snowfall around its input box while it waits. Those
+// rows carry nothing but the animation, and they land above the prompt line, so
+// the cut below never reaches them — drop any line that is only braille.
+const CODEX_SPARKLE = /^[\s\u2800-\u28ff]*$/;
 
 function trimChrome(text, prov){
   const p = prov || 'claude';
@@ -2410,8 +2414,15 @@ function trimChrome(text, prov){
       lines.splice(b, end - b);
     }
   }
-  if (p === 'grok')
-    lines = lines.map(l => l.replace(GROK_BAR, '').replace(/^ {5}/, ''));
+  if (p === 'codex')
+    lines = lines.filter(l => !(/[\u2800-\u28ff]/.test(l) && CODEX_SPARKLE.test(l)));
+  if (p === 'grok'){
+    lines = lines.map(l => l.replace(GROK_BAR, ''));
+    // Grok indents its whole transcript four columns. Pull those back — on a
+    // 52-column pane that margin is most of a word — while leaving any deeper
+    // indent (code, nested lists) standing relative to it.
+    lines = lines.map(l => l.replace(/^ {1,4}/, ''));
+  }
   return lines.join('\n').replace(/\n+$/, '');
 }
 
@@ -2434,6 +2445,18 @@ function paint(){
   }
   while (kids.length > lines.length) p.removeChild(p.lastElementChild);
   if (fitMode === 0) shrinkToFit(p);
+  // A short transcript — a Grok pane is one screen with no scrollback, so it is
+  // usually short — should sit ON the composer like a conversation, not float at
+  // the top of an empty column. Push it down by whatever room is left over.
+  p.style.paddingTop = '0px';
+  const rows = p.children;
+  if (rows.length){
+    // scrollHeight never reports less than the box, so measure the rows
+    const top = rows[0].getBoundingClientRect().top;
+    const bottom = rows[rows.length - 1].getBoundingClientRect().bottom;
+    const slack = p.clientHeight - (bottom - top);
+    if (slack > 0) p.style.paddingTop = slack + 'px';
+  }
   // Follow live output only when parked at the bottom and not actively scrolling.
   if (pinBottom && !userScrolling) p.scrollTop = p.scrollHeight;
 }
