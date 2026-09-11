@@ -1297,23 +1297,60 @@ const skelList = (n = 5) => Array.from({length: n}, () =>
 /* animated three-dot loader, e.g. `loading${DOTS}` */
 const DOTS = '<span class="dots"><i></i><i></i><i></i></span>';
 
-/* Claude's TUI has a small, stable vocabulary of line prefixes. Colouring on
-   those is cheaper and more robust than shipping full ANSI over the wire. */
-function colorizeLine(l){
-  const e = esc(l);
-  if (/^\s*[●⏺]/.test(l))            return `<span class="c-violet">${e}</span>`;
-  if (/^\s*⎿/.test(l))                return `<span class="c-dim">${e}</span>`;
-  if (/^\s*[✻✽*]/.test(l))            return `<span class="c-amber">${e}</span>`;
-  if (/^\s*❯/.test(l))                return `<span class="c-sel">${e}</span>`;
-  if (/^\s*\d\.\s/.test(l))           return `<span class="c-dim">${e}</span>`;
-  if (/(error|failed|refus)/i.test(l))return `<span class="c-red">${e}</span>`;
-  if (/[█▓]|\d+%/.test(l))            return `<span class="c-cyan">${e}</span>`;
-  if (/^\s*>/.test(l))                return `<span class="c-green">${e}</span>`;
-  if (/^\s*[─━]{4,}/.test(l))         return `<span class="c-dim">${e}</span>`;
-  return e;
+/* Each TUI has a small, stable vocabulary of line prefixes. Colouring on those
+   is cheaper and more robust than shipping full ANSI over the wire — but the
+   vocabularies differ, and they collide: Codex marks every event with "•",
+   while Grok uses the same glyph for ordinary prose bullets. So the rules are
+   per client, and lines are coloured with the provider of the pane they came
+   from. */
+const LINE_RULES = {
+  claude: [
+    [/^\s*[●⏺]/,            'c-violet'],   // tool call
+    [/^\s*⎿/,                'c-dim'],      // tool result
+    [/^\s*[✻✽*]/,            'c-amber'],    // spinner / status
+    [/^\s*❯/,                'c-sel'],      // prompt
+    [/^\s*\d\.\s/,           'c-dim'],
+  ],
+  codex: [
+    [/^\s*•/,                'c-violet'],   // event: ran, edited, replied
+    [/^\s*[└╰]/,             'c-dim'],      // that event's output
+    [/^\s*[›❯]/,             'c-sel'],      // prompt
+    [/^\s*[▌│]\s*[-*]\s/,    'c-dim'],
+  ],
+  grok: [
+    [/^\s*❯/,                'c-sel'],      // prompt echo
+    [/^\s*◆/,                'c-amber'],    // thinking
+    [/^\s*[◈◇▸]/,            'c-violet'],   // tool call
+    [/^\s*Worked for /,      'c-dim'],
+  ],
+};
+/* Rules shared by every client: errors, progress bars, quoted input, rules. */
+const COMMON_RULES = [
+  [/(error|failed|refus)/i, 'c-red'],
+  [/[█▓]|\d+%/,             'c-cyan'],
+  [/^\s*>/,                 'c-green'],
+  [/^\s*[─━]{4,}/,          'c-dim'],
+];
+/* Grok stamps each turn with a wall clock on the right. Keep it — it is the
+   only turn boundary in its transcript — but sink it behind the words. */
+const STAMP_RE = /^(.*\S)(\s{2,})(\d{1,2}:\d{2}\s?[AP]M)\s*$/;
+
+function colorizeLine(l, p){
+  const rules = LINE_RULES[p] || LINE_RULES.claude;
+  let body = l, stamp = '';
+  if (p === 'grok'){
+    const m = l.match(STAMP_RE);
+    if (m){ body = m[1]; stamp = `${m[2]}<span class="c-dim">${esc(m[3])}</span>`; }
+  }
+  const e = esc(body);
+  for (const [re, cls] of rules)
+    if (re.test(body)) return `<span class="${cls}">${e}</span>` + stamp;
+  for (const [re, cls] of COMMON_RULES)
+    if (re.test(body)) return `<span class="${cls}">${e}</span>` + stamp;
+  return e + stamp;
 }
-function colorizeLines(text){ return text.split('\n').map(colorizeLine); }
-function colorize(text){ return colorizeLines(text).join('\n'); }
+function colorizeLines(text, p){ return text.split('\n').map(l => colorizeLine(l, p)); }
+function colorize(text, p){ return colorizeLines(text, p).join('\n'); }
 
 function toast(msg, err){
   const t = document.getElementById('toast');
@@ -2338,19 +2375,43 @@ function isDivider(l){
   return dashes >= 8 && /^[─━]{3,}/.test(t) && /[─━]{2,}$/.test(t);
 }
 function isBorder(l){ return isDivider(l) || /[╭╮╰╯┌┐└┘┏┓┗┛]/.test(l); }
-function trimChrome(text){
+// The glyph each client draws in its own input box. Claude and Grok use ❯,
+// Codex a lighter ›, and Codex's box has no border at all.
+const PROMPT_GLYPH = {claude: '❯', codex: '›', grok: '❯'};
+// Codex opens every session by announcing the rename and how to resume it. It is
+// the same four lines every time and it is never the answer to anything.
+const CODEX_BANNER = /^\s*•\s*Session renamed/;
+// Grok paints a scrollbar in the rightmost column and indents the whole
+// transcript five spaces. On a 52-column pane both are width we do not have.
+const GROK_BAR = / {3,}[█▌│]+\s*$/;
+
+function trimChrome(text, prov){
+  const p = prov || 'claude';
   let lines = text.split('\n');
-  // Remove ONLY the input box (the one holding the ❯ prompt) and everything below
-  // it — its bottom border, the model/context bar, the ⏵⏵ mode line and the
+  // Remove ONLY the input box (the one holding the prompt glyph) and everything
+  // below it — its bottom border, the model/context bar, the ⏵⏵ mode line and the
   // "new task?" footer. The "✻ Cooked for 14s" status line sits ABOVE the box, so
   // it's kept: it's the last useful line before our own composer.
-  let p = -1;
-  for (let i = lines.length - 1; i >= 0; i--){ if (lines[i].includes('❯')){ p = i; break; } }
-  if (p >= 0){
-    let top = p;
+  const glyph = PROMPT_GLYPH[p] || '❯';
+  let at = -1;
+  for (let i = lines.length - 1; i >= 0; i--){ if (lines[i].includes(glyph)){ at = i; break; } }
+  if (at >= 0){
+    let top = at;
     while (top - 1 >= 0 && isBorder(lines[top - 1])) top--;   // climb the top border
     lines = lines.slice(0, top);
   }
+  if (p === 'codex'){
+    // drop the rename banner and the blank line under it
+    const b = lines.findIndex(l => CODEX_BANNER.test(l));
+    if (b >= 0){
+      let end = b + 1;
+      while (end < lines.length && lines[end].trim()) end++;
+      while (end < lines.length && !lines[end].trim()) end++;
+      lines.splice(b, end - b);
+    }
+  }
+  if (p === 'grok')
+    lines = lines.map(l => l.replace(GROK_BAR, '').replace(/^ {5}/, ''));
   return lines.join('\n').replace(/\n+$/, '');
 }
 
@@ -2358,8 +2419,9 @@ function paint(){
   const p = document.getElementById('pane');
   // trailing blank lines between scrollback and live screen just waste space
   const hist = history.join('\n').replace(/\n+$/, '');
-  const liveT = trimChrome(live);
-  const lines = colorizeLines(hist ? hist + '\n' + liveT : liveT);
+  const prov = (current && current.provider) || 'claude';
+  const liveT = trimChrome(live, prov);
+  const lines = colorizeLines(hist ? hist + '\n' + liveT : liveT, prov);
   // Diff line-by-line instead of replacing innerHTML. Only changed rows are
   // rewritten; untouched scrollback nodes stay put, so the browser keeps the
   // scroll position natively — no reset-to-0, no anchor math, no drift, and a
