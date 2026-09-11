@@ -157,8 +157,8 @@ section { padding-block: var(--section); position: relative; }
 .ring .track { stroke: var(--line); stroke-width: 3; }
 .ring .fill { stroke: var(--blue); stroke-width: 3; stroke-dasharray: calc(var(--pct) * 105) 200; }
 .clawd { position: absolute; left: 50%; bottom: 15px; transform: translateX(-50%); width: 44px; height: 40px; overflow: visible; --skin: #d77757; --skin-dark: #b85f42; }
-.p-codex .clawd { --skin: #ececea; --skin-dark: #c3c3bd; }
-.p-grok .clawd { --skin: #b9bec7; --skin-dark: #8c929c; }
+.p-codex .clawd { --skin: #f3f1ec; --skin-dark: #cac6bd; }
+.p-grok .clawd { --skin: #7f8a9c; --skin-dark: #59626f; }
 .clawd .body { fill: var(--skin); } .clawd .shade { fill: var(--skin-dark); }
 .clawd .eye { fill: var(--bg); }
 .clawd .band { fill: var(--band); opacity: .9; }
