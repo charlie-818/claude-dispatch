@@ -2887,10 +2887,13 @@ function renderSheet(){
 
   else if (openKind === 'mode'){
     title.textContent = 'permission mode';
-    [['plan','read-only planning'], ['auto','auto-accept'],
-     ['accept','accept edits'], ['manual','ask every time']]
+    // bypass is launch-only (--dangerously-skip-permissions), so it shows as a
+    // state you can see and leave, never as one you can tap into.
+    [['bypass','set at launch — new panes start here'], ['plan','read-only planning'],
+     ['auto','auto-accept'], ['accept','accept edits'], ['manual','ask every time']]
       .forEach(([m, d]) => body.appendChild(opt(m, {
-        desc: d, cur: current && current.mode === m, dis: !send,
+        desc: d, cur: current && current.mode === m,
+        dis: !send || m === 'bypass',
         on: () => { setMode(m); closeSheet(); }})));
   }
 

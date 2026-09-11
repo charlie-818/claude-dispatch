@@ -2294,7 +2294,10 @@ async def api_spawn(request):
         except Exception:
             pass
 
-    cmd, launch_dir = _pane_launcher(scratch, lines, provider=provider)
+    # Claude panes are born in bypass — it is the only way in (no Shift-Tab path,
+    # no slash command), and a pane you drive from a phone can't answer prompts.
+    args = "--dangerously-skip-permissions" if provider == DEFAULT_PROVIDER else ""
+    cmd, launch_dir = _pane_launcher(scratch, lines, args=args, provider=provider)
     # Grow the fleet's own tab into a grid instead of opening a new tab. Panes are
     # placed row-major (see GRID_MAX_COLS) so the split lands in an aligned column
     # or row rather than as a random narrow sliver.
