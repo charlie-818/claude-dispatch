@@ -3162,8 +3162,15 @@ async def serve_sw(request):
 # the window's full height (~49 rows) and the tab goes back the moment the phone
 # leaves.
 _GROWN = None      # (uuid, prior active session id, window id) or None
-# The menu API takes the identifier string, not the enum member.
-_MAXIMIZE_ID = iterm2.MainMenu.View.MAXIMIZE_ACTIVE_PANE.value.identifier
+_GROW_LOCK = asyncio.Lock()   # one viewer reshapes the layout at a time
+_WATCHERS = {}                # uuid -> open pane websockets watching it
+_UNGROW_TRIES = 0             # gentle restores that found the wrong key window
+
+
+def _maximize_id():
+    """The menu API takes the identifier string, not the enum member. Resolved on
+    use, not at import: the test stub for iterm2 has no menu tree."""
+    return iterm2.MainMenu.View.MAXIMIZE_ACTIVE_PANE.value.identifier
 
 
 def _locate(uuid):
@@ -3177,32 +3184,39 @@ def _locate(uuid):
     return None, None, None
 
 
+def _is_key(w):
+    cur = APP.current_window if APP else None
+    return cur is not None and w is not None and cur.window_id == w.window_id
+
+
 async def _maximized():
     st = await iterm2.MainMenu.async_get_menu_item_state(
-        CONN, _MAXIMIZE_ID)
+        CONN, _maximize_id())
     return bool(getattr(st, "checked", False))
 
 
 async def _toggle_maximize():
-    await iterm2.MainMenu.async_select_menu_item(CONN, _MAXIMIZE_ID)
+    await iterm2.MainMenu.async_select_menu_item(CONN, _maximize_id())
 
 
-async def grow_pane(uuid):
-    """Maximize a watched pane in its tab. Best effort: the menu command acts on
-    the key window, so if the pane is not in it we leave the layout alone rather
-    than maximize somebody else's pane."""
+async def _grow(uuid):
+    """Maximize a watched pane in its tab. Caller holds _GROW_LOCK. Best effort:
+    the menu command acts on the key window, so if the pane is not in it we leave
+    the layout alone rather than maximize somebody else's pane."""
     global _GROWN
     if _GROWN and _GROWN[0] == uuid:
         return
-    await ungrow_pane()
+    if _GROWN:
+        await _ungrow()
+        if _GROWN:            # the last one is still maximized — never stack a
+            return            # second, or nothing can be put back
     w, t, sess = _locate(uuid)
     if sess is None or len(t.sessions) < 2:
         return
     try:
         prior = t.active_session_id
         await sess.async_activate(select_tab=True, order_window_front=False)
-        cur = APP.current_window
-        if cur is None or cur.window_id != w.window_id:
+        if not _is_key(w):
             return
         if not await _maximized():
             await _toggle_maximize()
@@ -3211,26 +3225,74 @@ async def grow_pane(uuid):
         print(f"  [grow] {type(e).__name__}: {e}", flush=True)
 
 
-async def ungrow_pane():
-    """Put the tab back the way the viewer found it."""
-    global _GROWN
+async def _ungrow():
+    """Put the tab back the way the viewer found it. Caller holds _GROW_LOCK.
+
+    _GROWN is only cleared once the pane really is un-maximized: while it stands,
+    the tab-mates are invisible to iTerm's API, so a restore that quietly failed
+    would leave every other agent unreachable from the yard. _grow_janitor comes
+    back every POLL, and after a few polite tries we raise the window ourselves
+    rather than stay stuck."""
+    global _GROWN, _UNGROW_TRIES
     if not _GROWN:
         return
     uuid, prior, _wid = _GROWN
-    _GROWN = None
     w, t, sess = _locate(uuid)
-    if sess is None:
+    if sess is None:               # pane or window gone; nothing of ours to undo
+        _GROWN, _UNGROW_TRIES = None, 0
         return
     try:
         await sess.async_activate(select_tab=True, order_window_front=False)
+        if not _is_key(w):
+            # Toggling now would maximize whatever the Mac is focused on instead.
+            _UNGROW_TRIES += 1
+            if _UNGROW_TRIES < 4:
+                return
+            await w.async_activate()          # stuck: take the front and finish
+            if not _is_key(w):
+                return
         if await _maximized():
             await _toggle_maximize()
+            if await _maximized():            # toggle did not take; retry later
+                _UNGROW_TRIES += 1
+                return
+        _GROWN, _UNGROW_TRIES = None, 0
         if prior and prior.upper() != uuid.upper():
             _w2, _t2, back = _locate(prior)
             if back is not None:
                 await back.async_activate(select_tab=True, order_window_front=False)
     except Exception as e:
+        _UNGROW_TRIES += 1
         print(f"  [grow] restore {type(e).__name__}: {e}", flush=True)
+
+
+async def grow_pane(uuid):
+    _WATCHERS[uuid] = _WATCHERS.get(uuid, 0) + 1
+    async with _GROW_LOCK:
+        await _grow(uuid)
+
+
+async def ungrow_pane(uuid):
+    """Release one watcher. Only the pane's last viewer puts the tab back — an
+    older socket closing must not undo the pane a newer one just opened."""
+    left = _WATCHERS.get(uuid, 1) - 1
+    if left > 0:
+        _WATCHERS[uuid] = left
+        return
+    _WATCHERS.pop(uuid, None)
+    async with _GROW_LOCK:
+        if _GROWN and _GROWN[0] == uuid:
+            await _ungrow()
+
+
+async def _grow_janitor():
+    """A maximized pane nobody is watching hides its tab-mates for everyone, so
+    sweep it back — including a restore that failed on the first try."""
+    while True:
+        await asyncio.sleep(POLL)
+        if _GROWN and not _WATCHERS.get(_GROWN[0]):
+            async with _GROW_LOCK:
+                await _ungrow()
 
 
 async def ws_pane(request):
@@ -3270,7 +3332,7 @@ async def ws_pane(request):
     except (asyncio.CancelledError, ConnectionResetError):
         pass
     finally:
-        await ungrow_pane()
+        await ungrow_pane(uuid)
         if not ws.closed:
             await ws.close()
     return ws
@@ -3833,6 +3895,7 @@ async def main(connection):
     _install_hot_reload(runner)                 # `kill -HUP` re-execs in place (deploy)
 
     asyncio.create_task(_notify_watcher())     # push when sessions finish / need input
+    asyncio.create_task(_grow_janitor())       # never leave a pane maximized with nobody watching
     asyncio.create_task(_rebuild_history())    # warm the history cache so first open is instant
 
     async def _normalize_once():
