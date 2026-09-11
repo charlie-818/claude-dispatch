@@ -2388,6 +2388,10 @@ const GROK_BAR = / {2,}[█▌│]+\s*$/;
 // rows carry nothing but the animation, and they land above the prompt line, so
 // the cut below never reaches them — drop any line that is only braille.
 const CODEX_SPARKLE = /^[\s\u2800-\u28ff]*$/;
+// Grok parks a standing telemetry opt-in above its input box. It is not part of
+// the conversation, it never goes away on its own, and on a phone it costs six
+// of the rows the answer needs. Cut from its heading down to the box.
+const GROK_OPTIN = /^\s*Help improve Grok/;
 
 function trimChrome(text, prov){
   const p = prov || 'claude';
@@ -2417,11 +2421,13 @@ function trimChrome(text, prov){
   if (p === 'codex')
     lines = lines.filter(l => !(/[\u2800-\u28ff]/.test(l) && CODEX_SPARKLE.test(l)));
   if (p === 'grok'){
+    const o = lines.findIndex(l => GROK_OPTIN.test(l));
+    if (o >= 0) lines = lines.slice(0, o);
     lines = lines.map(l => l.replace(GROK_BAR, ''));
-    // Grok indents its whole transcript four columns. Pull those back — on a
+    // Grok indents its whole transcript five columns. Pull those back — on a
     // 52-column pane that margin is most of a word — while leaving any deeper
     // indent (code, nested lists) standing relative to it.
-    lines = lines.map(l => l.replace(/^ {1,4}/, ''));
+    lines = lines.map(l => l.replace(/^ {1,5}/, ''));
   }
   return lines.join('\n').replace(/\n+$/, '');
 }
