@@ -2751,7 +2751,7 @@ async def api_usage(request):
 # ── history: every agent that has come through the fleet ────────────────────
 # Reads the top-level session transcripts (projects/<proj>/<session>.jsonl —
 # subagent/workflow files live in subdirs and are skipped) and lists them newest
-# first: title (first prompt), project, model, when, prompt count, tokens, cost.
+# first: title (latest prompt), project, model, when, prompt count, tokens, cost.
 # Tapping one resumes it via `claude --resume <session_id>` (see api_resume).
 _PROJECTS_DIR = os.path.expanduser("~/.claude/projects")
 _hist_cache = {}      # path -> {"k":[mtime,size], "e":entry}
@@ -2767,7 +2767,7 @@ def _scan_history_file(path):
 
     import cc_history as HIST
     cwd = None; model = None; first = last = None; prompts = 0
-    itok = otok = cctok = crtok = 0; seen = set(); title = ""
+    itok = otok = cctok = crtok = 0; seen = set(); title = first_title = ""
     blurb = []; blurb_len = 0                # all user prompts, for search
     for ln in lines:
         try:
@@ -2778,7 +2778,9 @@ def _scan_history_file(path):
             cwd = o.get("cwd")
         typ = o.get("type")
         m = o.get("message") if isinstance(o.get("message"), dict) else {}
-        # first genuine user prompt → the card title
+        # newest genuine user prompt → the card title. Where a session got to
+        # says more about it than where it started: the opening line of a long
+        # chat is usually "fix the build", which names every row in the list.
         if typ == "user" and isinstance(m, dict):
             content = m.get("content")
             if isinstance(content, list):
@@ -2788,8 +2790,9 @@ def _scan_history_file(path):
             if clean:
                 prompts += 1
                 clean = clean.replace("\n", " ")
-                if not title:
-                    title = clean[:120]
+                title = clean[:120]
+                if not first_title:
+                    first_title = title
                 if blurb_len < 1600:                 # bound the search text per session
                     take = clean[:300]
                     blurb.append(take); blurb_len += len(take)
@@ -2815,7 +2818,7 @@ def _scan_history_file(path):
     if last is None:
         return None
     # Skip our own headless summariser runs (claude -p labeler) — not fleet agents.
-    if title.startswith("You are labeling a Claude Code coding session"):
+    if first_title.startswith("You are labeling a Claude Code coding session"):
         return None
     cost = HIST.model_cost(model or "unknown", itok, otok, cctok, crtok) if model else 0.0
     return {
