@@ -266,7 +266,7 @@
   .opt:disabled{opacity:.38}
   .sheet-note{font:11px/1.55 var(--ui);color:var(--dim);margin-top:6px}
   .sheet-note.warn{color:var(--red)}
-  /* ── directory picker (start new clawd) ─────────────────
+  /* ── directory picker (start new agent) ─────────────────
      Rows scroll; the crumb pins to the top and the back/start bar pins to the
      bottom, so both stay reachable however long the folder list gets. */
   .dp-crumb{position:sticky;top:0;z-index:2;font:12px/1.4 var(--mono);
@@ -475,7 +475,7 @@
   #yard-status.quiet .dots{gap:7px;margin:0}
   #yard-status.quiet .dots i{width:6px;height:6px}
   @keyframes qfade{from{opacity:0}}
-  /* spawn a new clawd — terracotta FAB, bottom-right of the yard */
+  /* spawn a new agent — terracotta FAB, bottom-right of the yard */
   .fab{position:absolute;right:16px;bottom:16px;z-index:9;
     width:54px;height:54px;border-radius:50%;border:none;cursor:pointer;
     background:#d77757;color:#2a1206;font:300 32px/1 var(--ui);
@@ -3306,7 +3306,7 @@ function spawnSession(){ buzz(14); openDirPicker(''); }
 async function openDirPicker(path){
   openKind = 'dir';
   const body = document.getElementById('sheet-body');
-  document.getElementById('sheet-title').textContent = 'start new clawd';
+  document.getElementById('sheet-title').textContent = 'start new agent';
   const sheet = document.getElementById('sheet');
   sheet.classList.add('dp');                 // flush-bottom footer mode
   const firstOpen = !sheet.classList.contains('on');
@@ -3363,10 +3363,10 @@ function renderDirPicker(data){
   body.innerHTML = '';
   const atRoot = !data.path;
 
-  // pinned crumb — where this clawd will start
+  // pinned crumb — where this agent will start
   const crumb = document.createElement('div');
   crumb.className = 'dp-crumb';
-  crumb.innerHTML = atRoot ? 'pick where this clawd starts'
+  crumb.innerHTML = atRoot ? 'pick where this agent starts'
     : 'start in <b>' + esc(data.path) + '</b>';
   body.appendChild(crumb);
 
