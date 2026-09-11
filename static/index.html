@@ -692,13 +692,13 @@
     font:11px var(--mono);color:var(--dim)}
   .statusbar .sb-lim{display:flex;align-items:center;gap:6px;flex:none}
   .tabbar{display:flex;flex:none;border-top:1px solid var(--line2);background:var(--panel2)}
-  .tabbar button{flex:1;background:none;border:none;cursor:pointer;
-    padding:13px 0 calc(13px + env(safe-area-inset-bottom));
-    font:700 11px var(--ui);letter-spacing:.12em;text-transform:uppercase;
+  .tabbar button{flex:1;background:none;border:none;cursor:pointer;position:relative;
+    display:flex;align-items:center;justify-content:center;
+    min-height:44px;padding:10px 0 calc(10px + env(safe-area-inset-bottom));
     color:var(--dim);border-top:2px solid transparent;margin-top:-1px}
+  .tabbar button svg{display:block}
   .tabbar button.cur{color:var(--blue);border-top-color:var(--blue)}
-  .tabbar button{position:relative}
-  .tabdot{display:none;position:absolute;top:9px;margin-left:5px;width:7px;height:7px;
+  .tabdot{display:none;position:absolute;top:7px;left:calc(50% + 6px);width:7px;height:7px;
     border-radius:50%;background:var(--red);box-shadow:0 0 0 2px var(--panel2)}
   .tabdot.on{display:inline-block;animation:pulse 1.3s infinite}
 
@@ -745,6 +745,42 @@
     background:var(--panel3);border:1px solid var(--line2);border-radius:var(--r);
     padding:10px 11px;margin:6px 0}
   .fld::placeholder{color:var(--dimmer)}
+
+  /* ── sys (diagnostics + settings) ─────────────────────── */
+  #sys-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;
+    -webkit-overflow-scrolling:touch;background:var(--bg);
+    padding:6px 10px calc(env(safe-area-inset-bottom) + 20px)}
+  .sys-sec{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+    padding:12px;margin-bottom:10px}
+  .sys-h{font:700 11px var(--ui);letter-spacing:.08em;text-transform:uppercase;
+    color:var(--dim);margin-bottom:6px}
+  .sys-row{display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:6px 0;font:13px var(--ui);color:var(--dim)}
+  .sys-row > span:last-child{font:12px var(--mono);color:var(--fg2);text-align:right;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .sys-bar{height:4px;border-radius:2px;background:var(--line2);overflow:hidden;margin:2px 0 6px}
+  .sys-bar i{display:block;height:100%;transition:width .5s}
+  .sys-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;
+    background:var(--dimmer)}
+  .sys-dot.on{background:var(--green)}
+  .sys-dot.off{background:var(--red)}
+  .sys-toggle{display:flex;align-items:center;justify-content:space-between;
+    gap:10px;padding:7px 0;font:13px var(--ui);color:var(--fg2)}
+  .sys-sw{position:relative;width:42px;height:24px;flex:none;border-radius:12px;
+    background:var(--panel3);border:1px solid var(--line2);cursor:pointer}
+  .sys-sw i{position:absolute;top:2px;left:2px;width:18px;height:18px;
+    border-radius:50%;background:var(--dim);transition:transform .15s,background .15s}
+  .sys-sw.on{background:rgba(102,169,255,.25);border-color:var(--blue)}
+  .sys-sw.on i{transform:translateX(18px);background:var(--blue)}
+  .sys-seg{display:flex;gap:6px;flex:none}
+  .sys-seg button{font:700 11px var(--ui);border-radius:var(--r);padding:6px 10px;
+    cursor:pointer;border:1px solid var(--line2);background:var(--panel3);color:var(--dim)}
+  .sys-seg button.on{color:var(--blue);border-color:var(--blue)}
+  .sys-btn{display:block;width:100%;text-align:center;font:700 13px var(--ui);
+    color:var(--fg2);background:var(--panel3);border:1px solid var(--line2);
+    border-radius:var(--r);padding:11px 0;margin-top:8px;cursor:pointer}
+  .sys-btn:active{background:var(--panel2)}
+  .sys-btn.danger{color:var(--red);border-color:rgba(255,107,97,.4)}
 
   /* Usage is a monitor screen: it SCROLLS, most-urgent first. The running-agent
      cards up top are the point, so they get real room; the account totals sit
@@ -1014,10 +1050,11 @@
     <button class="fab" id="fab" onclick="spawnSession()" title="new session">+</button>
   </div>
   <div class="tabbar">
-    <button class="cur" onclick="showFleet()">fleet</button>
-    <button onclick="showUsage()">usage</button>
-    <button onclick="showHistory()">history</button>
-    <button onclick="showAuth()">auth<i class="tabdot" id="authdot"></i></button>
+    <button class="cur" onclick="showFleet()" aria-label="fleet" title="fleet"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg></button>
+    <button onclick="showUsage()" aria-label="usage" title="usage"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="13" width="4" height="7" rx="1"/><rect x="10" y="9" width="4" height="11" rx="1"/><rect x="16.5" y="4" width="4" height="16" rx="1"/></svg></button>
+    <button onclick="showHistory()" aria-label="history" title="history"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><line x1="12" y1="12" x2="12" y2="7"/><line x1="12" y1="12" x2="16" y2="14"/></svg></button>
+    <button onclick="showAuth()" aria-label="auth" title="auth"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="12" r="4"/><line x1="11" y1="12" x2="20" y2="12"/><line x1="16" y1="12" x2="16" y2="16"/><line x1="19" y1="12" x2="19" y2="15"/></svg><i class="tabdot" id="authdot"></i></button>
+    <button onclick="showSys()" aria-label="sys" title="sys"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><circle cx="9" cy="6" r="1.6" fill="currentColor" stroke="none"/><line x1="3" y1="12" x2="21" y2="12"/><circle cx="15" cy="12" r="1.6" fill="currentColor" stroke="none"/><line x1="3" y1="18" x2="21" y2="18"/><circle cx="11" cy="18" r="1.6" fill="currentColor" stroke="none"/></svg></button>
   </div>
 </div>
 
@@ -1035,10 +1072,11 @@
   </div>
   <div id="usage-body"><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div></div>
   <div class="tabbar">
-    <button onclick="showFleet()">fleet</button>
-    <button class="cur" onclick="showUsage()">usage</button>
-    <button onclick="showHistory()">history</button>
-    <button onclick="showAuth()">auth<i class="tabdot" id="authdot2"></i></button>
+    <button onclick="showFleet()" aria-label="fleet" title="fleet"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg></button>
+    <button class="cur" onclick="showUsage()" aria-label="usage" title="usage"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="13" width="4" height="7" rx="1"/><rect x="10" y="9" width="4" height="11" rx="1"/><rect x="16.5" y="4" width="4" height="16" rx="1"/></svg></button>
+    <button onclick="showHistory()" aria-label="history" title="history"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><line x1="12" y1="12" x2="12" y2="7"/><line x1="12" y1="12" x2="16" y2="14"/></svg></button>
+    <button onclick="showAuth()" aria-label="auth" title="auth"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="12" r="4"/><line x1="11" y1="12" x2="20" y2="12"/><line x1="16" y1="12" x2="16" y2="16"/><line x1="19" y1="12" x2="19" y2="15"/></svg><i class="tabdot" id="authdot2"></i></button>
+    <button onclick="showSys()" aria-label="sys" title="sys"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><circle cx="9" cy="6" r="1.6" fill="currentColor" stroke="none"/><line x1="3" y1="12" x2="21" y2="12"/><circle cx="15" cy="12" r="1.6" fill="currentColor" stroke="none"/><line x1="3" y1="18" x2="21" y2="18"/><circle cx="11" cy="18" r="1.6" fill="currentColor" stroke="none"/></svg></button>
   </div>
 </div>
 
@@ -1074,10 +1112,11 @@
   </div>
   <div id="hist-body"><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div></div>
   <div class="tabbar">
-    <button onclick="showFleet()">fleet</button>
-    <button onclick="showUsage()">usage</button>
-    <button class="cur" onclick="showHistory()">history</button>
-    <button onclick="showAuth()">auth<i class="tabdot" id="authdot3"></i></button>
+    <button onclick="showFleet()" aria-label="fleet" title="fleet"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg></button>
+    <button onclick="showUsage()" aria-label="usage" title="usage"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="13" width="4" height="7" rx="1"/><rect x="10" y="9" width="4" height="11" rx="1"/><rect x="16.5" y="4" width="4" height="16" rx="1"/></svg></button>
+    <button class="cur" onclick="showHistory()" aria-label="history" title="history"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><line x1="12" y1="12" x2="12" y2="7"/><line x1="12" y1="12" x2="16" y2="14"/></svg></button>
+    <button onclick="showAuth()" aria-label="auth" title="auth"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="12" r="4"/><line x1="11" y1="12" x2="20" y2="12"/><line x1="16" y1="12" x2="16" y2="16"/><line x1="19" y1="12" x2="19" y2="15"/></svg><i class="tabdot" id="authdot3"></i></button>
+    <button onclick="showSys()" aria-label="sys" title="sys"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><circle cx="9" cy="6" r="1.6" fill="currentColor" stroke="none"/><line x1="3" y1="12" x2="21" y2="12"/><circle cx="15" cy="12" r="1.6" fill="currentColor" stroke="none"/><line x1="3" y1="18" x2="21" y2="18"/><circle cx="11" cy="18" r="1.6" fill="currentColor" stroke="none"/></svg></button>
   </div>
 </div>
 
@@ -1108,10 +1147,32 @@
     </section>
   </div>
   <div class="tabbar">
-    <button onclick="showFleet()">fleet</button>
-    <button onclick="showUsage()">usage</button>
-    <button onclick="showHistory()">history</button>
-    <button class="cur" onclick="showAuth()">auth<i class="tabdot" id="authdot4"></i></button>
+    <button onclick="showFleet()" aria-label="fleet" title="fleet"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg></button>
+    <button onclick="showUsage()" aria-label="usage" title="usage"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="13" width="4" height="7" rx="1"/><rect x="10" y="9" width="4" height="11" rx="1"/><rect x="16.5" y="4" width="4" height="16" rx="1"/></svg></button>
+    <button onclick="showHistory()" aria-label="history" title="history"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><line x1="12" y1="12" x2="12" y2="7"/><line x1="12" y1="12" x2="16" y2="14"/></svg></button>
+    <button class="cur" onclick="showAuth()" aria-label="auth" title="auth"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="12" r="4"/><line x1="11" y1="12" x2="20" y2="12"/><line x1="16" y1="12" x2="16" y2="16"/><line x1="19" y1="12" x2="19" y2="15"/></svg><i class="tabdot" id="authdot4"></i></button>
+    <button onclick="showSys()" aria-label="sys" title="sys"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><circle cx="9" cy="6" r="1.6" fill="currentColor" stroke="none"/><line x1="3" y1="12" x2="21" y2="12"/><circle cx="15" cy="12" r="1.6" fill="currentColor" stroke="none"/><line x1="3" y1="18" x2="21" y2="18"/><circle cx="11" cy="18" r="1.6" fill="currentColor" stroke="none"/></svg></button>
+  </div>
+</div>
+
+<div class="screen" id="s-sys">
+  <header>
+    <div class="brand"><span class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><rect class="body" x="2.5" y="6.5" width="19" height="14" rx="4.5"/><rect class="body" x="5" y="2" width="2.6" height="5" rx="1.3"/><rect class="body" x="16.4" y="2" width="2.6" height="5" rx="1.3"/><rect class="eye" x="7.4" y="11" width="3.6" height="5" rx="1.4"/><rect class="eye" x="13" y="11" width="3.6" height="5" rx="1.4"/></svg></span>
+      <span class="wm">SYS</span></div>
+    <div class="meta" id="sys-age"></div>
+    <button class="hardref" onclick="loadSys()" title="refresh" aria-label="refresh">⟳</button>
+  </header>
+  <div class="statusbar">
+    <span class="sb-panes">—</span>
+    <span class="sb-lim"><span class="bar"><i class="sb-lim-fill" style="width:0%"></i></span><span class="sb-lim-t">—</span></span>
+  </div>
+  <div id="sys-body"></div>
+  <div class="tabbar">
+    <button onclick="showFleet()" aria-label="fleet" title="fleet"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg></button>
+    <button onclick="showUsage()" aria-label="usage" title="usage"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="13" width="4" height="7" rx="1"/><rect x="10" y="9" width="4" height="11" rx="1"/><rect x="16.5" y="4" width="4" height="16" rx="1"/></svg></button>
+    <button onclick="showHistory()" aria-label="history" title="history"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><line x1="12" y1="12" x2="12" y2="7"/><line x1="12" y1="12" x2="16" y2="14"/></svg></button>
+    <button onclick="showAuth()" aria-label="auth" title="auth"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="12" r="4"/><line x1="11" y1="12" x2="20" y2="12"/><line x1="16" y1="12" x2="16" y2="16"/><line x1="19" y1="12" x2="19" y2="15"/></svg><i class="tabdot" id="authdot5"></i></button>
+    <button class="cur" onclick="showSys()" aria-label="sys" title="sys"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><circle cx="9" cy="6" r="1.6" fill="currentColor" stroke="none"/><line x1="3" y1="12" x2="21" y2="12"/><circle cx="15" cy="12" r="1.6" fill="currentColor" stroke="none"/><line x1="3" y1="18" x2="21" y2="18"/><circle cx="11" cy="18" r="1.6" fill="currentColor" stroke="none"/></svg></button>
   </div>
 </div>
 
@@ -1285,7 +1346,7 @@ let SESSIONS = [], current = null, paneWS = null;
 // auto-reconnect. null when we're not on a session (fleet/usage screen).
 let paneWantUuid = null, paneReconnectT = null;
 
-const esc = s => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 
 /* Shimmering placeholder rows shaped like the cards that are about to land, so a
    slow fetch reads as "loading" not "stuck". n = how many rows to fake. */
@@ -1359,7 +1420,8 @@ function toast(msg, err){
   t._msg.textContent = msg; t.className = 'on' + (err ? ' err' : '');
   clearTimeout(t._h); t._h = setTimeout(()=>t.className='', 2600);
 }
-const buzz = n => navigator.vibrate && navigator.vibrate(n);
+const buzz = n => { if (localStorage.getItem('haptics') === '0') return;
+  navigator.vibrate && navigator.vibrate(n); };
 
 /* ── fleet terrarium ───────────────────────────────────
    The fleet is a yard of clawds — one per pane. renderFleet() reconciles the live
@@ -2153,7 +2215,7 @@ function connectFleet(){
 
 /* The red dot on the auth tab: how many agents are waiting on the owner. */
 function setAuthBadge(n){
-  ['authdot','authdot2','authdot3','authdot4'].forEach(id => {
+  ['authdot','authdot2','authdot3','authdot4','authdot5'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.classList.toggle('on', n > 0);
   });
@@ -2230,6 +2292,8 @@ window.addEventListener('popstate', e => {
       if (!onH) showHistory();
     } else if (st.v === 'auth'){
       if (!document.getElementById('s-auth').classList.contains('on')) showAuth();
+    } else if (st.v === 'sys'){
+      if (!document.getElementById('s-sys').classList.contains('on')) showSys();
     } else {
       if (!onF) showFleet();
     }
@@ -4019,6 +4083,284 @@ function showUsage(){
   // fleet timers — no separate interval to keep alive here.
 }
 
+/* ── sys (diagnostics + settings) ─────────────────────
+   One GET /api/sysinfo covers machine/battery/storage/memory/server/deps/push/
+   peers; the settings section below it is purely client-side (localStorage),
+   mirroring the same keys the rest of the app already reads. Plain
+   text-first rows in bordered .sys-sec cards — no gauges, no sparklines. */
+const fmtBytes = n => n == null ? '—'
+  : n >= 1e9 ? (n/1e9).toFixed(1)+' GB' : (n/1e6).toFixed(0)+' MB';
+
+/* seconds → "3d 4h" / "4h 22m" / "12m" */
+function sysDur(s){
+  if (s == null) return '—';
+  s = Math.max(0, Math.floor(s));
+  const d = Math.floor(s/86400), h = Math.floor((s%86400)/3600), m = Math.floor((s%3600)/60);
+  if (d) return `${d}d ${h}h`;
+  if (h) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+let SYS = null, sysTimer = null, SYS_AT = 0, _sysAgeTxt = '';
+function paintSysAge(){
+  const el = document.getElementById('sys-age');
+  if (!el) return;
+  const host = SYS && SYS.host && SYS.host.hostname ? SYS.host.hostname + ' · ' : '';
+  if (!SYS_AT){ const t = host + '…'; if (_sysAgeTxt !== t){ el.textContent = _sysAgeTxt = t; } return; }
+  const s = Math.max(0, Math.floor(Date.now()/1000 - SYS_AT));
+  const txt = host + (s ? `${fmtAge(s)} ago` : 'live');
+  if (txt !== _sysAgeTxt){ el.textContent = _sysAgeTxt = txt; }
+}
+
+function showSys(){
+  pushNav({v: 'sys'});
+  hideScreens();
+  document.getElementById('s-sys').classList.add('on');
+  if (SYS) renderSys(); else document.getElementById('sys-body').innerHTML = skelList(4);
+  loadSys();
+  clearInterval(sysTimer);
+  sysTimer = setInterval(() => {
+    if (document.getElementById('s-sys').classList.contains('on')) loadSys();
+    else { clearInterval(sysTimer); sysTimer = null; }
+  }, 15000);
+}
+
+async function loadSys(){
+  try {
+    const r = await fetch('/api/sysinfo');
+    if (r.status === 401){ authState().then(relock); return; }
+    if (!r.ok) throw new Error('server returned ' + r.status + ' — reload the server?');
+    const d = await r.json();
+    SYS = d;
+    SYS_AT = Date.now()/1000;
+    renderSys();
+  } catch(e){
+    const body = document.getElementById('sys-body');
+    // a render error must surface too, or the skeleton just sits there forever
+    if (!SYS || body.querySelector('.sk')) body.innerHTML =
+      '<div class="empty">'+esc(String(e.message))+'</div>';
+    console.error('sys', e);
+  }
+}
+
+/* Battery colour follows charge state, not the rate-limit thresholds:
+   green while charging/charged or above half, amber in the 20-50 band,
+   red under 20 — same red/amber/green vars the rest of the app uses. */
+function batColor(bat){
+  if (bat.present === false) return 'var(--green)';
+  const p = bat.percent;
+  if (bat.state === 'charging' || bat.state === 'charged' || (p != null && p > 50)) return 'var(--green)';
+  if (p != null && p >= 20) return 'var(--amber)';
+  return 'var(--red)';
+}
+
+/* generic fill-bar colour: red past 90%, amber past 75%, else blue */
+function sysBarColor(p){
+  return p > 90 ? 'var(--red)' : p > 75 ? 'var(--amber)' : 'var(--blue)';
+}
+
+function sysBar(pct){
+  const p = pct == null ? 0 : Math.max(0, Math.min(100, pct));
+  return `<div class="sys-bar"><i style="width:${p}%;background:${sysBarColor(p)}"></i></div>`;
+}
+
+function sysRow(label, value){
+  return `<div class="sys-row"><span>${esc(label)}</span><span title="${esc(String(value))}">${value}</span></div>`;
+}
+
+function sysDot(on, label){
+  return `<span class="sys-dot ${on ? 'on' : 'off'}"></span>${label != null ? ' '+esc(label) : ''}`;
+}
+
+function renderSys(){
+  paintSysAge();
+  const body = document.getElementById('sys-body');
+  if (!SYS){ body.innerHTML = skelList(4); return; }
+  const s = SYS;
+  const bat = s.battery || {};
+  const disk = s.disk || {};
+  const mem = s.memory || {};
+  const cpu = s.cpu || {};
+  const host = s.host || {};
+  const server = s.server || {};
+  const deps = s.deps || {};
+  const push = s.push || {};
+  const peers = s.peers || [];
+
+  // battery
+  let batCap;
+  if (bat.present === false){ batCap = 'no battery (desktop)'; }
+  else {
+    batCap = bat.state === 'charging' ? 'charging'
+      : bat.state === 'charged' ? 'charged'
+      : bat.state === 'discharging' ? (bat.remaining ? `on battery, ${esc(bat.remaining)} left` : 'on battery')
+      : bat.state === 'ac' ? 'on AC' : '—';
+  }
+  const batC = batColor(bat);
+  const batPct = bat.present === false ? null : bat.percent;
+
+  // storage / memory
+  const diskPct = (disk.total && disk.used != null) ? Math.round(disk.used/disk.total*100) : null;
+  const memPct = (mem.total && mem.used != null) ? Math.round(mem.used/mem.total*100) : null;
+
+  const load = cpu.load || [];
+  const loadTxt = load.length ? load.map(v => v == null ? '—' : v.toFixed(2)).join(' / ') : '—';
+
+  const depRow = (label, path) =>
+    `<div class="sys-row"><span>${esc(label)}</span><span>${sysDot(!!path, path ? esc(path) : 'missing')}</span></div>`;
+
+  body.innerHTML = `
+    <div class="sys-sec">
+      <div class="sys-h">Machine</div>
+      ${sysRow('hostname', esc(host.hostname ?? '—'))}
+      ${sysRow('macOS', esc(host.macos ?? '—'))}
+      ${sysRow('CPU', esc(cpu.brand ?? '—') + (cpu.cores ? ` (${cpu.cores})` : ''))}
+      ${sysRow('load avg', esc(loadTxt))}
+      ${sysRow('uptime', sysDur(host.uptime))}
+    </div>
+    <div class="sys-sec">
+      <div class="sys-h">Battery</div>
+      ${bat.present === false ? sysRow('status', 'no battery (desktop)') : `
+        <div class="sys-row"><span style="font:700 20px var(--mono);color:${batC}">${batPct != null ? Math.round(batPct)+'%' : '—'}</span><span>${esc(batCap)}</span></div>
+        ${sysBar(batPct)}
+      `}
+    </div>
+    <div class="sys-sec">
+      <div class="sys-h">Storage</div>
+      ${sysRow('free', (disk.free != null ? fmtBytes(disk.free) : '—') + ' of ' + (disk.total != null ? fmtBytes(disk.total) : '—'))}
+      ${sysBar(diskPct)}
+    </div>
+    <div class="sys-sec">
+      <div class="sys-h">Memory</div>
+      ${sysRow('used', (mem.used != null ? fmtBytes(mem.used) : '—') + ' of ' + (mem.total != null ? fmtBytes(mem.total) : '—'))}
+      ${sysBar(memPct)}
+    </div>
+    <div class="sys-sec">
+      <div class="sys-h">Dispatch server</div>
+      ${sysRow('origin', esc(host.origin ?? '—'))}
+      ${sysRow('tailnet', esc(host.tailnet ?? '—'))}
+      ${sysRow('bind', esc(server.bind ?? '—') + ':' + esc(server.port ?? '—'))}
+      ${sysRow('pid', esc(server.pid ?? '—'))}
+      ${sysRow('sha', esc(server.sha ?? '—'))}
+      ${sysRow('python', esc(server.python ?? '—'))}
+      ${sysRow('uptime', sysDur(server.uptime))}
+      ${sysRow('iTerm2', sysDot(!!server.iterm, server.iterm ? 'connected' : 'disconnected'))}
+      ${sysRow('panes', esc(server.panes ?? '—'))}
+      ${sysRow('fleet dir', esc(server.fleet_dir ?? '—'))}
+    </div>
+    <div class="sys-sec">
+      <div class="sys-h">Dependencies</div>
+      ${depRow('claude', deps.claude)}
+      ${depRow('codex', deps.codex)}
+      ${depRow('grok', deps.grok)}
+      ${depRow('whisper-cli', deps.whisper)}
+      ${depRow('ffmpeg', deps.ffmpeg)}
+      <div class="sys-row"><span>whisper model</span><span>${sysDot(!!deps.whisper_model, deps.whisper_model ? 'present' : 'missing')}</span></div>
+      <div class="sys-row"><span>tailscale</span><span>${sysDot(!!deps.tailscale, deps.tailscale ? 'present' : 'missing')}</span></div>
+    </div>
+    <div class="sys-sec">
+      <div class="sys-h">Push</div>
+      ${sysRow('configured', push.configured ? 'yes' : 'no')}
+      ${sysRow('subscribers', push.subscribers ?? 0)}
+      <div class="sys-toggle"><span>this device</span>
+        <div class="sys-sw" id="sys-sw-push" onclick="sysTogglePush()"><i></i></div></div>
+    </div>
+    <div class="sys-sec">
+      <div class="sys-h">Tailnet peers</div>
+      ${peers.length ? peers.map(p => `<div class="sys-row"><span>${sysDot(!!p.online)} ${esc(p.name ?? '—')}${p.self ? ' (this Mac)' : ''}</span><span>${esc(p.host ?? '—')}</span></div>`).join('')
+        : '<div class="sys-row"><span>—</span><span>no peers</span></div>'}
+    </div>
+    <div class="sys-sec">
+      <div class="sys-h">Settings</div>
+      <div class="sys-toggle"><span>default agent</span>
+        <div class="sys-seg" id="sys-seg-agent">
+          ${['claude','codex','grok'].map(a =>
+            `<button data-a="${a}" onclick="setSysAgent('${a}')">${esc(AGENT_LABEL[a] || a)}</button>`).join('')}
+        </div></div>
+      <div class="sys-toggle"><span>terminal</span>
+        <div class="sys-seg" id="sys-seg-fit">
+          <button data-m="1" onclick="setSysFit(1)">wrap</button>
+          <button data-m="0" onclick="setSysFit(0)">fit</button>
+        </div></div>
+      <div class="sys-toggle"><span>chips open by default</span>
+        <div class="sys-sw" id="sys-sw-chips" onclick="toggleSysChips()"><i></i></div></div>
+      <div class="sys-toggle"><span>history sort</span>
+        <div class="sys-seg" id="sys-seg-hist">
+          ${HIST_ORDER.map(k => `<button data-k="${k}" onclick="setSysHistSort('${k}')">${k}</button>`).join('')}
+        </div></div>
+      <div class="sys-toggle"><span>haptics</span>
+        <div class="sys-sw" id="sys-sw-haptics" onclick="toggleSysHaptics()"><i></i></div></div>
+    </div>
+    <div class="sys-sec">
+      <button class="sys-btn" onclick="hardReload()">Hard reload</button>
+      <button class="sys-btn" onclick="sysClearCaches()">Clear caches &amp; unregister SW</button>
+      <button class="sys-btn danger" onclick="sysLogout()">Log out</button>
+    </div>`;
+  paintSysSettings();
+}
+
+/* Settings widgets reflect the same localStorage keys the rest of the app
+   reads — flipping one here changes live behavior everywhere, not just here. */
+function paintSysSettings(){
+  const seg1 = document.getElementById('sys-seg-agent');
+  if (seg1) seg1.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.a === SPAWN_AGENT));
+  const seg2 = document.getElementById('sys-seg-fit');
+  if (seg2) seg2.querySelectorAll('button').forEach(b => b.classList.toggle('on', Number(b.dataset.m) === fitMode));
+  const seg3 = document.getElementById('sys-seg-hist');
+  if (seg3) seg3.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.k === histSort));
+  const swChips = document.getElementById('sys-sw-chips');
+  if (swChips) swChips.classList.toggle('on', chipsOpen);
+  const swHaptics = document.getElementById('sys-sw-haptics');
+  if (swHaptics) swHaptics.classList.toggle('on', localStorage.getItem('haptics') !== '0');
+  const swPush = document.getElementById('sys-sw-push');
+  if (swPush) swPush.classList.toggle('on', document.getElementById('bell')?.classList.contains('on'));
+}
+
+function setSysAgent(a){
+  SPAWN_AGENT = a;
+  try { localStorage.setItem('spawnAgent', a); } catch(_){}
+  buzz(8); paintSysSettings();
+}
+function setSysFit(mode){
+  if (mode === fitMode) return;
+  fitMode = mode;
+  try { localStorage.setItem('fit', fitMode); } catch(e){}
+  applyFit();
+  if (current){ fitFont(cols); paint(); }
+  buzz(8); paintSysSettings();
+}
+function toggleSysChips(){
+  chipsOpen = !chipsOpen;
+  localStorage.setItem('chips', chipsOpen ? '1' : '0');
+  applyChips();
+  buzz(8); paintSysSettings();
+}
+function setSysHistSort(k){
+  setHistSort(k);
+  paintSysSettings();
+}
+function toggleSysHaptics(){
+  const on = localStorage.getItem('haptics') !== '0';
+  localStorage.setItem('haptics', on ? '0' : '1');
+  paintSysSettings();
+  navigator.vibrate && navigator.vibrate(8);   // direct — buzz() would honor the flag we just flipped off
+}
+async function sysTogglePush(){ await toggleNotify(); paintSysSettings(); }
+
+async function sysClearCaches(){
+  buzz(12);
+  try {
+    if (window.caches){ const ks = await caches.keys(); await Promise.all(ks.map(k => caches.delete(k))); }
+    if (swReg) await swReg.unregister();
+  } catch(e){}
+  location.reload();
+}
+async function sysLogout(){
+  buzz(12);
+  try { await post('/auth/logout', {}); } catch(e){}
+  location.reload();
+}
+
 /* ── history ───────────────────────────────────────────
    Every agent that has come through the fleet, newest first. Tap a row to
    resume that session in a fresh pane (claude --resume) and drop into it. */
@@ -4700,6 +5042,7 @@ function start(){
   //   ?pane=<uuid>   → straight into one session, once the fleet list arrives
   const dl = new URLSearchParams(location.search);
   if (dl.get('screen') === 'usage') showUsage();
+  else if (dl.get('screen') === 'sys') showSys();
   PENDING_PANE = dl.get('pane') || '';
 }
 gate();

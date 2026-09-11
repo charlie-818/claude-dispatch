@@ -24,11 +24,13 @@ import glob
 import json
 import os
 import pathlib
+import platform
 import re
 import secrets
 import shlex
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -56,6 +58,7 @@ STALE = 90                       # Claude fleet json older than this is dropped
 STALE_GENERIC = 4 * 3600
 STALE_ENDED = 15 * 60            # keep a finished row long enough to review it
 _FLEET_BY_TTY = {}               # /dev/ttysNNN -> record, for panes with no session id
+_STARTED = time.time()           # process start, for /api/sysinfo uptime
 
 # The interactive agent CLIs this fleet tracks. All three write the same shape of
 # fleet record into FLEET_DIR — Claude via ~/.claude/statusline.sh, Codex and Grok
@@ -3341,6 +3344,9 @@ async def ws_pane(request):
     return ws
 
 
+_WS_FLEET = set()   # live /ws/fleet sockets, for the load page's "watchers" count
+
+
 async def ws_fleet(request):
     peer = request.remote
     if not authed(request):
@@ -3349,6 +3355,7 @@ async def ws_fleet(request):
     print(f"  [ws/fleet] {peer} connected", flush=True)
     ws = web.WebSocketResponse(heartbeat=25)
     await ws.prepare(request)
+    _WS_FLEET.add(ws)
     last = None
     try:
         while not ws.closed:
@@ -3369,6 +3376,7 @@ async def ws_fleet(request):
     except Exception as e:
         print(f"  [ws/fleet] {peer} ERROR {type(e).__name__}: {e}", flush=True)
     finally:
+        _WS_FLEET.discard(ws)
         if not ws.closed:
             await ws.close()
     return ws
@@ -3742,6 +3750,342 @@ async def api_devices(request):
     return web.json_response({"self": ts_self_host(), "devices": tailnet_macs()})
 
 
+# ── background load sampler ─────────────────────────────────────────────────
+# `top -l 2 -n 0 -s 1` takes ~2 s to settle on a real (non-instantaneous) CPU
+# reading, far too slow to run per /api/sysinfo request. Sample it — plus GPU,
+# memory pressure, swap and thermal state — on a 10 s timer instead, and let
+# the request handler read the cached snapshot for free.
+_LOAD = {}     # cpu_pct/cpu_user/cpu_sys/gpu_pct/mem_free_pct/swap_used/
+               # swap_total/thermal/cpu_limit/sampled — any key may be None
+
+
+async def _load_sampler():
+    while True:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "top", "-l", "2", "-n", "0", "-s", "1",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+            out, _ = await asyncio.wait_for(proc.communicate(), timeout=6)
+            text = (out or b"").decode(errors="ignore")
+            m = None
+            for mm in re.finditer(
+                    r"CPU usage:\s*([\d.]+)%\s*user,\s*([\d.]+)%\s*sys", text):
+                m = mm                       # keep the LAST match (settled sample)
+            if m:
+                user, sysp = float(m.group(1)), float(m.group(2))
+                _LOAD["cpu_user"] = user
+                _LOAD["cpu_sys"] = sysp
+                _LOAD["cpu_pct"] = round(user + sysp, 1)
+                _LOAD["sampled"] = time.time()
+        except Exception:
+            pass
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "ioreg", "-r", "-d", "1", "-c", "IOAccelerator",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+            out, _ = await asyncio.wait_for(proc.communicate(), timeout=6)
+            text = (out or b"").decode(errors="ignore")
+            vals = [int(v) for v in
+                    re.findall(r'"Device Utilization %"\s*=\s*(\d+)', text)]
+            _LOAD["gpu_pct"] = max(vals) if vals else None
+        except Exception:
+            pass
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "memory_pressure",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+            out, _ = await asyncio.wait_for(proc.communicate(), timeout=6)
+            text = (out or b"").decode(errors="ignore")
+            m = re.search(r"free percentage:\s*(\d+)%", text)
+            _LOAD["mem_free_pct"] = int(m.group(1)) if m else None
+        except Exception:
+            pass
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "sysctl", "-n", "vm.swapusage",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+            out, _ = await asyncio.wait_for(proc.communicate(), timeout=6)
+            text = (out or b"").decode(errors="ignore")
+            mu = re.search(r"used\s*=\s*([\d.]+)M", text)
+            mt = re.search(r"total\s*=\s*([\d.]+)M", text)
+            _LOAD["swap_used"] = int(float(mu.group(1)) * 1024 * 1024) if mu else None
+            _LOAD["swap_total"] = int(float(mt.group(1)) * 1024 * 1024) if mt else None
+        except Exception:
+            pass
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "pmset", "-g", "therm",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+            out, _ = await asyncio.wait_for(proc.communicate(), timeout=6)
+            text = (out or b"").decode(errors="ignore")
+            m = re.search(r"CPU_Speed_Limit\s*=\s*(\d+)", text)
+            if m:
+                n = int(m.group(1))
+                _LOAD["cpu_limit"] = n
+                _LOAD["thermal"] = "throttled" if n < 100 else "nominal"
+            else:
+                _LOAD["cpu_limit"] = None
+                _LOAD["thermal"] = "nominal"   # only "Note:" lines, or command absent
+        except Exception:
+            pass
+
+        await asyncio.sleep(10)
+
+
+def _sysinfo_battery():
+    out = {"percent": None, "state": None, "on_ac": False,
+           "remaining": None, "present": False}
+    try:
+        proc = subprocess.run(["pmset", "-g", "batt"], capture_output=True,
+                               text=True, timeout=3)
+        text = proc.stdout or ""
+        lines = text.splitlines()
+        out["on_ac"] = bool(lines and "AC Power" in lines[0])
+        if "InternalBattery" not in text:
+            out["present"] = False
+            out["on_ac"] = True
+            return out
+        out["present"] = True
+        m = re.search(r"(\d+)%", text)
+        if m:
+            out["percent"] = int(m.group(1))
+        m = re.search(r";\s*([a-zA-Z ]+?);", text)
+        if m:
+            word = m.group(1).strip().lower()
+            if word == "finishing charge":
+                out["state"] = "charging"
+            elif word == "ac attached, not charging" or word == "ac attached; not charging":
+                out["state"] = "ac"
+            elif word in ("charging", "discharging", "charged"):
+                out["state"] = word
+            else:
+                out["state"] = word
+        m = re.search(r"(\d+:\d+) remaining", text)
+        if m:
+            out["remaining"] = m.group(1)
+    except Exception:
+        pass
+    return out
+
+
+def _sysinfo_disk():
+    try:
+        u = shutil.disk_usage("/")
+        return {"total": u.total, "free": u.free, "used": u.used}
+    except Exception:
+        return {"total": None, "free": None, "used": None}
+
+
+def _sysinfo_memory():
+    total = None
+    used = None
+    try:
+        total = int(subprocess.run(["sysctl", "-n", "hw.memsize"],
+                                    capture_output=True, text=True,
+                                    timeout=3).stdout.strip())
+    except Exception:
+        pass
+    try:
+        vm = subprocess.run(["vm_stat"], capture_output=True, text=True,
+                             timeout=3).stdout
+        m = re.search(r"page size of (\d+) bytes", vm)
+        pagesize = int(m.group(1)) if m else 4096
+        def _pages(label):
+            mm = re.search(re.escape(label) + r"\s*(\d+)\.", vm)
+            return int(mm.group(1)) if mm else 0
+        active = _pages("Pages active:")
+        wired = _pages("Pages wired down:")
+        compressor = _pages("Pages occupied by compressor:")
+        used = (active + wired + compressor) * pagesize
+    except Exception:
+        pass
+    return {"total": total, "used": used}
+
+
+def _sysinfo_cpu():
+    brand = None
+    load = None
+    cores = None
+    try:
+        brand = subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"],
+                                capture_output=True, text=True,
+                                timeout=3).stdout.strip() or None
+    except Exception:
+        pass
+    try:
+        load = list(os.getloadavg())
+    except Exception:
+        pass
+    try:
+        cores = os.cpu_count()
+    except Exception:
+        pass
+    return {"brand": brand, "load": load, "cores": cores}
+
+
+def _sysinfo_uptime():
+    try:
+        out = subprocess.run(["sysctl", "-n", "kern.boottime"],
+                              capture_output=True, text=True, timeout=3).stdout
+        m = re.search(r"sec = (\d+)", out)
+        if m:
+            return int(time.time() - int(m.group(1)))
+    except Exception:
+        pass
+    return None
+
+
+def _sysinfo_sha():
+    try:
+        proc = subprocess.run(["git", "-C", str(HERE), "rev-parse", "--short", "HEAD"],
+                               capture_output=True, text=True, timeout=3)
+        return proc.stdout.strip() or None
+    except Exception:
+        return None
+
+
+def _sysinfo_agents():
+    """Fleet-derived counts for the load page — panes needing input, actively
+    working, or finished, plus how many phones are watching the live feed."""
+    rows = _FLEET_CACHE
+    return {
+        "panes": len(rows),
+        "sendable": sum(1 for r in rows if r.get("sendable")),
+        "waiting": sum(1 for r in rows if r.get("prompt")),
+        "running": sum(1 for r in rows if r.get("state") == "working"),
+        "ended": sum(1 for r in rows if r.get("state") == "ended"),
+        "ws_clients": len(_WS_FLEET),
+        # POLL (0.45s) drives per-pane ws_pane loops, one per open chat, not a
+        # single fleet-wide sampler — no one iteration wall time to report.
+        "poll_ms": None,
+        "iterm": CONN is not None,
+    }
+
+
+def _sysinfo_dep(provider):
+    try:
+        found = agent_bin(provider)
+    except Exception:
+        return None
+    if found and os.path.isabs(found):
+        return found
+    return None
+
+
+async def api_sysinfo(request):
+    """Host diagnostics for the settings/diagnostics page."""
+    if not authed(request):
+        return web.json_response({"error": "locked"}, status=401)
+
+    try:
+        macos = platform.mac_ver()[0] or None
+    except Exception:
+        macos = None
+    try:
+        hostname = socket.gethostname()
+    except Exception:
+        hostname = None
+    try:
+        tailnet = ts_self_host()
+    except Exception:
+        tailnet = None
+    try:
+        origin = self_origin()
+    except Exception:
+        origin = None
+
+    try:
+        py_version = platform.python_version()
+    except Exception:
+        py_version = None
+
+    try:
+        tailscale_present = bool(shutil.which("tailscale") or
+                                  os.path.exists(_TAILSCALE) or
+                                  os.path.exists(
+                                      "/Applications/Tailscale.app/Contents/MacOS/Tailscale"))
+    except Exception:
+        tailscale_present = False
+
+    try:
+        vapid_configured = os.path.exists(_VAPID_PRIV)
+    except Exception:
+        vapid_configured = False
+    try:
+        subscribers = len(_load_subs())
+    except Exception:
+        subscribers = 0
+
+    try:
+        peers = tailnet_macs()
+    except Exception:
+        peers = []
+
+    try:
+        load1, load5, load15 = os.getloadavg()
+    except Exception:
+        load1 = load5 = load15 = None
+
+    return web.json_response({
+        "battery": _sysinfo_battery(),
+        "disk": _sysinfo_disk(),
+        "memory": _sysinfo_memory(),
+        "cpu": _sysinfo_cpu(),
+        "host": {
+            "hostname": hostname,
+            "tailnet": tailnet,
+            "origin": origin,
+            "macos": macos,
+            "uptime": _sysinfo_uptime(),
+        },
+        "server": {
+            "pid": os.getpid(),
+            "started": _STARTED,
+            "uptime": int(time.time() - _STARTED),
+            "sha": _sysinfo_sha(),
+            "bind": BIND,
+            "port": PORT,
+            "fleet_dir": FLEET_DIR,
+            "iterm": CONN is not None,
+            "python": py_version,
+            "panes": len(_FLEET_CACHE),
+        },
+        "deps": {
+            "claude": _sysinfo_dep("claude"),
+            "codex": _sysinfo_dep("codex"),
+            "grok": _sysinfo_dep("grok"),
+            "whisper": WHISPER_BIN or None,
+            "ffmpeg": FFMPEG_BIN or None,
+            "whisper_model": os.path.exists(WHISPER_MODEL),
+            "tailscale": tailscale_present,
+        },
+        "push": {
+            "configured": vapid_configured,
+            "subscribers": subscribers,
+        },
+        "peers": peers,
+        "load": {
+            "cpu_pct": _LOAD.get("cpu_pct"),
+            "cpu_user": _LOAD.get("cpu_user"),
+            "cpu_sys": _LOAD.get("cpu_sys"),
+            "gpu_pct": _LOAD.get("gpu_pct"),
+            "mem_free_pct": _LOAD.get("mem_free_pct"),
+            "swap_used": _LOAD.get("swap_used"),
+            "swap_total": _LOAD.get("swap_total"),
+            "thermal": _LOAD.get("thermal"),
+            "cpu_limit": _LOAD.get("cpu_limit"),
+            "load1": load1, "load5": load5, "load15": load15,
+            "cores": os.cpu_count(),
+            "sampled": _LOAD.get("sampled"),
+        },
+        "agents": _sysinfo_agents(),
+    })
+
+
 async def api_ping(request):
     """Cross-origin reachability probe. Unauthenticated and CORS-open ON PURPOSE:
     the swapper on device A fetches deviceB/api/ping to light its status dot, a
@@ -3839,6 +4183,7 @@ async def main(connection):
     app.router.add_get("/api/commands", api_commands)
     app.router.add_get("/api/usage", api_usage)
     app.router.add_get("/api/devices", api_devices)
+    app.router.add_get("/api/sysinfo", api_sysinfo)
     app.router.add_get("/api/ping", api_ping)
     app.router.add_get("/api/history", api_history)
     app.router.add_post("/api/resume", api_resume)
@@ -3900,6 +4245,7 @@ async def main(connection):
     asyncio.create_task(_notify_watcher())     # push when sessions finish / need input
     asyncio.create_task(_grow_janitor())       # never leave a pane maximized with nobody watching
     asyncio.create_task(_rebuild_history())    # warm the history cache so first open is instant
+    asyncio.create_task(_load_sampler())       # background CPU/GPU/thermal snapshot for /api/sysinfo
 
     async def _normalize_once():
         await asyncio.sleep(2)                 # let APP settle after (re-)connect
