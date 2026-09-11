@@ -393,12 +393,23 @@
     animation:micpulse 1.1s ease-in-out infinite}
   @keyframes micpulse{0%,100%{opacity:1}50%{opacity:.5}}
 
-  #toast{position:fixed;left:14px;right:14px;bottom:calc(env(safe-area-inset-bottom) + 118px);
-    background:var(--panel3);border:1px solid var(--line2);border-radius:var(--r);padding:11px 14px;
-    font:13px var(--ui);z-index:60;opacity:0;transform:translateY(12px);
-    transition:all .22s;pointer-events:none}
+  /* Toast: the same floating card as the answer options, the session brief and
+     the composer — panel, hairline, r3, soft shadow — sized to its own text and
+     centred, rather than a full-width panel3 bar. A dot carries the state so
+     the words stay readable at full contrast: blue for ok, red for a failure. */
+  #toast{position:fixed;left:10px;right:10px;bottom:calc(env(safe-area-inset-bottom) + 118px);
+    width:fit-content;max-width:calc(100% - 20px);margin:0 auto;
+    display:flex;align-items:center;gap:9px;
+    background:var(--panel);border:1px solid var(--line2);border-radius:var(--r3);
+    padding:11px 14px;box-shadow:0 5px 16px rgba(0,0,0,.5);
+    font:400 13px/1.45 var(--ui);color:var(--fg);
+    z-index:60;opacity:0;transform:translateY(10px);
+    transition:opacity .18s ease,transform .18s ease;pointer-events:none}
   #toast.on{opacity:1;transform:translateY(0)}
-  #toast.err{border-color:var(--red);color:var(--red)}
+  #toast .t-dot{width:6px;height:6px;border-radius:50%;flex:none;background:var(--blue)}
+  #toast .t-msg{min-width:0;overflow-wrap:anywhere}
+  #toast.err{border-color:rgba(255,107,97,.4)}
+  #toast.err .t-dot{background:var(--red)}
   .empty{padding:36px 20px;text-align:center;color:var(--dim);
     font:13px/1.7 var(--ui);white-space:pre-wrap;word-break:break-all}
 
@@ -441,6 +452,7 @@
     -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
     animation:shimmer 1.6s linear infinite}
   @media(prefers-reduced-motion:reduce){
+    #toast,#toast.on{transform:none}
     .sessinfo{animation:none}
     .sk-line,.sk-tag{animation:none;background:var(--panel2)}
     .sessinfo.loading .ss-sum{animation:none;-webkit-text-fill-color:var(--dim)}
@@ -1287,7 +1299,10 @@ function colorize(text){ return colorizeLines(text).join('\n'); }
 
 function toast(msg, err){
   const t = document.getElementById('toast');
-  t.textContent = msg; t.className = 'on' + (err ? ' err' : '');
+  /* state dot + text, so an error reads as a marked card instead of red prose */
+  if (!t._msg){ t.innerHTML = '<i class="t-dot"></i><span class="t-msg"></span>';
+    t._msg = t.querySelector('.t-msg'); }
+  t._msg.textContent = msg; t.className = 'on' + (err ? ' err' : '');
   clearTimeout(t._h); t._h = setTimeout(()=>t.className='', 2600);
 }
 const buzz = n => navigator.vibrate && navigator.vibrate(n);
@@ -3430,7 +3445,7 @@ async function spawnInDir(dir){
   try {
     const r = await post('/api/spawn', {dir});
     PENDING_PANE = r.uuid;
-    toast('new clawd hatching…');
+    toast('starting agent…');
   } catch(e){ toast(String(e.message), true); }
   finally { closeSheet(); }
 }
