@@ -2536,13 +2536,69 @@ async def api_commands(request):
                       for k, v in COMMANDS.items()]})
 
 
+SETTINGS_JSON = os.path.expanduser("~/.claude/settings.json")
+_MISSING = object()
+_settings_lock = asyncio.Lock()
+
+
+def _read_default_model():
+    """Current `model` in ~/.claude/settings.json, or _MISSING if unset."""
+    try:
+        with open(SETTINGS_JSON) as f:
+            return json.load(f).get("model", _MISSING)
+    except Exception:
+        return _MISSING
+
+
+def _restore_default_model(prev):
+    """Put the global default back to `prev` (_MISSING = remove the key).
+
+    Re-reads the file first so we only rewrite that one key and keep whatever
+    else Claude has written since; atomic replace, as in trust_dir.
+    """
+    try:
+        with open(SETTINGS_JSON) as f:
+            cfg = json.load(f)
+    except Exception:
+        return
+    if cfg.get("model", _MISSING) == prev:
+        return                              # nothing moved; leave the file alone
+    if prev is _MISSING:
+        cfg.pop("model", None)
+    else:
+        cfg["model"] = prev
+    tmp = SETTINGS_JSON + ".tmp"
+    try:
+        with open(tmp, "w") as f:
+            json.dump(cfg, f, indent=2)
+        os.replace(tmp, SETTINGS_JSON)
+    except Exception as e:
+        print(f"  [model] could not restore global default: "
+              f"{type(e).__name__}: {e}", flush=True)
+
+
+async def _keep_model_session_local(prev):
+    """Undo /model's write to the global default, leaving the pane switched.
+
+    /model changes the running pane AND rewrites `model` in settings.json. We
+    snapshot that key before firing, wait for Claude to land its write, then put
+    the old value back — so the switch only sticks to the pane that asked.
+    """
+    for _ in range(24):                      # ~6s, polled every 250ms
+        await asyncio.sleep(0.25)
+        if _read_default_model() != prev:
+            break
+    await asyncio.sleep(0.4)                 # let the write settle
+    _restore_default_model(prev)
+
+
 @writes("model")
 async def api_model(request):
-    """Fire /model <name>.
+    """Fire /model <name> for one pane only.
 
-    WARNING: /model is NOT session-local. Claude echoes "saved as your default
-    for new sessions" — it rewrites ~/.claude/settings.json, so this repoints
-    every future session too. The UI requires a second confirming tap.
+    /model also rewrites ~/.claude/settings.json, which would repoint every
+    FUTURE session. We snapshot the old default and restore it once Claude has
+    written, so the change stays local to this pane.
     """
     body = await request.json()
     uuid, name = body.get("uuid", "").upper(), body.get("model")
@@ -2559,9 +2615,11 @@ async def api_model(request):
     bad = claude_only(uuid, "model")
     if bad:
         return bad
-    await send_slash(s, f"/model {MODELS[name]}")
-    return web.json_response({"ok": True, "model": name,
-                              "note": "also changed the global default"})
+    async with _settings_lock:
+        prev = _read_default_model()
+        await send_slash(s, f"/model {MODELS[name]}")
+        await _keep_model_session_local(prev)
+    return web.json_response({"ok": True, "model": name})
 
 
 # ── usage / CC Dash data ───────────────────────────────────────────────────

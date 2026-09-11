@@ -27,7 +27,7 @@ Every route CC Dispatch exposes, its auth class, and the shape of its request/re
 | POST | `/api/kill` | write-gate | Gracefully quit and close a pane | `uuid` | `{ok, uuid}` |
 | POST | `/api/mode` | write-gate | Shift-Tab to a permission mode (Claude only) | `uuid, mode` | `{ok, mode, path}` |
 | POST | `/api/effort` | write-gate | `/effort <level>` (Claude only) | `uuid, level` | `{ok, level}` |
-| POST | `/api/model` | write-gate | `/model <name>` — also rewrites the global default (Claude only) | `uuid, model` | `{ok, model, note}` |
+| POST | `/api/model` | write-gate | `/model <name>` — session-local; the global default is restored after (Claude only) | `uuid, model` | `{ok, model}` |
 | POST | `/api/cmd` | write-gate | Fire an allowlisted slash command | `uuid, cmd` | `{ok, cmd}` |
 | GET | `/api/commands` | session | List allowlisted slash commands | — | `{commands: [{id, cmd, desc}]}` |
 | GET | `/api/usage` | session | Today/30-day/all-time spend + token usage | — | `{today, daily[], all_time}` |

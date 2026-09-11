@@ -2790,11 +2790,6 @@ function renderSheet(){
         cur: pendingModel !== name && m.includes(name),
         cls: pendingModel === name ? 'confirm' : '', dis: !send,
         on: () => setModel(name)})));
-    const n = document.createElement('div');
-    n.className = 'sheet-note warn';
-    n.textContent = '/model also rewrites your global default — every future '
-      + 'session you start will use it, not just this pane.';
-    body.appendChild(n);
   }
 
   else if (openKind === 'kill'){
@@ -2960,8 +2955,9 @@ async function setMode(mode){
   } catch(e){ toast(String(e.message), true); }
 }
 
-/* /model rewrites ~/.claude/settings.json — it repoints every FUTURE session,
-   not just this one. Two taps required, and the second is labelled. */
+/* Session-local: the server puts the global default back after /model lands,
+   so the switch sticks to this pane only. Two taps required still, since a
+   mid-task model switch is disruptive either way. */
 let pendingModel = null, pendingTimer = null;
 function setModel(name){
   if (!current) return;
@@ -2974,7 +2970,7 @@ function setModel(name){
   clearTimeout(pendingTimer); pendingModel = null;
   buzz(18); closeSheet();
   post('/api/model', {uuid: current.uuid, model: name})
-    .then(() => toast('model \u2192 ' + name + ' (global default changed)'))
+    .then(() => toast('model \u2192 ' + name))
     .catch(e => toast(String(e.message), true));
 }
 
