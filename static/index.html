@@ -132,6 +132,18 @@
     border-radius:6px;color:var(--dim);font:15px/1 var(--ui);width:30px;height:30px;
     cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center}
   header .hardref:active{transform:scale(.92);color:var(--fg)}
+  /* Reaper: ends every session older than REAP_H hours. Lives in the fleet
+     header, always visible, and carries the count it would kill so the number
+     is on screen before you tap. Disabled — not hidden — at zero, so the
+     control never moves. */
+  header .reap{flex:none;background:none;border:1px solid var(--line);
+    border-radius:6px;color:var(--dim);font:11px var(--mono);height:30px;
+    padding:0 8px;cursor:pointer;display:flex;align-items:center;gap:5px;
+    margin-left:auto}
+  header .reap svg{width:14px;height:14px}
+  header .reap:active{transform:scale(.94)}
+  header .reap.hot{color:var(--red);border-color:rgba(255,107,97,.5)}
+  header .reap:disabled{opacity:.4;cursor:default}
   header .bell{flex:none;background:none;border:1px solid var(--line);
     border-radius:6px;color:var(--dim);width:30px;height:30px;cursor:pointer;
     padding:0;display:flex;align-items:center;justify-content:center;margin-left:8px}
@@ -782,6 +794,55 @@
   .sys-btn:active{background:var(--panel2)}
   .sys-btn.danger{color:var(--red);border-color:rgba(255,107,97,.4)}
 
+  /* The four metrics this page is actually about — charge, temperature, CPU,
+     storage — each get their own mark, drawn in one shared language: a
+     --line2 track under every filled arc, mono numerals for the number,
+     status hue from the same green/amber/red set the yard and the usage bars
+     use. Small enough to draw by hand, which is what keeps them consistent
+     with the rest of the app instead of looking like an imported chart. */
+  .sysg{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:10px}
+  .sysg .sys-sec{margin-bottom:0}
+  .sys-met{display:flex;align-items:center;gap:12px;min-width:0}
+  .sys-met .sys-viz{flex:none;display:block}
+  .sys-num{min-width:0}
+  .sys-big{font:700 25px/1 var(--mono);color:var(--fg);white-space:nowrap}
+  .sys-big s{font:600 13px var(--mono);color:var(--dim);text-decoration:none;margin-left:1px}
+  .sys-cap{font:11px var(--ui);color:var(--dim);margin-top:4px;
+    overflow:hidden;text-overflow:ellipsis}
+  /* chips carry the secondary readings — gpu, thermal state, cores — so the
+     hero number never competes with them for the same line */
+  .sys-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .sys-chip{font:11px var(--mono);color:var(--dim);border:1px solid var(--line);
+    border-radius:var(--r);padding:3px 7px;background:var(--panel2);white-space:nowrap}
+  .sys-chip b{color:var(--fg2);font-weight:700}
+  .sys-chip.warn{color:var(--amber);border-color:rgba(255,194,51,.4)}
+  .sys-chip.bad{color:var(--red);border-color:rgba(255,107,97,.4)}
+  .sys-chip.good{color:var(--green);border-color:rgba(61,220,92,.35)}
+  /* CPU history: one sparkline, stretched to the card width. The stroke keeps
+     its 1.5px whatever the x-scale does (non-scaling-stroke), which is what
+     lets preserveAspectRatio="none" stay honest here. */
+  .sys-spark{display:block;width:100%;height:36px;margin:10px 0 0;overflow:visible}
+  .sys-sparl{display:flex;justify-content:space-between;
+    font:10px var(--mono);color:var(--dimmer);margin-top:3px}
+  /* split bar: user vs system, one row, legend below */
+  .sys-split{display:flex;height:6px;border-radius:3px;overflow:hidden;
+    background:var(--line2);margin-top:10px}
+  .sys-split i{display:block;height:100%;transition:width .5s}
+  .sys-key{display:flex;gap:12px;margin-top:6px;font:11px var(--mono);color:var(--dim)}
+  .sys-key span{display:flex;align-items:center;gap:5px}
+  .sys-key i{width:8px;height:8px;border-radius:2px;flex:none}
+  /* the storage ring's legend sits beside it, so the donut never needs labels
+     inside the hole beyond its own percentage */
+  .sys-leg{flex:1;min-width:0;display:flex;flex-direction:column;gap:7px}
+  .sys-leg div{display:flex;align-items:center;justify-content:space-between;gap:8px;
+    font:12px var(--ui);color:var(--dim)}
+  .sys-leg b{font:12px var(--mono);color:var(--fg2);font-weight:700}
+  /* sub-heads inside the one diagnostics card, so five short groups read as
+     one section instead of five competing cards */
+  .sys-sub{font:700 10px var(--ui);letter-spacing:.08em;text-transform:uppercase;
+    color:var(--dimmer);margin:12px 0 2px;padding-top:10px;border-top:1px solid var(--line)}
+  .sys-sub:first-of-type{margin-top:2px;padding-top:0;border-top:none}
+
   /* Usage is a monitor screen: it SCROLLS, most-urgent first. The running-agent
      cards up top are the point, so they get real room; the account totals sit
      below them. Nothing is clipped to force a single page anymore. */
@@ -1032,6 +1093,13 @@
       </button>
       <div class="devmenu" id="devmenu" hidden></div>
     </div>
+    <button class="reap" id="reap" onclick="askReap()" disabled
+            aria-label="end old sessions" title="end sessions over 3h old">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>
+      <span id="reapn">0</span>
+    </button>
     <button class="bell" id="bell" onclick="toggleNotify()" aria-label="notifications" title="notifications">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -1447,6 +1515,7 @@ function renderFleet(rows){
   }
   const panes = `${rows.length} pane${rows.length===1?'':'s'}`;
   document.querySelectorAll('.sb-panes').forEach(e => e.textContent = panes);
+  paintReap(rows);
   const st = document.getElementById('yard-status');
   clearTimeout(statusT);            // a queued loader must not surface over a live yard
   st.className = '';
@@ -1884,6 +1953,47 @@ function askKill(c){
   killTarget = c.s;
   buzz(24);
   openSheet('kill');
+}
+
+/* ── the reaper ───────────────────────────────────────
+   One button on the yard that ends every session nobody has touched for REAP_H
+   hours. The clock is the last interaction — the last prompt sent or the last
+   time it finished answering (work_since, the same hook clock the yard timer
+   ticks off) — NOT when the chat was started: a chat opened this morning that is
+   still being driven is not stale, one left idle since lunch is. The button
+   carries its own count, so the number is visible before the tap, and the server
+   re-derives the list at kill time rather than trusting this one. */
+const REAP_H = 3;
+const reapClock = r => r.work_since || r.mtime || 0;
+function staleRows(rows){
+  const cut = Date.now()/1000 - REAP_H * 3600;
+  return (rows || []).filter(r => reapClock(r) && reapClock(r) <= cut);
+}
+function paintReap(rows){
+  const b = document.getElementById('reap');
+  if (!b) return;
+  // A server too old to send `work_since` cannot be asked how old anything is —
+  // say so with a dash rather than printing a confident, wrong zero.
+  const known = (rows || []).some(r => reapClock(r));
+  const n = staleRows(rows).length;
+  document.getElementById('reapn').textContent =
+    (rows && rows.length && !known) ? '—' : n;
+  b.disabled = !n;
+  b.classList.toggle('hot', !!n);
+}
+
+function askReap(){ buzz(24); openSheet('reap'); }
+
+async function reapStale(){
+  closeSheet();
+  const b = document.getElementById('reap');
+  if (b) b.disabled = true;
+  try {
+    const d = await post('/api/reap', {hours: REAP_H});
+    const k = (d.killed || []).length, f = (d.failed || []).length;
+    toast(f ? `${k} ended, ${f} failed` : (k ? `${k} session${k===1?'':'s'} ended`
+                                             : 'nothing old enough'), !!f);
+  } catch(e){ toast(String(e.message), true); }
 }
 
 async function killPane(uuid, name){
@@ -2978,6 +3088,19 @@ function renderSheet(){
     body.appendChild(opt(`kill ${t.name || 'pane'}`, {
       desc: t.state === 'working' ? 'is working' : (t.state || ''), cls: 'confirm',
       on: () => killPane(t.uuid, t.name || 'pane')}));
+    body.appendChild(opt('cancel', {on: closeSheet}));
+  }
+
+  else if (openKind === 'reap'){
+    const old = staleRows(SESSIONS);
+    title.textContent = `end sessions idle over ${REAP_H}h`;
+    if (!old.length) body.appendChild(opt('nothing that old', {dis: true}));
+    else {
+      const now = Date.now()/1000;
+      body.appendChild(opt(`end ${old.length} session${old.length===1?'':'s'}`, {
+        desc: old.map(r => `${r.name} ${fmtAge(Math.round(now - reapClock(r)))}`).join(', '),
+        cls: 'confirm', on: reapStale}));
+    }
     body.appendChild(opt('cancel', {on: closeSheet}));
   }
 
@@ -4086,8 +4209,10 @@ function showUsage(){
 /* ── sys (diagnostics + settings) ─────────────────────
    One GET /api/sysinfo covers machine/battery/storage/memory/server/deps/push/
    peers; the settings section below it is purely client-side (localStorage),
-   mirroring the same keys the rest of the app already reads. Plain
-   text-first rows in bordered .sys-sec cards — no gauges, no sparklines. */
+   mirroring the same keys the rest of the app already reads. The page leads
+   with the four readings worth glancing at — charge, temperature, CPU,
+   storage — each with its own mark, and everything else is diagnostics in
+   plain rows underneath. */
 const fmtBytes = n => n == null ? '—'
   : n >= 1e9 ? (n/1e9).toFixed(1)+' GB' : (n/1e6).toFixed(0)+' MB';
 
@@ -4102,6 +4227,13 @@ function sysDur(s){
 }
 
 let SYS = null, sysTimer = null, SYS_AT = 0, _sysAgeTxt = '';
+const SYS_EVERY = 15;          // seconds between /api/sysinfo polls
+/* CPU history for the sparkline. The server samples `top` on its own 10s timer
+   and we read the cached figure once a poll, so this is one point per poll, not
+   per second — 40 of them is the last ten minutes the page was open. Kept on
+   the client because nothing needs it to survive a reload. */
+const CPU_KEEP = 40;
+let CPUH = [];
 function paintSysAge(){
   const el = document.getElementById('sys-age');
   if (!el) return;
@@ -4122,7 +4254,7 @@ function showSys(){
   sysTimer = setInterval(() => {
     if (document.getElementById('s-sys').classList.contains('on')) loadSys();
     else { clearInterval(sysTimer); sysTimer = null; }
-  }, 15000);
+  }, SYS_EVERY * 1000);
 }
 
 async function loadSys(){
@@ -4133,6 +4265,8 @@ async function loadSys(){
     const d = await r.json();
     SYS = d;
     SYS_AT = Date.now()/1000;
+    const cp = (d.load || {}).cpu_pct;
+    if (cp != null){ CPUH.push(cp); if (CPUH.length > CPU_KEEP) CPUH.shift(); }
     renderSys();
   } catch(e){
     const body = document.getElementById('sys-body');
@@ -4172,6 +4306,93 @@ function sysDot(on, label){
   return `<span class="sys-dot ${on ? 'on' : 'off'}"></span>${label != null ? ' '+esc(label) : ''}`;
 }
 
+/* ── sys marks ─────────────────────────────────────────
+   Hand-drawn SVG, no library: a battery glyph for charge, a semicircle gauge
+   for temperature, a sparkline for CPU over time, a donut for storage. Four
+   different marks because they answer four different questions — a level, a
+   position on a scale, a trend, a share of a whole — but all built from the
+   same parts: a --line2 track, one filled stroke in a status hue, round caps,
+   and the number itself in mono next to the mark, never inside it. */
+const clamp01 = v => Math.max(0, Math.min(1, v));
+
+/* Charge as the shape everyone already reads without a legend. */
+function batGlyph(pct, color, charging){
+  const p = pct == null ? 0 : clamp01(pct / 100);
+  const w = 40 * p;
+  return `<svg class="sys-viz" width="56" height="26" viewBox="0 0 56 26" aria-hidden="true">
+    <rect x="1" y="3" width="47" height="20" rx="5" fill="none" stroke="var(--line2)"/>
+    <rect x="50" y="9" width="4" height="8" rx="2" fill="var(--line2)"/>
+    ${w > 0 ? `<rect x="4" y="6" width="${w.toFixed(1)}" height="14" rx="3" fill="${color}"/>` : ''}
+    ${charging ? `<path d="M26 7l-6 7h4l-1.5 5 6-7h-4z" fill="var(--bg)"
+      stroke="${color}" stroke-width="1.2" stroke-linejoin="round"/>` : ''}
+  </svg>`;
+}
+
+/* Temperature is a POSITION on a fixed scale, not a share of anything, so it
+   gets a gauge with its ends labelled — 20 °C to 60 °C covers every reading a
+   Mac's battery sensor produces short of a fault. */
+function tempGauge(c, color, lo = 20, hi = 60){
+  const R = 30, CX = 36, CY = 36, LEN = Math.PI * R;
+  const f = c == null ? 0 : clamp01((c - lo) / (hi - lo));
+  const arc = `M ${CX - R} ${CY} A ${R} ${R} 0 0 1 ${CX + R} ${CY}`;
+  return `<svg class="sys-viz" width="72" height="50" viewBox="0 0 72 50" aria-hidden="true">
+    <path d="${arc}" fill="none" stroke="var(--line2)" stroke-width="6" stroke-linecap="round"/>
+    ${c == null ? '' : `<path d="${arc}" fill="none" stroke="${color}" stroke-width="6"
+      stroke-linecap="round" stroke-dasharray="${(LEN * f).toFixed(1)} ${LEN.toFixed(1)}"/>`}
+    <text x="${CX - R}" y="${CY + 12}" fill="var(--dimmer)" font-size="8"
+      font-family="ui-monospace,monospace" text-anchor="middle">${lo}</text>
+    <text x="${CX + R}" y="${CY + 12}" fill="var(--dimmer)" font-size="8"
+      font-family="ui-monospace,monospace" text-anchor="middle">${hi}</text>
+  </svg>`;
+}
+
+/* Storage is a share of a fixed whole — the one metric here a donut is right
+   for. Percentage sits in the hole; the bytes are in the legend beside it. */
+function sysRing(pct, color){
+  const R = 26, C = 2 * Math.PI * R;
+  const p = pct == null ? 0 : clamp01(pct / 100);
+  return `<svg class="sys-viz" width="72" height="72" viewBox="0 0 72 72" aria-hidden="true">
+    <circle cx="36" cy="36" r="${R}" fill="none" stroke="var(--line2)" stroke-width="7"/>
+    ${p > 0 ? `<circle cx="36" cy="36" r="${R}" fill="none" stroke="${color}" stroke-width="7"
+      stroke-linecap="round" transform="rotate(-90 36 36)"
+      stroke-dasharray="${(C * p).toFixed(1)} ${C.toFixed(1)}"/>` : ''}
+    <text x="36" y="36" fill="var(--fg)" font-size="16" font-weight="700"
+      font-family="ui-monospace,monospace" text-anchor="middle">${pct == null ? '—' : Math.round(pct) + '%'}</text>
+    <text x="36" y="47" fill="var(--dimmer)" font-size="8"
+      font-family="system-ui,sans-serif" text-anchor="middle">used</text>
+  </svg>`;
+}
+
+/* CPU is the only metric with a history worth seeing, so it is the only one
+   drawn against time. Fixed 0-100 y-scale: a spike has to LOOK like a spike,
+   which an auto-scaled sparkline would flatten on a quiet machine. */
+function sysSpark(vals, color){
+  if (vals.length < 2) return '';        // one point is not a trend — draw nothing
+  const n = Math.max(vals.length, 2);
+  const x = i => (i * 100 / (n - 1)).toFixed(2);
+  const y = v => (30 - clamp01((v == null ? 0 : v) / 100) * 29).toFixed(2);
+  const pts = vals.map((v, i) => `${x(i)},${y(v)}`);
+  const line = 'M' + pts.join(' L');
+  const area = `${line} L${x(vals.length - 1)},30 L0,30 Z`;
+  return `<svg class="sys-spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">
+    <path d="${area}" fill="${color}" opacity=".16"/>
+    <path d="${line}" fill="none" stroke="${color}" stroke-width="1.5"
+      stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+  </svg>`;
+}
+
+function sysChip(label, value, cls){
+  return `<span class="sys-chip${cls ? ' ' + cls : ''}">${esc(label)} <b>${esc(String(value))}</b></span>`;
+}
+
+/* Temperature colour on the same three-step logic as everything else here.
+   Thresholds are for the battery/pack sensor, which idles in the high 20s and
+   only passes 45 under sustained load. */
+function tempColor(c){
+  if (c == null) return 'var(--dim)';
+  return c >= 45 ? 'var(--red)' : c >= 38 ? 'var(--amber)' : 'var(--green)';
+}
+
 function renderSys(){
   paintSysAge();
   const body = document.getElementById('sys-body');
@@ -4186,70 +4407,133 @@ function renderSys(){
   const deps = s.deps || {};
   const push = s.push || {};
   const peers = s.peers || [];
+  const ld = s.load || {};
 
-  // battery
-  let batCap;
-  if (bat.present === false){ batCap = 'no battery (desktop)'; }
-  else {
-    batCap = bat.state === 'charging' ? 'charging'
-      : bat.state === 'charged' ? 'charged'
-      : bat.state === 'discharging' ? (bat.remaining ? `on battery, ${esc(bat.remaining)} left` : 'on battery')
-      : bat.state === 'ac' ? 'on AC' : '—';
-  }
+  // ── battery
+  const noBat = bat.present === false;
   const batC = batColor(bat);
-  const batPct = bat.present === false ? null : bat.percent;
+  const batPct = noBat ? null : bat.percent;
+  const charging = bat.state === 'charging' || bat.state === 'charged';
+  const batCap = noBat ? 'no battery — desktop'
+    : bat.state === 'charging' ? 'charging'
+    : bat.state === 'charged' ? 'charged'
+    : bat.state === 'discharging' ? (bat.remaining ? `${esc(bat.remaining)} left` : 'on battery')
+    : bat.state === 'ac' ? 'on AC, not charging' : '—';
 
-  // storage / memory
-  const diskPct = (disk.total && disk.used != null) ? Math.round(disk.used/disk.total*100) : null;
-  const memPct = (mem.total && mem.used != null) ? Math.round(mem.used/mem.total*100) : null;
+  // ── temperature. The sensor is the battery gas gauge's, the only one a
+  // non-root process can read, so it is labelled as the pack and never as a
+  // die reading it is not.
+  const tC = ld.temp_c;
+  const tCol = tempColor(tC);
+  const throttled = ld.thermal === 'throttled';
 
+  // ── cpu
+  const cpuPct = ld.cpu_pct;
+  const cpuCol = cpuPct == null ? 'var(--dim)' : sysBarColor(cpuPct);
+  const user = ld.cpu_user, sysp = ld.cpu_sys;
   const load = cpu.load || [];
   const loadTxt = load.length ? load.map(v => v == null ? '—' : v.toFixed(2)).join(' / ') : '—';
+  const memPct = (mem.total && mem.used != null) ? Math.round(mem.used / mem.total * 100) : null;
+  const swapPct = (ld.swap_total && ld.swap_used != null)
+    ? Math.round(ld.swap_used / ld.swap_total * 100) : null;
+
+  // ── storage
+  const diskPct = (disk.total && disk.used != null) ? Math.round(disk.used / disk.total * 100) : null;
 
   const depRow = (label, path) =>
     `<div class="sys-row"><span>${esc(label)}</span><span>${sysDot(!!path, path ? esc(path) : 'missing')}</span></div>`;
 
   body.innerHTML = `
+    <div class="sysg">
+      <div class="sys-sec">
+        <div class="sys-h">Battery</div>
+        <div class="sys-met">
+          ${batGlyph(batPct, batC, charging)}
+        </div>
+        <div class="sys-num" style="margin-top:9px">
+          <div class="sys-big" style="color:${noBat ? 'var(--dim)' : batC}">${batPct != null ? Math.round(batPct) + '<s>%</s>' : '—'}</div>
+          <div class="sys-cap">${batCap}</div>
+        </div>
+        ${noBat ? '' : `<div class="sys-chips">
+          ${ld.bat_health != null ? sysChip('health', ld.bat_health + '%',
+              ld.bat_health < 80 ? 'warn' : '') : ''}
+          ${ld.bat_cycles != null ? sysChip('cycles', ld.bat_cycles) : ''}
+        </div>`}
+      </div>
+      <div class="sys-sec">
+        <div class="sys-h">Temperature</div>
+        <div class="sys-met">${tempGauge(tC, tCol)}</div>
+        <div class="sys-num" style="margin-top:5px">
+          <div class="sys-big" style="color:${tCol}">${tC != null ? tC.toFixed(1) + '<s>°C</s>' : '—'}</div>
+          <div class="sys-cap">battery pack sensor</div>
+        </div>
+        <div class="sys-chips">
+          ${ld.temp_cell_c != null ? sysChip('cell', ld.temp_cell_c.toFixed(1) + '°') : ''}
+          ${sysChip('thermal', throttled ? `throttled ${ld.cpu_limit}%` : 'nominal',
+                    throttled ? 'bad' : 'good')}
+        </div>
+      </div>
+    </div>
+
     <div class="sys-sec">
-      <div class="sys-h">Machine</div>
-      ${sysRow('hostname', esc(host.hostname ?? '—'))}
-      ${sysRow('macOS', esc(host.macos ?? '—'))}
-      ${sysRow('CPU', esc(cpu.brand ?? '—') + (cpu.cores ? ` (${cpu.cores})` : ''))}
+      <div class="sys-h">CPU</div>
+      <div class="sys-row" style="padding:0">
+        <div class="sys-num">
+          <div class="sys-big" style="color:${cpuCol}">${cpuPct != null ? cpuPct.toFixed(0) + '<s>%</s>' : '—'}</div>
+          <div class="sys-cap">${esc(cpu.brand || 'cpu')}</div>
+        </div>
+        <div class="sys-chips" style="margin:0;justify-content:flex-end">
+          ${ld.gpu_pct != null ? sysChip('gpu', ld.gpu_pct + '%') : ''}
+          ${sysChip('cores', cpu.cores ?? '—')}
+        </div>
+      </div>
+      ${CPUH.length > 1 ? sysSpark(CPUH, cpuCol) +
+        `<div class="sys-sparl"><span>last ${fmtAge(CPUH.length * SYS_EVERY)}</span><span>100%</span></div>` : ''}
+      ${(user != null || sysp != null) ? `
+        <div class="sys-split">
+          <i style="width:${clamp01((user || 0) / 100) * 100}%;background:var(--blue)"></i>
+          <i style="width:${clamp01((sysp || 0) / 100) * 100}%;background:var(--c-orange)"></i>
+        </div>
+        <div class="sys-key">
+          <span><i style="background:var(--blue)"></i>user ${user != null ? user.toFixed(1) + '%' : '—'}</span>
+          <span><i style="background:var(--c-orange)"></i>system ${sysp != null ? sysp.toFixed(1) + '%' : '—'}</span>
+        </div>` : ''}
       ${sysRow('load avg', esc(loadTxt))}
-      ${sysRow('uptime', sysDur(host.uptime))}
+      ${sysRow('memory', (mem.used != null ? fmtBytes(mem.used) : '—') + ' of ' + (mem.total != null ? fmtBytes(mem.total) : '—'))}
+      ${sysBar(memPct)}
+      ${sysRow('swap', ld.swap_total ? fmtBytes(ld.swap_used) + ' of ' + fmtBytes(ld.swap_total) : 'unused')}
+      ${swapPct ? sysBar(swapPct) : ''}
     </div>
-    <div class="sys-sec">
-      <div class="sys-h">Battery</div>
-      ${bat.present === false ? sysRow('status', 'no battery (desktop)') : `
-        <div class="sys-row"><span style="font:700 20px var(--mono);color:${batC}">${batPct != null ? Math.round(batPct)+'%' : '—'}</span><span>${esc(batCap)}</span></div>
-        ${sysBar(batPct)}
-      `}
-    </div>
+
     <div class="sys-sec">
       <div class="sys-h">Storage</div>
-      ${sysRow('free', (disk.free != null ? fmtBytes(disk.free) : '—') + ' of ' + (disk.total != null ? fmtBytes(disk.total) : '—'))}
-      ${sysBar(diskPct)}
+      <div class="sys-met">
+        ${sysRing(diskPct, diskPct == null ? 'var(--dim)' : sysBarColor(diskPct))}
+        <div class="sys-leg">
+          <div><span>used</span><b>${disk.used != null ? fmtBytes(disk.used) : '—'}</b></div>
+          <div><span>free</span><b style="color:var(--green)">${disk.free != null ? fmtBytes(disk.free) : '—'}</b></div>
+          <div><span>total</span><b>${disk.total != null ? fmtBytes(disk.total) : '—'}</b></div>
+        </div>
+      </div>
     </div>
+
     <div class="sys-sec">
-      <div class="sys-h">Memory</div>
-      ${sysRow('used', (mem.used != null ? fmtBytes(mem.used) : '—') + ' of ' + (mem.total != null ? fmtBytes(mem.total) : '—'))}
-      ${sysBar(memPct)}
-    </div>
-    <div class="sys-sec">
-      <div class="sys-h">Dispatch server</div>
+      <div class="sys-h">Diagnostics</div>
+      <div class="sys-sub">Machine</div>
+      ${sysRow('hostname', esc(host.hostname ?? '—'))}
+      ${sysRow('macOS', esc(host.macos ?? '—'))}
+      ${sysRow('uptime', sysDur(host.uptime))}
+      <div class="sys-sub">Dispatch server</div>
       ${sysRow('origin', esc(host.origin ?? '—'))}
       ${sysRow('tailnet', esc(host.tailnet ?? '—'))}
       ${sysRow('bind', esc(server.bind ?? '—') + ':' + esc(server.port ?? '—'))}
-      ${sysRow('pid', esc(server.pid ?? '—'))}
-      ${sysRow('sha', esc(server.sha ?? '—'))}
+      ${sysRow('pid / sha', esc(server.pid ?? '—') + ' · ' + esc(server.sha ?? '—'))}
       ${sysRow('python', esc(server.python ?? '—'))}
       ${sysRow('uptime', sysDur(server.uptime))}
       ${sysRow('iTerm2', sysDot(!!server.iterm, server.iterm ? 'connected' : 'disconnected'))}
       ${sysRow('panes', esc(server.panes ?? '—'))}
       ${sysRow('fleet dir', esc(server.fleet_dir ?? '—'))}
-    </div>
-    <div class="sys-sec">
-      <div class="sys-h">Dependencies</div>
+      <div class="sys-sub">Dependencies</div>
       ${depRow('claude', deps.claude)}
       ${depRow('codex', deps.codex)}
       ${depRow('grok', deps.grok)}
@@ -4257,16 +4541,12 @@ function renderSys(){
       ${depRow('ffmpeg', deps.ffmpeg)}
       <div class="sys-row"><span>whisper model</span><span>${sysDot(!!deps.whisper_model, deps.whisper_model ? 'present' : 'missing')}</span></div>
       <div class="sys-row"><span>tailscale</span><span>${sysDot(!!deps.tailscale, deps.tailscale ? 'present' : 'missing')}</span></div>
-    </div>
-    <div class="sys-sec">
-      <div class="sys-h">Push</div>
+      <div class="sys-sub">Push</div>
       ${sysRow('configured', push.configured ? 'yes' : 'no')}
       ${sysRow('subscribers', push.subscribers ?? 0)}
       <div class="sys-toggle"><span>this device</span>
         <div class="sys-sw" id="sys-sw-push" onclick="sysTogglePush()"><i></i></div></div>
-    </div>
-    <div class="sys-sec">
-      <div class="sys-h">Tailnet peers</div>
+      <div class="sys-sub">Tailnet peers</div>
       ${peers.length ? peers.map(p => `<div class="sys-row"><span>${sysDot(!!p.online)} ${esc(p.name ?? '—')}${p.self ? ' (this Mac)' : ''}</span><span>${esc(p.host ?? '—')}</span></div>`).join('')
         : '<div class="sys-row"><span>—</span><span>no peers</span></div>'}
     </div>

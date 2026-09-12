@@ -1018,6 +1018,28 @@ def native_ops(provider, path):
     return codex_ops(path) if provider == "codex" else grok_ops(path)
 
 
+REAP_AFTER = 3 * 3600            # the reaper button's cutoff: sessions this old
+
+
+def session_start(transcript, fallback):
+    """When a session actually BEGAN, as a unix time.
+
+    Nothing else in a fleet record dates the session: the statusline dump is
+    rewritten on every render and the .state file flips on every hook, so both
+    only say "recently alive". The transcript is created once, when the chat
+    opens, and is append-only after that — its birth time is the honest start
+    clock (a /clear opens a new one, which is the right answer too). Falls back
+    to the record's own mtime when there is no transcript to stat.
+    """
+    if transcript:
+        try:
+            st = os.stat(transcript)
+            return getattr(st, "st_birthtime", None) or st.st_mtime
+        except OSError:
+            pass
+    return fallback
+
+
 def read_fleet_files():
     """Status dumps written by ~/.claude/statusline.sh + cc-active.sh.
 
@@ -1086,6 +1108,7 @@ def read_fleet_files():
             "lines_del": cst.get("total_lines_removed") or 0,
             "dur_ms": cst.get("total_duration_ms") or 0,
             "age": int(now - mt),
+            "started": session_start(tp, mt),
         }
         if provider == DEFAULT_PROVIDER:
             fcount, pcount = session_ops(tp) if tp else (0, 0)
@@ -1480,8 +1503,10 @@ async def build_fleet():
             "files": ch["files"] if ch else (f or {}).get("files"),
             "prompts": (f or {}).get("prompts"),
             "age": (f or {}).get("age"),
+            "started": (f or {}).get("started"),
             "dur_ms": (f or {}).get("dur_ms"),
             "work_since": (f or {}).get("state_since"),
+            "mtime": (f or {}).get("mtime"),      # reaper fallback clock
             "action": (f or {}).get("action"),   # newest tool call, from transcript
             "subs": (f or {}).get("subs") or [],  # in-flight subagents → yard pets
             # Enough lines that the current `⏺ Tool(args)` action line is in the
@@ -2428,22 +2453,76 @@ async def api_kill(request):
     s = (await all_sessions()).get(uuid)
     if not s:
         return web.json_response({"error": "no such pane"}, status=404)
+    err = await kill_pane(uuid, s)
+    if err:
+        return web.json_response({"error": err}, status=500)
+    return web.json_response({"ok": True, "uuid": uuid})
+
+
+async def kill_pane(uuid, session):
+    """Quit one agent and close its pane. Returns an error string, or None."""
     try:
-        await s.async_send_text("\x03")          # interrupt whatever is running
+        await session.async_send_text("\x03")    # interrupt whatever is running
         await asyncio.sleep(0.2)
-        await s.async_send_text(QUIT_CMD.get(provider_of(uuid), "/exit") + "\r")
+        await session.async_send_text(QUIT_CMD.get(provider_of(uuid), "/exit") + "\r")
         await asyncio.sleep(0.6)
     except Exception as e:
         print(f"  [kill] {uuid} graceful stop failed: {type(e).__name__}: {e}",
               flush=True)
     try:
-        await s.async_close(force=True)
+        await session.async_close(force=True)
     except Exception as e:
-        return web.json_response(
-            {"error": f"could not close pane: {type(e).__name__}: {e}"}, status=500)
+        return f"could not close pane: {type(e).__name__}: {e}"
     KNOWN_AGENTS.pop(uuid, None)
     print(f"  [kill] closed pane {uuid}", flush=True)
-    return web.json_response({"ok": True, "uuid": uuid})
+    return None
+
+
+def reap_clock(r):
+    """When a pane was last interacted with: the last prompt or the last finish
+    (work_since), else the record's own mtime. Session start is deliberately
+    NOT a candidate — an old chat that is still being used is not stale."""
+    return r.get("work_since") or r.get("mtime") or 0
+
+
+@writes("reap")
+async def api_reap(request):
+    """Kill every session untouched for `hours` (default REAP_AFTER) — the reaper.
+
+    Old means "nobody has talked to it for a while", NOT "started long ago": the
+    clock is the last prompt sent or the last time it finished answering
+    (work_since, the hook clock the yard timer runs on), so a chat opened this
+    morning that is still being driven survives and one left idle since lunch
+    goes. Ages come off the same rows the yard draws, so what gets killed is what
+    the button counted. Oldest first, and one pane's failure never stops the sweep.
+    """
+    d = request.get("_body") or {}
+    try:
+        hours = float(d.get("hours") or REAP_AFTER / 3600)
+    except (TypeError, ValueError):
+        hours = REAP_AFTER / 3600
+    cutoff = time.time() - max(0.0, hours) * 3600
+    rows, _ = await build_fleet()
+    sessions = await all_sessions()
+    killed, failed = [], []
+    for r in sorted(rows, key=reap_clock):
+        last = reap_clock(r)
+        if not last or last > cutoff:
+            continue
+        s = sessions.get(r["uuid"])
+        if not s:
+            continue                          # cached row, pane already gone
+        err = await kill_pane(r["uuid"], s)
+        rec = {"uuid": r["uuid"], "name": r.get("name") or "?"}
+        if err:
+            rec["error"] = err
+            failed.append(rec)
+        else:
+            killed.append(rec)
+    print(f"  [reap] over {hours}h: killed {len(killed)}, failed {len(failed)}",
+          flush=True)
+    return web.json_response({"ok": True, "hours": hours,
+                              "killed": killed, "failed": failed})
 
 
 EFFORTS = ("low", "medium", "high", "xhigh", "ultracode")
@@ -3756,7 +3835,8 @@ async def api_devices(request):
 # memory pressure, swap and thermal state — on a 10 s timer instead, and let
 # the request handler read the cached snapshot for free.
 _LOAD = {}     # cpu_pct/cpu_user/cpu_sys/gpu_pct/mem_free_pct/swap_used/
-               # swap_total/thermal/cpu_limit/sampled — any key may be None
+               # swap_total/thermal/cpu_limit/temp_c/temp_cell_c/bat_cycles/
+               # bat_health/sampled — any key may be None
 
 
 async def _load_sampler():
@@ -3813,6 +3893,34 @@ async def _load_sampler():
             mt = re.search(r"total\s*=\s*([\d.]+)M", text)
             _LOAD["swap_used"] = int(float(mu.group(1)) * 1024 * 1024) if mu else None
             _LOAD["swap_total"] = int(float(mt.group(1)) * 1024 * 1024) if mt else None
+        except Exception:
+            pass
+
+        # A real temperature without sudo. powermetrics' SMC sampler is
+        # root-only, but the battery's gas gauge publishes its own sensors to the
+        # IO registry in centi-°C: "Temperature" is the pack, "VirtualTemperature"
+        # the gauge's compensated cell estimate. It is the one honest on-die-ish
+        # number a plain user process can read, so it is what the page shows —
+        # labelled for what it is rather than dressed up as a CPU die reading.
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "ioreg", "-rn", "AppleSmartBattery",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+            out, _ = await asyncio.wait_for(proc.communicate(), timeout=6)
+            text = (out or b"").decode(errors="ignore")
+
+            def _ioreg_int(key):
+                m = re.search(r'"' + key + r'"\s*=\s*(-?\d+)', text)
+                return int(m.group(1)) if m else None
+
+            t = _ioreg_int("Temperature")
+            _LOAD["temp_c"] = round(t / 100, 1) if t is not None else None
+            tv = _ioreg_int("VirtualTemperature")
+            _LOAD["temp_cell_c"] = round(tv / 100, 1) if tv is not None else None
+            _LOAD["bat_cycles"] = _ioreg_int("CycleCount")
+            nom, design = _ioreg_int("NominalChargeCapacity"), _ioreg_int("DesignCapacity")
+            _LOAD["bat_health"] = (round(nom / design * 100)
+                                   if nom and design else None)
         except Exception:
             pass
 
@@ -4077,6 +4185,10 @@ async def api_sysinfo(request):
             "swap_used": _LOAD.get("swap_used"),
             "swap_total": _LOAD.get("swap_total"),
             "thermal": _LOAD.get("thermal"),
+            "temp_c": _LOAD.get("temp_c"),
+            "temp_cell_c": _LOAD.get("temp_cell_c"),
+            "bat_cycles": _LOAD.get("bat_cycles"),
+            "bat_health": _LOAD.get("bat_health"),
             "cpu_limit": _LOAD.get("cpu_limit"),
             "load1": load1, "load5": load5, "load15": load15,
             "cores": os.cpu_count(),
@@ -4176,6 +4288,7 @@ async def main(connection):
     app.router.add_post("/api/spawn", api_spawn)
     app.router.add_get("/api/browse", api_browse)
     app.router.add_post("/api/kill", api_kill)
+    app.router.add_post("/api/reap", api_reap)
     app.router.add_post("/api/effort", api_effort)
     app.router.add_post("/api/mode", api_mode)
     app.router.add_post("/api/model", api_model)
