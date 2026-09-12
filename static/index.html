@@ -762,22 +762,25 @@
   #sys-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;
     -webkit-overflow-scrolling:touch;background:var(--bg);
     padding:6px 10px calc(env(safe-area-inset-bottom) + 20px)}
-  .sys-sec{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
-    padding:12px;margin-bottom:10px}
-  .sys-h{font:700 11px var(--ui);letter-spacing:.08em;text-transform:uppercase;
-    color:var(--dim);margin-bottom:6px}
+  /* Sections are whitespace, not cards — one hairline reserved for the two
+     list-type sections (Diagnostics, Settings) via .sys-sec.rule. */
+  .sys-sec{margin-bottom:28px}
+  .sys-sec.rule{border-top:1px solid var(--line);padding-top:20px}
+  .sys-h{font:700 11px var(--ui);letter-spacing:.12em;text-transform:uppercase;
+    color:var(--dim);margin-bottom:10px}
   .sys-row{display:flex;align-items:center;justify-content:space-between;gap:10px;
     padding:6px 0;font:13px var(--ui);color:var(--dim)}
-  .sys-row > span:last-child{font:12px var(--mono);color:var(--fg2);text-align:right;
+  .sys-row > span:last-child{font:13px var(--mono);color:var(--fg);text-align:right;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
-  .sys-bar{height:4px;border-radius:2px;background:var(--line2);overflow:hidden;margin:2px 0 6px}
+  .sys-bar{height:4px;border-radius:2px;background:var(--line2);overflow:hidden;margin:8px 0 12px}
   .sys-bar i{display:block;height:100%;transition:width .5s}
   .sys-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;
     background:var(--dimmer)}
   .sys-dot.on{background:var(--green)}
   .sys-dot.off{background:var(--red)}
+  .sys-dots{display:inline-flex;flex-wrap:wrap;gap:14px}
   .sys-toggle{display:flex;align-items:center;justify-content:space-between;
-    gap:10px;padding:7px 0;font:13px var(--ui);color:var(--fg2)}
+    gap:10px;padding:6px 0;font:13px var(--ui);color:var(--fg2)}
   .sys-sw{position:relative;width:42px;height:24px;flex:none;border-radius:12px;
     background:var(--panel3);border:1px solid var(--line2);cursor:pointer}
   .sys-sw i{position:absolute;top:2px;left:2px;width:18px;height:18px;
@@ -800,24 +803,22 @@
      status hue from the same green/amber/red set the yard and the usage bars
      use. Small enough to draw by hand, which is what keeps them consistent
      with the rest of the app instead of looking like an imported chart. */
-  .sysg{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:10px}
+  .sysg{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));
+    gap:24px;margin-bottom:28px}
   .sysg .sys-sec{margin-bottom:0}
   .sys-met{display:flex;align-items:center;gap:12px;min-width:0}
   .sys-met .sys-viz{flex:none;display:block}
   .sys-num{min-width:0}
-  .sys-big{font:700 25px/1 var(--mono);color:var(--fg);white-space:nowrap}
+  .sys-big{font:700 30px/1 var(--mono);color:var(--fg);white-space:nowrap}
   .sys-big s{font:600 13px var(--mono);color:var(--dim);text-decoration:none;margin-left:1px}
-  .sys-cap{font:11px var(--ui);color:var(--dim);margin-top:4px;
+  /* secondary readings render as plain label/value pairs, not pills — a dim
+     label beside its value in mono --fg, no border to draw around either */
+  .sys-cap{font:13px var(--ui);color:var(--dim);margin-top:6px;
     overflow:hidden;text-overflow:ellipsis}
-  /* chips carry the secondary readings — gpu, thermal state, cores — so the
-     hero number never competes with them for the same line */
-  .sys-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
-  .sys-chip{font:11px var(--mono);color:var(--dim);border:1px solid var(--line);
-    border-radius:var(--r);padding:3px 7px;background:var(--panel2);white-space:nowrap}
-  .sys-chip b{color:var(--fg2);font-weight:700}
-  .sys-chip.warn{color:var(--amber);border-color:rgba(255,194,51,.4)}
-  .sys-chip.bad{color:var(--red);border-color:rgba(255,107,97,.4)}
-  .sys-chip.good{color:var(--green);border-color:rgba(61,220,92,.35)}
+  .sys-cap b{font-family:var(--mono);color:var(--fg);font-weight:400}
+  .sys-cap b.warn{color:var(--amber)}
+  .sys-cap b.bad{color:var(--red)}
+  .sys-cap b.good{color:var(--green)}
   /* CPU history: one sparkline, stretched to the card width. The stroke keeps
      its 1.5px whatever the x-scale does (non-scaling-stroke), which is what
      lets preserveAspectRatio="none" stay honest here. */
@@ -828,20 +829,9 @@
   .sys-split{display:flex;height:6px;border-radius:3px;overflow:hidden;
     background:var(--line2);margin-top:10px}
   .sys-split i{display:block;height:100%;transition:width .5s}
-  .sys-key{display:flex;gap:12px;margin-top:6px;font:11px var(--mono);color:var(--dim)}
+  .sys-key{display:flex;gap:12px;margin-top:6px;font:13px var(--mono);color:var(--dim)}
   .sys-key span{display:flex;align-items:center;gap:5px}
   .sys-key i{width:8px;height:8px;border-radius:2px;flex:none}
-  /* the storage ring's legend sits beside it, so the donut never needs labels
-     inside the hole beyond its own percentage */
-  .sys-leg{flex:1;min-width:0;display:flex;flex-direction:column;gap:7px}
-  .sys-leg div{display:flex;align-items:center;justify-content:space-between;gap:8px;
-    font:12px var(--ui);color:var(--dim)}
-  .sys-leg b{font:12px var(--mono);color:var(--fg2);font-weight:700}
-  /* sub-heads inside the one diagnostics card, so five short groups read as
-     one section instead of five competing cards */
-  .sys-sub{font:700 10px var(--ui);letter-spacing:.08em;text-transform:uppercase;
-    color:var(--dimmer);margin:12px 0 2px;padding-top:10px;border-top:1px solid var(--line)}
-  .sys-sub:first-of-type{margin-top:2px;padding-top:0;border-top:none}
 
   /* Usage is a monitor screen: it SCROLLS, most-urgent first. The running-agent
      cards up top are the point, so they get real room; the account totals sit
@@ -4294,7 +4284,9 @@ function sysBar(pct){
 }
 
 function sysRow(label, value){
-  return `<div class="sys-row"><span>${esc(label)}</span><span title="${esc(String(value))}">${value}</span></div>`;
+  // title only for plain text — a markup value would break out of the attribute
+  const t = String(value).includes('<') ? '' : ` title="${esc(String(value)).replace(/"/g, '&quot;')}"`;
+  return `<div class="sys-row"><span>${esc(label)}</span><span${t}>${value}</span></div>`;
 }
 
 function sysDot(on, label){
@@ -4351,10 +4343,8 @@ function sysRing(pct, color){
     ${p > 0 ? `<circle cx="36" cy="36" r="${R}" fill="none" stroke="${color}" stroke-width="7"
       stroke-linecap="round" transform="rotate(-90 36 36)"
       stroke-dasharray="${(C * p).toFixed(1)} ${C.toFixed(1)}"/>` : ''}
-    <text x="36" y="36" fill="var(--fg)" font-size="16" font-weight="700"
+    <text x="36" y="41" fill="var(--fg)" font-size="16" font-weight="700"
       font-family="ui-monospace,monospace" text-anchor="middle">${pct == null ? '—' : Math.round(pct) + '%'}</text>
-    <text x="36" y="47" fill="var(--dimmer)" font-size="8"
-      font-family="system-ui,sans-serif" text-anchor="middle">used</text>
   </svg>`;
 }
 
@@ -4376,8 +4366,11 @@ function sysSpark(vals, color){
   </svg>`;
 }
 
-function sysChip(label, value, cls){
-  return `<span class="sys-chip${cls ? ' ' + cls : ''}">${esc(label)} <b>${esc(String(value))}</b></span>`;
+/* Diagnostics compresses agent/tool presence to a single line of dots + names
+   — no paths, just present or missing. */
+function sysDots(items){
+  return `<span class="sys-dots">${items.map(([label, on]) =>
+    `<span>${sysDot(!!on)}${esc(label)}</span>`).join('')}</span>`;
 }
 
 /* Temperature colour on the same three-step logic as everything else here.
@@ -4397,7 +4390,6 @@ function renderSys(){
   const disk = s.disk || {};
   const mem = s.memory || {};
   const cpu = s.cpu || {};
-  const host = s.host || {};
   const server = s.server || {};
   const deps = s.deps || {};
   const push = s.push || {};
@@ -4435,52 +4427,47 @@ function renderSys(){
   // ── storage
   const diskPct = (disk.total && disk.used != null) ? Math.round(disk.used / disk.total * 100) : null;
 
-  const depRow = (label, path) =>
-    `<div class="sys-row"><span>${esc(label)}</span><span>${sysDot(!!path, path ? esc(path) : 'missing')}</span></div>`;
-
   body.innerHTML = `
     <div class="sysg">
       <div class="sys-sec">
         <div class="sys-h">Battery</div>
         <div class="sys-met">
           ${batGlyph(batPct, batC, charging)}
+          <div class="sys-num">
+            <div class="sys-big" style="color:${noBat ? 'var(--dim)' : batC}">${batPct != null ? Math.round(batPct) + '<s>%</s>' : '—'}</div>
+          </div>
         </div>
-        <div class="sys-num" style="margin-top:9px">
-          <div class="sys-big" style="color:${noBat ? 'var(--dim)' : batC}">${batPct != null ? Math.round(batPct) + '<s>%</s>' : '—'}</div>
-          <div class="sys-cap">${batCap}</div>
-        </div>
-        ${noBat ? '' : `<div class="sys-chips">
-          ${ld.bat_health != null ? sysChip('health', ld.bat_health + '%',
-              ld.bat_health < 80 ? 'warn' : '') : ''}
-          ${ld.bat_cycles != null ? sysChip('cycles', ld.bat_cycles) : ''}
+        <div class="sys-cap">${batCap}</div>
+        ${noBat ? '' : `<div class="sys-cap">
+          ${ld.bat_health != null ? `health <b${ld.bat_health < 80 ? ' class="warn"' : ''}>${ld.bat_health}%</b>` : ''}
+          ${ld.bat_health != null && ld.bat_cycles != null ? ' · ' : ''}
+          ${ld.bat_cycles != null ? `<b>${ld.bat_cycles}</b> cycles` : ''}
         </div>`}
       </div>
       <div class="sys-sec">
         <div class="sys-h">Temperature</div>
-        <div class="sys-met">${tempGauge(tC, tCol)}</div>
-        <div class="sys-num" style="margin-top:5px">
-          <div class="sys-big" style="color:${tCol}">${tC != null ? tC.toFixed(1) + '<s>°C</s>' : '—'}</div>
-          <div class="sys-cap">battery pack sensor</div>
+        <div class="sys-met">
+          ${tempGauge(tC, tCol)}
+          <div class="sys-num">
+            <div class="sys-big" style="color:${tCol}">${tC != null ? tC.toFixed(1) + '<s>°C</s>' : '—'}</div>
+          </div>
         </div>
-        <div class="sys-chips">
-          ${ld.temp_cell_c != null ? sysChip('cell', ld.temp_cell_c.toFixed(1) + '°') : ''}
-          ${sysChip('thermal', throttled ? `throttled ${ld.cpu_limit}%` : 'nominal',
-                    throttled ? 'bad' : 'good')}
+        <div class="sys-cap">
+          ${ld.temp_cell_c != null ? `cell <b>${ld.temp_cell_c.toFixed(1)}°</b>` : ''}
         </div>
+        ${throttled ? `<div class="sys-cap"><b class="bad">throttled to ${esc(ld.cpu_limit)}%</b></div>` : ''}
       </div>
     </div>
 
     <div class="sys-sec">
       <div class="sys-h">CPU</div>
-      <div class="sys-row" style="padding:0">
+      <div class="sys-met">
         <div class="sys-num">
           <div class="sys-big" style="color:${cpuCol}">${cpuPct != null ? cpuPct.toFixed(0) + '<s>%</s>' : '—'}</div>
-          <div class="sys-cap">${esc(cpu.brand || 'cpu')}</div>
         </div>
-        <div class="sys-chips" style="margin:0;justify-content:flex-end">
-          ${ld.gpu_pct != null ? sysChip('gpu', ld.gpu_pct + '%') : ''}
-          ${sysChip('cores', cpu.cores ?? '—')}
-        </div>
+      </div>
+      <div class="sys-cap">
+        ${ld.gpu_pct != null ? `gpu <b>${ld.gpu_pct}%</b> · ` : ''}<b>${cpu.cores ?? '—'}</b> cores
       </div>
       ${CPUH.length > 1 ? sysSpark(CPUH, cpuCol) +
         `<div class="sys-sparl"><span>last ${fmtAge(CPUH.length * SYS_EVERY)}</span><span>100%</span></div>` : ''}
@@ -4504,48 +4491,30 @@ function renderSys(){
       <div class="sys-h">Storage</div>
       <div class="sys-met">
         ${sysRing(diskPct, diskPct == null ? 'var(--dim)' : sysBarColor(diskPct))}
-        <div class="sys-leg">
-          <div><span>used</span><b>${disk.used != null ? fmtBytes(disk.used) : '—'}</b></div>
-          <div><span>free</span><b style="color:var(--green)">${disk.free != null ? fmtBytes(disk.free) : '—'}</b></div>
-          <div><span>total</span><b>${disk.total != null ? fmtBytes(disk.total) : '—'}</b></div>
-        </div>
+      </div>
+      <div class="sys-cap">
+        ${disk.free != null ? `<b>${fmtBytes(disk.free)}</b> free` : ''}${disk.free != null && disk.used != null && disk.total != null ? ' · ' : ''}${disk.used != null && disk.total != null ? `<b>${fmtBytes(disk.used)}</b> of <b>${fmtBytes(disk.total)}</b> used` : ''}
       </div>
     </div>
 
-    <div class="sys-sec">
+    <div class="sys-sec rule">
       <div class="sys-h">Diagnostics</div>
-      <div class="sys-sub">Machine</div>
-      ${sysRow('hostname', esc(host.hostname ?? '—'))}
-      ${sysRow('macOS', esc(host.macos ?? '—'))}
-      ${sysRow('uptime', sysDur(host.uptime))}
-      <div class="sys-sub">Dispatch server</div>
-      ${sysRow('origin', esc(host.origin ?? '—'))}
-      ${sysRow('tailnet', esc(host.tailnet ?? '—'))}
-      ${sysRow('bind', esc(server.bind ?? '—') + ':' + esc(server.port ?? '—'))}
-      ${sysRow('pid / sha', esc(server.pid ?? '—') + ' · ' + esc(server.sha ?? '—'))}
-      ${sysRow('python', esc(server.python ?? '—'))}
-      ${sysRow('uptime', sysDur(server.uptime))}
+      ${sysRow('server', `up ${sysDur(server.uptime)} · ${esc(server.sha ?? '—')}`)}
       ${sysRow('iTerm2', sysDot(!!server.iterm, server.iterm ? 'connected' : 'disconnected'))}
       ${sysRow('panes', esc(server.panes ?? '—'))}
-      ${sysRow('fleet dir', esc(server.fleet_dir ?? '—'))}
-      <div class="sys-sub">Dependencies</div>
-      ${depRow('claude', deps.claude)}
-      ${depRow('codex', deps.codex)}
-      ${depRow('grok', deps.grok)}
-      ${depRow('whisper-cli', deps.whisper)}
-      ${depRow('ffmpeg', deps.ffmpeg)}
-      <div class="sys-row"><span>whisper model</span><span>${sysDot(!!deps.whisper_model, deps.whisper_model ? 'present' : 'missing')}</span></div>
-      <div class="sys-row"><span>tailscale</span><span>${sysDot(!!deps.tailscale, deps.tailscale ? 'present' : 'missing')}</span></div>
-      <div class="sys-sub">Push</div>
-      ${sysRow('configured', push.configured ? 'yes' : 'no')}
-      ${sysRow('subscribers', push.subscribers ?? 0)}
-      <div class="sys-toggle"><span>this device</span>
-        <div class="sys-sw" id="sys-sw-push" onclick="sysTogglePush()"><i></i></div></div>
-      <div class="sys-sub">Tailnet peers</div>
-      ${peers.length ? peers.map(p => `<div class="sys-row"><span>${sysDot(!!p.online)} ${esc(p.name ?? '—')}${p.self ? ' (this Mac)' : ''}</span><span>${esc(p.host ?? '—')}</span></div>`).join('')
-        : '<div class="sys-row"><span>—</span><span>no peers</span></div>'}
+      <div class="sys-toggle"><span>push</span>
+        <span style="display:flex;align-items:center;gap:10px">
+          <span style="font:13px var(--mono);color:var(--fg)">${push.configured ? 'on' : 'off'} · ${push.subscribers ?? 0} subscriber${(push.subscribers ?? 0) === 1 ? '' : 's'}</span>
+          <div class="sys-sw" id="sys-sw-push" onclick="sysTogglePush()"><i></i></div>
+        </span>
+      </div>
+      ${sysRow('agents', sysDots([['claude', deps.claude], ['codex', deps.codex], ['grok', deps.grok]]))}
+      ${sysRow('tools', sysDots([['whisper', deps.whisper], ['ffmpeg', deps.ffmpeg], ['tailscale', deps.tailscale]]))}
+      ${sysRow('peers', peers.length
+        ? peers.map(p => `${sysDot(!!p.online)}${esc(p.name ?? '—')}${p.self ? ' (this Mac)' : ''}`).join(' &nbsp; ')
+        : '<span style="color:var(--dim)">no peers</span>')}
     </div>
-    <div class="sys-sec">
+    <div class="sys-sec rule">
       <div class="sys-h">Settings</div>
       <div class="sys-toggle"><span>default agent</span>
         <div class="sys-seg" id="sys-seg-agent">
