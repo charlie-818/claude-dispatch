@@ -2607,8 +2607,27 @@ function trimChrome(text, prov){
   return lines.join('\n').replace(/\n+$/, '');
 }
 
+let paintPending = false;
 function paint(){
   const p = document.getElementById('pane');
+  // Never touch the DOM under a finger or a fling. iOS restarts or drops a
+  // momentum scroll when the scroller's content changes mid-gesture — the
+  // "scroll down, it jumps back up" — so frames that land while a gesture is
+  // live are held and applied once it settles (see the gesture tracker).
+  if (userScrolling){ paintPending = true; return; }
+  paintPending = false;
+  // Manual scroll anchoring: Safari has none. Remember the first row in view
+  // and where it sits, then put it back there after the rewrite so content
+  // changing ABOVE the viewport (wrapped live rows re-flowing) can't shift
+  // what the reader is looking at. Skipped when parked at the bottom.
+  let anchor = null, anchorTop = 0;
+  if (!pinBottom){
+    const pt = p.getBoundingClientRect().top;
+    for (const r of p.children){
+      const b = r.getBoundingClientRect();
+      if (b.bottom > pt){ anchor = r; anchorTop = b.top; break; }
+    }
+  }
   // trailing blank lines between scrollback and live screen just waste space
   const hist = history.join('\n').replace(/\n+$/, '');
   const prov = (current && current.provider) || 'claude';
@@ -2629,17 +2648,26 @@ function paint(){
   // A short transcript — a Grok pane is one screen with no scrollback, so it is
   // usually short — should sit ON the composer like a conversation, not float at
   // the top of an empty column. Push it down by whatever room is left over.
-  p.style.paddingTop = '0px';
   const rows = p.children;
+  let pad = '0px';
   if (rows.length){
-    // scrollHeight never reports less than the box, so measure the rows
+    // scrollHeight never reports less than the box, so measure the rows.
+    // Rows' own heights don't depend on the padding, so measure with whatever
+    // padding is set and only write the style when the value moves — a style
+    // write every frame is a layout invalidation every frame.
     const top = rows[0].getBoundingClientRect().top;
     const bottom = rows[rows.length - 1].getBoundingClientRect().bottom;
     const slack = p.clientHeight - (bottom - top);
-    if (slack > 0) p.style.paddingTop = slack + 'px';
+    if (slack > 0) pad = slack + 'px';
   }
-  // Follow live output only when parked at the bottom and not actively scrolling.
-  if (pinBottom && !userScrolling) p.scrollTop = p.scrollHeight;
+  if (p.style.paddingTop !== pad) p.style.paddingTop = pad;
+  if (pinBottom){
+    // Follow live output when parked at the bottom.
+    p.scrollTop = p.scrollHeight;
+  } else if (anchor && anchor.parentNode === p){
+    const d = anchor.getBoundingClientRect().top - anchorTop;
+    if (Math.abs(d) >= 1) p.scrollTop += d;
+  }
 }
 
 /* pinBottom must reflect USER intent only. paint() writes scrollTop every frame
@@ -2654,7 +2682,11 @@ function paint(){
   let idle = null;
   const begin = () => { userScrolling = true; clearTimeout(idle); };
   const settle = () => { clearTimeout(idle);
-    idle = setTimeout(() => { userScrolling = false; }, 180); };
+    idle = setTimeout(() => {
+      userScrolling = false;
+      pinBottom = nearBottom();        // where the gesture actually ended
+      if (paintPending) paint();       // frames held during the gesture
+    }, 180); };
   // a gesture starts tracking; momentum keeps firing 'scroll' until it idles
   p.addEventListener('touchstart', begin, {passive: true});
   p.addEventListener('wheel', () => { begin(); settle(); }, {passive: true});

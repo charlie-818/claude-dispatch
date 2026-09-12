@@ -35,6 +35,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 
 import iterm2
 from aiohttp import web
@@ -224,12 +225,20 @@ COL_TOL = 3              # accept 52..55 cols (a tiled window fills to 53/54); o
 
 # ── iTerm helpers ──────────────────────────────────────────────────────────
 async def all_sessions():
-    """Every live pane, keyed by uppercase session UUID."""
+    """Every live pane, keyed by uppercase session UUID.
+
+    `tab.all_sessions`, not `tab.sessions`: when one pane is maximized (a phone
+    watching it via grow_pane, or a hand on the Mac hitting ⇧⌘⏎) iTerm reports
+    its tab-mates as *minimized* and drops them from `sessions`. They are still
+    alive and still readable — screen, scrollback, line info all answer — only
+    their grid_size comes back None. Skipping them told the phone "pane closed"
+    about a chat that was merely hidden.
+    """
     await APP.async_refresh()
     out = {}
     for w in APP.terminal_windows:
         for t in w.tabs:
-            for s in t.sessions:
+            for s in t.all_sessions:
                 out[s.session_id.upper()] = s
     return out
 
@@ -286,7 +295,7 @@ def fleet_tab(app):
     best, best_n = None, 0
     for w in app.terminal_windows:
         for t in w.tabs:
-            n = sum(1 for s in t.sessions if s.session_id.upper() in KNOWN_AGENTS)
+            n = sum(1 for s in t.all_sessions if s.session_id.upper() in KNOWN_AGENTS)
             if n > best_n:
                 best, best_n = t, n
     if best is not None:
@@ -377,32 +386,57 @@ def clean_history(lines):
     return _collapse_repeats(kept)
 
 
-async def pane_history(session, max_lines=600):
+async def pane_history(session, max_lines=600, since=None):
     """Scrollback above the visible screen, so the phone can read the whole chat.
 
     Absolute line numbers run from `overflow` (oldest line iTerm still holds)
-    upward; anything below that has already been discarded.
+    upward; anything below that has already been discarded. Returns
+    (lines, end) where `end` is the absolute number of the first screen row —
+    pass it back as `since` to get only what scrolled off the screen after it.
+
+    Streaming the growth matters for the phone's scroll position: the live
+    screen is a 25-row window that iTerm shifts up as output arrives. If the
+    phone only ever held the scrollback it got at open, every shift rewrote all
+    25 live rows in place, and in wrap mode their heights changed under the
+    reader's finger — Safari has no scroll anchoring, so the view jumped.
+    Appending the rows that scrolled off makes the DOM append-only: the row that
+    left the screen lands in history with the same text at the same index.
     """
     try:
         info = await session.async_get_line_info()
         start = info.overflow
         end = info.overflow + info.scrollback_buffer_height
+        if since is not None:
+            if end <= since:
+                return [], since
+            start = max(start, since)
+            if end - start > 2000:      # a huge burst — keep the recent tail
+                start = end - 2000
+        else:
+            start = max(start, end - max_lines)
         if end <= start:
-            return []
-        first = max(start, end - max_lines)
-        lines = await session.async_get_contents(first, end - first)
+            return [], end
+        lines = await session.async_get_contents(start, end - start)
         return clean_history(
-            [l.string.replace("\x00", " ").rstrip() for l in lines])
+            [l.string.replace("\x00", " ").rstrip() for l in lines]), end
     except Exception as e:
         print(f"  [history] failed: {type(e).__name__}: {e}", flush=True)
-        return []
+        return [], since
+
+
+_COLS_SEEN = {}   # uuid -> last width read while the pane had a grid
 
 
 async def pane_cols(session):
+    """Column count. A minimized pane (tab-mate of a maximized one) has no grid,
+    so serve the width it had when last visible rather than a guess — the phone
+    sizes its font to this, and a wrong number reflows the whole transcript."""
     try:
-        return int(session.grid_size.width)
+        w = int(session.grid_size.width)
+        _COLS_SEEN[session.session_id.upper()] = w
+        return w
     except Exception:
-        return 80
+        return _COLS_SEEN.get(session.session_id.upper(), 80)
 
 
 CANON_FONT = "Monaco 12"   # reference font; matches MacBook so 52 cols fills a
@@ -436,6 +470,8 @@ async def normalize_pane(session):
         if await _pane_font(session) != CANON_FONT:
             await _set_font(session, CANON_FONT)
         g = session.grid_size
+        if g is None:                      # minimized behind a maximized tab-mate
+            return False
         w, h = int(g.width), int(g.height)
         nw = w if PANE_COLS <= w <= PANE_COLS + COL_TOL else PANE_COLS
         nh = max(h, PANE_ROWS)
@@ -481,6 +517,8 @@ async def normalize_all(passes=10):
                 acted = True
                 changes += 1
             g = s.grid_size
+            if g is None:                  # minimized behind a maximized tab-mate
+                continue
             w, h = int(g.width), int(g.height)
             nw = w if PANE_COLS <= w <= PANE_COLS + COL_TOL else PANE_COLS
             nh = max(h, PANE_ROWS)
@@ -3295,7 +3333,7 @@ def _locate(uuid):
     want = (uuid or "").upper()
     for w in (APP.terminal_windows if APP else []):
         for t in w.tabs:
-            for sess in t.sessions:
+            for sess in t.all_sessions:
                 if sess.session_id.upper() == want:
                     return w, t, sess
     return None, None, None
@@ -3328,7 +3366,7 @@ async def _grow(uuid):
         if _GROWN:            # the last one is still maximized — never stack a
             return            # second, or nothing can be put back
     w, t, sess = _locate(uuid)
-    if sess is None or len(t.sessions) < 2:
+    if sess is None or len(t.all_sessions) < 2:
         return
     try:
         prior = t.active_session_id
@@ -3340,6 +3378,7 @@ async def _grow(uuid):
         _GROWN = (uuid, prior, w.window_id)
     except Exception as e:
         print(f"  [grow] {type(e).__name__}: {e}", flush=True)
+        traceback.print_exc()
 
 
 async def _ungrow():
@@ -3402,14 +3441,40 @@ async def ungrow_pane(uuid):
             await _ungrow()
 
 
+def _orphan_maximize():
+    """A tab of ours left maximized with no record of who did it: the server
+    restarted while a phone was watching, or someone hit ⇧⌘⏎ on the Mac and
+    walked away. Returns (uuid, window id) of the visible pane, or None."""
+    for w in (APP.terminal_windows if APP else []):
+        for t in w.tabs:
+            if not t.minimized_sessions or len(t.sessions) != 1:
+                continue
+            if not any(s.session_id.upper() in KNOWN_AGENTS
+                       for s in t.all_sessions):
+                continue                  # not a tab we manage
+            return t.sessions[0].session_id.upper(), w.window_id
+    return None
+
+
 async def _grow_janitor():
     """A maximized pane nobody is watching hides its tab-mates for everyone, so
-    sweep it back — including a restore that failed on the first try."""
+    sweep it back — including a restore that failed on the first try, and one
+    this process never made (see _orphan_maximize)."""
+    global _GROWN
     while True:
         await asyncio.sleep(POLL)
         if _GROWN and not _WATCHERS.get(_GROWN[0]):
             async with _GROW_LOCK:
                 await _ungrow()
+        elif not _GROWN:
+            orphan = _orphan_maximize()
+            if orphan and not _WATCHERS.get(orphan[0]):
+                async with _GROW_LOCK:
+                    if not _GROWN:
+                        _GROWN = (orphan[0], None, orphan[1])
+                        print(f"  [grow] adopting stray maximize on "
+                              f"{orphan[0][:8]}", flush=True)
+                        await _ungrow()
 
 
 async def ws_pane(request):
@@ -3419,26 +3484,34 @@ async def ws_pane(request):
     ws = web.WebSocketResponse(heartbeat=25)
     await ws.prepare(request)
     last = None
-    sent_history = False
+    hist_end = None                # absolute line after the scrollback we sent
+    missing = 0                    # consecutive polls the pane was not listed
     await grow_pane(uuid)          # watched panes get the window's full height
     try:
         while not ws.closed:
             s = (await all_sessions()).get(uuid)
             if not s:
-                # A maximized pane hides its tab-mates from the API. That is not
-                # the same as the pane having ended — wait it out instead.
-                if _GROWN and _GROWN[0] != uuid:
+                # all_sessions() sees minimized panes too, so a maximized
+                # tab-mate no longer hides this one. What is left is a pane
+                # mid-relayout (a split or a maximize toggle in flight) or one
+                # that really ended — give it a few polls before saying so.
+                missing += 1
+                if missing < 5:
                     await asyncio.sleep(POLL)
                     continue
                 await ws.send_json({"gone": True})
                 break
-            if not sent_history:
-                # scrollback is expensive and rarely changes at the top; ship it
-                # once so the client can render the whole conversation, then
-                # stream only the live screen below it
-                hist = await pane_history(s)
+            missing = 0
+            if hist_end is None:
+                # scrollback is expensive and rarely changes at the top; ship
+                # the tail once so the client can render the conversation …
+                hist, hist_end = await pane_history(s)
                 await ws.send_json({"history": hist, "cols": await pane_cols(s)})
-                sent_history = True
+            else:
+                # … then only the rows that have since scrolled off the screen
+                more, hist_end = await pane_history(s, since=hist_end)
+                if more:
+                    await ws.send_json({"history_add": more})
             txt = await pane_text(s)
             if txt != last:                      # only push on change
                 last = txt
@@ -4292,6 +4365,10 @@ async def api_sysinfo(request):
             "port": PORT,
             "fleet_dir": FLEET_DIR,
             "iterm": CONN is not None,
+            # who has a pane maximized right now, and for whom — the state
+            # behind a "pane closed" that should not have been
+            "grown": _GROWN[0][:8] if _GROWN else None,
+            "watchers": {u[:8]: n for u, n in _WATCHERS.items()},
             "python": py_version,
             "panes": len(_FLEET_CACHE),
         },
