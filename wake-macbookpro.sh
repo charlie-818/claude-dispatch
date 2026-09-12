@@ -221,6 +221,6 @@ case "${1:---wake}" in
   --release) cmd_release ;;
   --status)  cmd_status ;;
   --setup)   cmd_setup ;;
-  -h|--help) sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  -h|--help) sed -n '2,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
   *) die "unknown option: $1 (try --help)" ;;
 esac
