@@ -3423,9 +3423,19 @@ async def _ungrow():
 
 
 async def grow_pane(uuid):
+    """Register a viewer. Deliberately does NOT maximize the pane any more.
+
+    It used to (see _grow): a watched pane took the window's full height so the
+    live screen held more rows. But maximizing changes the pane's WIDTH, and
+    Claude Code reprints its entire transcript on a width change — so every
+    open doubled the scrollback on the Mac and on the phone (history went
+    601 → 1478 rows for one open, every line twice), the live rows all
+    rewrote under the reader's finger, and the tab-mates vanished from the
+    API meanwhile. Scrollback is streamed now (pane_history since=), so the
+    phone never needed the taller screen. _grow stays for the janitor's
+    restore path only.
+    """
     _WATCHERS[uuid] = _WATCHERS.get(uuid, 0) + 1
-    async with _GROW_LOCK:
-        await _grow(uuid)
 
 
 async def ungrow_pane(uuid):
@@ -3457,18 +3467,20 @@ def _orphan_maximize():
 
 
 async def _grow_janitor():
-    """A maximized pane nobody is watching hides its tab-mates for everyone, so
-    sweep it back — including a restore that failed on the first try, and one
-    this process never made (see _orphan_maximize)."""
+    """A maximized pane hides its tab-mates for everyone and makes Claude Code
+    reprint its transcript on the way in and out, so sweep any maximize back —
+    a restore that failed on the first try, and one this process never made
+    (⇧⌘⏎ on the Mac, see _orphan_maximize). Nothing here maximizes any more
+    (grow_pane), so a watcher is no reason to leave one standing."""
     global _GROWN
     while True:
         await asyncio.sleep(POLL)
-        if _GROWN and not _WATCHERS.get(_GROWN[0]):
+        if _GROWN:
             async with _GROW_LOCK:
                 await _ungrow()
-        elif not _GROWN:
+        else:
             orphan = _orphan_maximize()
-            if orphan and not _WATCHERS.get(orphan[0]):
+            if orphan:
                 async with _GROW_LOCK:
                     if not _GROWN:
                         _GROWN = (orphan[0], None, orphan[1])
@@ -3486,7 +3498,7 @@ async def ws_pane(request):
     last = None
     hist_end = None                # absolute line after the scrollback we sent
     missing = 0                    # consecutive polls the pane was not listed
-    await grow_pane(uuid)          # watched panes get the window's full height
+    await grow_pane(uuid)          # count the viewer (no layout change)
     try:
         while not ws.closed:
             s = (await all_sessions()).get(uuid)
