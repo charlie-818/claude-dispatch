@@ -8,6 +8,9 @@
 #
 #   ./wake-macbookpro.sh            wake, hold awake, verify dispatch
 #   ./wake-macbookpro.sh --sleep    hand sleep back and sleep it now
+#
+# A wake arms an auto-sleep watchdog on the target, so the machine drops back to
+# sleep after WAKE_IDLE_MIN (default 30) minutes with nobody using Dispatch.
 #   ./wake-macbookpro.sh --release  let it sleep normally again
 #   ./wake-macbookpro.sh --status   where things stand
 #   ./wake-macbookpro.sh --setup    one-time: install the scoped sudoers rule
@@ -24,6 +27,9 @@ USER_AT=charliebc
 TARGETS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/.wake_targets.json"
 LAN_BCAST=192.168.1.255
 TS_BIN=/Applications/Tailscale.app/Contents/MacOS/Tailscale
+# How long the machine may sit pinned awake with nobody using Dispatch.
+IDLE_MIN=${WAKE_IDLE_MIN:-30}
+AUTOSLEEP_LABEL=com.charliebc.dispatch-autosleep
 
 SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=accept-new)
 say() { printf '%s\n' "$*"; }
@@ -149,6 +155,13 @@ cmd_wake() {
     say "  COULD NOT pin it awake - run: $0 --setup"
   fi
 
+  say "arming auto-sleep (${IDLE_MIN}m idle) ..."
+  if install_autosleep "$addr"; then
+    say "  armed - it sleeps again after ${IDLE_MIN}m with no Dispatch use"
+  else
+    say "  WARNING: could not arm auto-sleep; it will stay awake until --sleep"
+  fi
+
   say "checking dispatch ..."
   if ssh_to "$addr" 'pgrep -f "claude-dispatch/server.py" >/dev/null'; then
     say "  server.py already running"
@@ -186,6 +199,42 @@ cmd_release() {
   ssh_to "$addr" 'pkill -f "caffeinate -dimsu" 2>/dev/null; true'
 }
 
+# Install/refresh the watchdog that expires the pin. Done on EVERY wake, not
+# just once: a pin with no expiry is a battery leak, and the wake is the only
+# moment we are guaranteed to be able to reach the machine.
+install_autosleep() {
+  local addr=$1 home plist rc
+  home=$(ssh_to "$addr" 'echo $HOME') || return 1
+  [ -n "$home" ] || return 1
+  scp -q "${SSH_OPTS[@]}" "$(dirname "${BASH_SOURCE[0]}")/autosleep.sh" \
+      "$USER_AT@$addr:.dispatch-autosleep.sh" 2>/dev/null || return 1
+  plist=$(mktemp)
+  cat > "$plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$AUTOSLEEP_LABEL</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>$home/.dispatch-autosleep.sh</string>
+    <string>$IDLE_MIN</string>
+  </array>
+  <key>StartInterval</key><integer>120</integer>
+  <key>RunAtLoad</key><true/>
+</dict>
+</plist>
+PLIST
+  scp -q "${SSH_OPTS[@]}" "$plist" \
+      "$USER_AT@$addr:Library/LaunchAgents/$AUTOSLEEP_LABEL.plist" 2>/dev/null
+  rc=$?; rm -f "$plist"; [ $rc -eq 0 ] || return 1
+  ssh_to "$addr" "chmod +x \$HOME/.dispatch-autosleep.sh
+    launchctl unload \$HOME/Library/LaunchAgents/$AUTOSLEEP_LABEL.plist 2>/dev/null
+    launchctl load \$HOME/Library/LaunchAgents/$AUTOSLEEP_LABEL.plist 2>/dev/null
+    touch \$HOME/claude-dispatch/.last_activity"
+}
+
 cmd_sleep() {
   local ip mac addr i; load_target
   if ! addr=$(reach "$ip"); then say "already asleep"; return 0; fi
@@ -214,6 +263,8 @@ cmd_status() {
     say "sleep      : $(ssh_to "$addr" 'pmset -g | grep -E "^[[:space:]]*(SleepDisabled|sleep)[[:space:]]" | head -2 | tr "\n" "; "')"
     say "power      : $(ssh_to "$addr" "pmset -g batt | tail -1 | sed 's/^[[:space:]]*//'")"
     say "dispatch   : $(ssh_to "$addr" 'pgrep -f "claude-dispatch/server.py" >/dev/null && echo running || echo "not running"')"
+    say "auto-sleep : $(ssh_to "$addr" "launchctl list 2>/dev/null | grep -q $AUTOSLEEP_LABEL && echo 'armed (${IDLE_MIN}m idle)' || echo 'NOT armed'")"
+    say "idle for   : $(ssh_to "$addr" 'st=$(stat -f %m $HOME/claude-dispatch/.last_activity 2>/dev/null || echo 0); [ "$st" = 0 ] && echo "no stamp yet" || echo "$(( ($(date +%s) - st) / 60 ))m"')"
   else
     say "ssh        : unreachable (asleep)"
   fi
@@ -226,6 +277,6 @@ case "${1:---wake}" in
   --release) cmd_release ;;
   --status)  cmd_status ;;
   --setup)   cmd_setup ;;
-  -h|--help) sed -n '2,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  -h|--help) sed -n '2,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
   *) die "unknown option: $1 (try --help)" ;;
 esac

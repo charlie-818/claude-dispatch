@@ -1805,8 +1805,31 @@ async def api_summary(request):
 # The token is a BOOTSTRAP credential only: it is accepted once, at "/", and
 # immediately exchanged for an HttpOnly session cookie. No API or socket ever
 # looks at it, so it cannot be replayed from a URL, a screenshot or a log.
+# A machine woken for Dispatch is pinned awake with `pmset disablesleep`, and
+# something has to decide when nobody is using it any more and let it sleep.
+# The autosleep watchdog on that machine reads this file's mtime, and every
+# authenticated request is evidence of use. Throttled hard: this sits on the
+# request path, and a stamp a minute is all the watchdog needs.
+_ACT_LAST = 0.0
+
+
+def note_activity():
+    global _ACT_LAST
+    now = time.time()
+    if now - _ACT_LAST < 60:
+        return
+    _ACT_LAST = now
+    try:
+        ACTIVITY_FILE.touch()
+    except OSError:
+        pass
+
+
 def authed(request):
-    return auth.unlocked(request) is not None
+    ok = auth.unlocked(request) is not None
+    if ok:
+        note_activity()
+    return ok
 
 
 def guard(handler):
@@ -1819,6 +1842,7 @@ def guard(handler):
             return web.json_response(
                 {"error": "locked" if s else "no session",
                  "relock": bool(s)}, status=401)
+        note_activity()
         return await handler(request)
     return wrapped
 
@@ -3939,6 +3963,7 @@ def ts_serve_origin():
 # Anything not listed is assumed to sit at https://<host>.
 PEERS_FILE = HERE / ".peers.json"
 WAKE_FILE = HERE / ".wake_targets.json"
+ACTIVITY_FILE = HERE / ".last_activity"
 WAKE_SCRIPT = HERE / "wake-macbookpro.sh"
 
 
