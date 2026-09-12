@@ -802,11 +802,17 @@
      (a --line track, one filled stroke in a status hue) beside its number,
      with a single caption line underneath. Same mark for all four so a
      level, a position on a scale and two plain percentages read alike. */
-  .sys-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px 20px;margin-bottom:28px}
-  .sys-cell{min-width:0}
-  .sys-hero{display:flex;align-items:center;gap:12px;min-width:0}
+  .sys-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:28px}
+  /* the four gauges are boxed, and every box is the same shape: header, then
+     ring + number on one row, then exactly one caption line — nothing may wrap
+     or overflow, so the number shrinks on narrow phones and the caption clips */
+  .sys-cell{min-width:0;padding:12px 14px 13px;background:var(--panel);
+    border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+  .sys-cell .sys-h{margin-bottom:10px}
+  .sys-hero{display:flex;align-items:center;gap:12px;min-width:0;height:52px}
   .sys-hero .sys-viz{flex:none;display:block}
-  .sys-big{font:700 30px/1 var(--mono);color:var(--fg);white-space:nowrap}
+  .sys-big{font:700 clamp(22px, 7.4vw, 30px)/1 var(--mono);color:var(--fg);
+    white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis}
   .sys-big s{font:600 13px var(--mono);color:var(--dim);text-decoration:none;margin-left:1px}
   /* one caption line, dim label text with mono values, ellipsised rather
      than wrapped so every cell stays the same height */
