@@ -600,30 +600,20 @@
     letter-spacing:.04em;color:#2a1206;background:var(--amber);
     padding:1px 6px;border-radius:4px;text-align:center;
     box-shadow:0 1px 3px rgba(0,0,0,.4)}
-  .wtimer::before{content:"";display:inline-block;width:5px;height:5px;
-    border-radius:50%;background:#2a1206;margin-right:4px;vertical-align:middle;
-    animation:tpulse 1.1s ease-in-out infinite}
-  @keyframes tpulse{0%,100%{opacity:1}50%{opacity:.3}}
   .working .wtimer,.idle .wtimer{display:inline-block}
-  /* idle clawds show how long they've snoozed — a calm slate chip, no pulse, so
-     it reads as "resting", not "running". */
+  /* idle clawds show how long they've snoozed — a calm slate chip, so it reads
+     as "resting", not "running". */
   .idle .wtimer{color:#9fb0c4;background:#2b3440;box-shadow:none}
-  .idle .wtimer::before{display:none}
-  @media (prefers-reduced-motion:reduce){.wtimer::before{animation:none}}
 
   /* A chat can leave a shell running behind it — a dev server, a long build —
      and nothing else in the yard would say so: the clawd drops back to idle and
-     reads as finished. This chip is that fact. It is deliberately the same pill
-     as the state timer above it, in blue and on a slower pulse, so it reads as
-     "something of this chat's is still up" rather than "working right now". */
+     reads as finished. This chip is that fact, the same pill as the state timer
+     above it in blue. The colour and the word carry it; a pulsing dot on a yard
+     full of already-animated clawds was one more thing blinking for nothing. */
   .bgtag{display:none;margin-top:2px;font:600 10px var(--mono);letter-spacing:.04em;
     color:#04121f;background:var(--blue);padding:1px 6px;border-radius:4px;
     text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.4)}
   .bgtag.on{display:inline-block}
-  .bgtag::before{content:"";display:inline-block;width:5px;height:5px;
-    border-radius:50%;background:#04121f;margin-right:4px;vertical-align:middle;
-    animation:tpulse 2.2s ease-in-out infinite}
-  @media (prefers-reduced-motion:reduce){.bgtag::before{animation:none}}
 
   /* --bdx: horizontal nudge (set per-frame in JS) that keeps a bubble on-screen
      when its clawd walks to the far edge. The tail counters it so it still points
@@ -2355,6 +2345,9 @@ function connectPane(uuid){
     const d = JSON.parse(e.data);
     if (d.gone) { toast('pane closed', true); showFleet(); return; }
     if (d.history) history = d.history;
+    // rows that scrolled off the live screen since the last frame — appended,
+    // so the DOM below stays put (see paint()'s diff) and nothing jumps
+    if (d.history_add) history.push(...d.history_add);
     if (d.text != null) live = d.text;
     // fit AFTER the text lands — it sizes against the widest line we hold
     if (d.cols) cols = d.cols;
@@ -2666,6 +2659,9 @@ function paint(){
   p.addEventListener('touchstart', begin, {passive: true});
   p.addEventListener('wheel', () => { begin(); settle(); }, {passive: true});
   p.addEventListener('touchend', settle, {passive: true});
+  // the browser can take the touch away (a system gesture, the sheet, a rubber
+  // band) — without this the pane stayed "user scrolling" and never re-pinned
+  p.addEventListener('touchcancel', settle, {passive: true});
   p.addEventListener('scroll', () => {
     if (!userScrolling) return;      // ignore paint()'s own scrollTop writes
     pinBottom = nearBottom();
