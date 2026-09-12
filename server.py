@@ -3963,13 +3963,12 @@ async def api_devices(request):
     return web.json_response({"self": ts_self_host(), "devices": tailnet_macs()})
 
 
-async def api_wake(request):
-    """Wake a sleeping peer so the swapper has somewhere to hop to.
+async def _drive_wake_script(request, mode, timeout):
+    """Shared body of /api/wake and /api/sleep.
 
-    A laptop peer sleeps, and a magic packet alone only buys it a few seconds of
-    dark wake -- long enough to answer a ping, nowhere near long enough to use.
-    wake-macbookpro.sh is what knows the whole dance (packet, hold it awake,
-    confirm Dispatch came back), so drive that rather than reimplement it here.
+    Both are the same shape: authenticate, check the host is one we actually
+    know how to manage, then let wake-macbookpro.sh do the work. It is what
+    knows the whole dance, and writing any of it twice would let the two drift.
 
     Only hosts already named in the wake-targets file can be asked for, so this
     cannot be turned into a packet cannon aimed at arbitrary addresses.
@@ -3985,25 +3984,46 @@ async def api_wake(request):
         return web.json_response({"error": "not a wake target"}, status=400)
     if not WAKE_SCRIPT.exists():
         return web.json_response({"error": "wake script missing"}, status=500)
+    what = mode.lstrip("-")
 
     proc = await asyncio.create_subprocess_exec(
-        str(WAKE_SCRIPT), "--wake",
+        str(WAKE_SCRIPT), mode,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
         env={**os.environ, "WAKE_HOST": host})
     try:
-        out, _ = await asyncio.wait_for(proc.communicate(), timeout=150)
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
-        return web.json_response({"error": "wake timed out"}, status=504)
+        return web.json_response({"error": f"{what} timed out"}, status=504)
     log = (out or b"").decode("utf-8", "replace").strip()
     if proc.returncode != 0:
         # The script is deliberately loud about *why* it failed (not pinned, no
         # sudoers rule, never came up); pass its last word through to the UI.
         return web.json_response(
-            {"error": log.splitlines()[-1] if log else "wake failed", "log": log},
+            {"error": log.splitlines()[-1] if log else f"{what} failed", "log": log},
             status=502)
     return web.json_response({"ok": True, "log": log})
+
+
+async def api_wake(request):
+    """Wake a sleeping peer so the swapper has somewhere to hop to.
+
+    A magic packet on its own only buys a few seconds of dark wake -- long
+    enough to answer a ping, nowhere near long enough to use -- so the script
+    also holds the machine up and confirms Dispatch came back with it.
+    """
+    return await _drive_wake_script(request, "--wake", 150)
+
+
+async def api_sleep(request):
+    """Put a peer back to sleep -- the other half of the wake button.
+
+    Waking pins the machine awake, which on a laptop means it sits there
+    spending battery until something says otherwise. This hands sleep back and
+    sleeps it now rather than waiting out an idle timer.
+    """
+    return await _drive_wake_script(request, "--sleep", 90)
 
 
 # ── background load sampler ─────────────────────────────────────────────────
@@ -4579,6 +4599,7 @@ async def main(connection):
     app.router.add_get("/api/usage", api_usage)
     app.router.add_get("/api/devices", api_devices)
     app.router.add_post("/api/wake", api_wake)
+    app.router.add_post("/api/sleep", api_sleep)
     app.router.add_get("/api/sysinfo", api_sysinfo)
     app.router.add_get("/api/ping", api_ping)
     app.router.add_get("/api/history", api_history)

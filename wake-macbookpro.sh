@@ -7,6 +7,7 @@
 # awake for the session, and hands sleep back on --release.
 #
 #   ./wake-macbookpro.sh            wake, hold awake, verify dispatch
+#   ./wake-macbookpro.sh --sleep    hand sleep back and sleep it now
 #   ./wake-macbookpro.sh --release  let it sleep normally again
 #   ./wake-macbookpro.sh --status   where things stand
 #   ./wake-macbookpro.sh --setup    one-time: install the scoped sudoers rule
@@ -72,6 +73,11 @@ PY
 }
 
 ssh_to() { ssh "${SSH_OPTS[@]}" "$USER_AT@$1" "$2" 2>/dev/null; }
+
+# Liveness a sleeping Mac actually fails. ICMP is no good here: the Bonjour
+# sleep proxy keeps answering pings long after the machine itself is down, so
+# ask a TCP port instead.
+alive() { nc -z -G 2 "$1" 22 >/dev/null 2>&1; }
 
 # sets $ip and $mac, preferring the live ARP entry over the stored MAC (the
 # stored one is a randomized private address and will rotate eventually)
@@ -175,6 +181,25 @@ cmd_release() {
   ssh_to "$addr" 'pkill -f "caffeinate -dimsu" 2>/dev/null; true'
 }
 
+cmd_sleep() {
+  local ip mac addr i; load_target
+  if ! addr=$(reach "$ip"); then say "already asleep"; return 0; fi
+  say "handing sleep back ..."
+  ssh_to "$addr" 'sudo -n pmset -a disablesleep 0 2>/dev/null && echo "  sleep re-enabled" || echo "  WARNING: could not re-enable sleep"'
+  ssh_to "$addr" 'pkill -f "caffeinate -dimsu" >/dev/null 2>&1; true'
+  say "sleeping it now ..."
+  # disablesleep has to be off BEFORE this or the machine just ignores it. The
+  # ssh connection dies along with the machine, so a non-zero exit means nothing.
+  ssh_to "$addr" 'nohup pmset sleepnow >/dev/null 2>&1 &' >/dev/null 2>&1 || true
+  # confirm rather than assume -- "asleep" is the whole point of the button
+  for i in $(seq 1 20); do
+    alive "$ip" || { say "asleep"; return 0; }
+    ping -c 2 -W 1000 127.0.0.1 >/dev/null 2>&1
+  done
+  say "still answering on :22 - it did not sleep"
+  return 1
+}
+
 cmd_status() {
   local ip mac addr code; load_target
   say "target     : $HOST_DNS"
@@ -192,9 +217,10 @@ cmd_status() {
 
 case "${1:---wake}" in
   --wake|"") cmd_wake ;;
+  --sleep)   cmd_sleep ;;
   --release) cmd_release ;;
   --status)  cmd_status ;;
   --setup)   cmd_setup ;;
-  -h|--help) sed -n '2,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  -h|--help) sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
   *) die "unknown option: $1 (try --help)" ;;
 esac

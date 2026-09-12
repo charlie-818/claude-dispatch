@@ -94,14 +94,16 @@
   .devrow .host{display:block;font:400 10px var(--mono);color:var(--dimmer)}
   /* An asleep peer we know how to wake gets a button rather than a dead row —
      tapping the row itself would only navigate to a host that isn't answering. */
-  .devrow .wake{flex:none;margin-left:2px;padding:5px 10px;
+  .devrow .devbtn{flex:none;margin-left:2px;padding:5px 10px;
     font:600 9.5px var(--mono);letter-spacing:.06em;text-transform:uppercase;
     color:var(--blue);background:none;border:1px solid var(--line2);
     border-radius:999px;cursor:pointer}
-  .devrow .wake:active{background:var(--panel2)}
+  .devrow .devbtn:active{background:var(--panel2)}
+  /* sleep is the quiet counterpart to wake: same pill, without the blue pull */
+  .devrow .devbtn.sleep{color:var(--dimmer)}
   /* waking takes tens of seconds (magic packet, then the machine actually
      coming up) — pulse for the whole wait so it never looks hung */
-  .devrow .wake[disabled]{color:var(--dimmer);cursor:default;
+  .devrow .devbtn[disabled]{color:var(--dimmer);cursor:default;
     animation:goingpulse 1s ease-in-out infinite}
   /* tapped → hopping: dim + pulse so the cross-origin nav gap reads as "going" */
   .devrow.going{opacity:.55;animation:goingpulse .8s ease-in-out infinite}
@@ -5137,8 +5139,13 @@ function devListHTML(){
     const cur = d.self;
     const cls = 'devrow' + (cur ? ' cur on' : (d.online ? '' : ' off'));
     const tag = cur ? 'here' : (d.online ? '' : 'offline');
-    const wake = (!cur && !d.online && d.wakeable)
-      ? `<button class="wake" data-host="${_esc(d.host)}" onclick="wakeDevice(event,this)">wake</button>`
+    /* A machine we know how to manage gets one control, and which one depends
+       on where it is: asleep → wake it to use Dispatch; awake → sleep it, so a
+       laptop isn't left spending battery once you're done with it. */
+    const wake = !cur && d.wakeable
+      ? (d.online
+          ? `<button class="devbtn sleep" data-host="${_esc(d.host)}" onclick="sleepDevice(event,this)">sleep</button>`
+          : `<button class="devbtn" data-host="${_esc(d.host)}" onclick="wakeDevice(event,this)">wake</button>`)
       : '';
     return `<div class="${cls}" data-url="${_esc(d.url||('https://'+d.host))}" data-self="${cur?1:0}"`
       + `${cur?' aria-disabled="true"':''} onclick="pickDevice(this)">`
@@ -5164,27 +5171,28 @@ function warmPeer(base){
   l.rel = 'preconnect'; l.href = base; l.crossOrigin = '';
   document.head.appendChild(l);
 }
-/* Wake a sleeping peer from here instead of walking over to it. The server
-   sends the magic packet AND holds the machine up — a packet on its own buys a
-   few seconds of dark wake, which is not enough to hop into. Slow by nature, so
-   the button owns the waiting and the list repaints itself when it lands. */
-async function wakeDevice(ev, btn){
+/* Wake or sleep a peer from here instead of walking over to it. Both are slow
+   by nature — a wake is a magic packet plus the machine actually coming up —
+   so the button owns the waiting, and the list repaints itself when it lands. */
+async function devAction(ev, btn, path, doing, done){
   ev.stopPropagation();                    // the row is a hop; the button is not
   if(btn.disabled) return;
   const host = btn.dataset.host;
-  btn.disabled = true; btn.textContent = 'waking';
+  btn.disabled = true; btn.textContent = doing;
   try{
-    const r = await fetch('/api/wake', {method:'POST',
+    const r = await fetch(path, {method:'POST',
       headers:{'Content-Type':'application/json'}, body: JSON.stringify({host})});
     const j = await r.json().catch(() => null);
-    if(!r.ok || !j || !j.ok) throw new Error((j && j.error) || 'wake failed');
-    toast('woke ' + host.split('.')[0]);
-    await loadDevices();      // row goes live off the re-probe, button disappears
+    if(!r.ok || !j || !j.ok) throw new Error((j && j.error) || (doing + ' failed'));
+    toast(done(host.split('.')[0]));
+    await loadDevices();     // the re-probe is what flips the button to its other face
   }catch(e){
     btn.disabled = false; btn.textContent = 'retry';
     toast(String((e && e.message) || e), true);
   }
 }
+const wakeDevice  = (ev, btn) => devAction(ev, btn, '/api/wake',  'waking',   s => 'woke ' + s);
+const sleepDevice = (ev, btn) => devAction(ev, btn, '/api/sleep', 'sleeping', s => s + ' asleep');
 function pickDevice(el){
   if(el.dataset.self === '1') return;               // already here
   const url = el.dataset.url;
