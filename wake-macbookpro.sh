@@ -15,8 +15,10 @@
 # runs unattended off the SSH key.
 set -uo pipefail
 
-HOST_TS=100.87.27.76
-HOST_DNS=macbookpro.tail320cc5.ts.net
+# WAKE_HOST lets a caller (the /api/wake endpoint) name which target to wake;
+# on its own the script is about macbookpro, which is the only one so far.
+HOST_DNS=${WAKE_HOST:-macbookpro.tail320cc5.ts.net}
+HOST_TS=$(/Applications/Tailscale.app/Contents/MacOS/Tailscale ip -4 "${HOST_DNS%%.*}" 2>/dev/null || echo 100.87.27.76)
 USER_AT=charliebc
 TARGETS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/.wake_targets.json"
 LAN_BCAST=192.168.1.255
@@ -29,16 +31,17 @@ die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 read_target() {
   python3 - "$TARGETS" <<'PY'
-import json, sys
+import json, os, sys
 try:
     d = json.load(open(sys.argv[1]))
 except Exception as e:
     sys.exit(f"cannot read wake targets: {e}")
+want = os.environ.get("WAKE_HOST", "")
 for host, t in d.items():
-    if host.startswith("macbookpro"):
+    if (host == want) if want else host.startswith("macbookpro"):
         print(t["ip"], t["mac"]); break
 else:
-    sys.exit("no macbookpro entry in wake targets")
+    sys.exit(f"no wake-target entry for {want or 'macbookpro'}")
 PY
 }
 
@@ -70,6 +73,18 @@ PY
 
 ssh_to() { ssh "${SSH_OPTS[@]}" "$USER_AT@$1" "$2" 2>/dev/null; }
 
+# sets $ip and $mac, preferring the live ARP entry over the stored MAC (the
+# stored one is a randomized private address and will rotate eventually)
+load_target() {
+  local line live
+  line=$(read_target) || exit 1
+  read -r ip mac <<<"$line"
+  [ -n "${ip:-}" ] && [ -n "${mac:-}" ] || die "wake target has no ip/mac"
+  live=$(current_mac "$ip" || true)
+  [ -n "$live" ] && mac=$live
+  return 0
+}
+
 # Try the LAN address first (that is where the magic packet lands and where the
 # dark wake answers soonest), then the tailnet address.
 reach() {
@@ -94,9 +109,7 @@ wake_and_connect() {
 dispatch_ok() { curl -sS --max-time 8 -o /dev/null -w '%{http_code}' "https://$HOST_DNS/api/ping" 2>/dev/null; }
 
 cmd_setup() {
-  local ip mac addr
-  read -r ip mac < <(read_target)
-  mac=$(current_mac "$ip" || true); [ -z "$mac" ] && read -r _ mac < <(read_target)
+  local ip mac addr; load_target
   addr=$(wake_and_connect "$ip" "$mac" | tail -1) || die "could not reach macbookpro to set it up"
   say
   say "Installing a sudoers rule that allows pmset (and nothing else) without a"
@@ -119,10 +132,7 @@ cmd_setup() {
 }
 
 cmd_wake() {
-  local ip mac addr code
-  read -r ip mac < <(read_target)
-  local live; live=$(current_mac "$ip" || true)
-  [ -n "$live" ] && mac=$live
+  local ip mac addr code; load_target
   addr=$(wake_and_connect "$ip" "$mac" | tail -1) || die "macbookpro did not wake (is it powered off, or off this LAN?)"
 
   say "pinning it awake ..."
@@ -159,19 +169,16 @@ cmd_wake() {
 }
 
 cmd_release() {
-  local ip mac addr
-  read -r ip mac < <(read_target)
-  local live; live=$(current_mac "$ip" || true); [ -n "$live" ] && mac=$live
+  local ip mac addr; load_target
   if ! addr=$(reach "$ip"); then say "macbookpro is already asleep or unreachable - nothing to release"; return 0; fi
   ssh_to "$addr" 'sudo -n pmset -a disablesleep 0 2>/dev/null && echo "sleep re-enabled - it will sleep on its own" || echo "FAILED to re-enable sleep"'
   ssh_to "$addr" 'pkill -f "caffeinate -dimsu" 2>/dev/null; true'
 }
 
 cmd_status() {
-  local ip mac addr code
-  read -r ip mac < <(read_target)
-  say "stored MAC : $mac"
-  say "live ARP   : $(current_mac "$ip" || echo 'not in ARP table')"
+  local ip mac addr code; load_target
+  say "target     : $HOST_DNS"
+  say "MAC        : $mac"
   if addr=$(reach "$ip"); then
     say "ssh        : up ($addr)"
     say "sleep      : $(ssh_to "$addr" 'pmset -g | grep -E "^[[:space:]]*(SleepDisabled|sleep)[[:space:]]" | head -2 | tr "\n" "; "')"

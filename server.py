@@ -3900,11 +3900,27 @@ def ts_serve_origin():
 # at :8443 because OpenClaw owns the root). Optional JSON map: {host: base_url}.
 # Anything not listed is assumed to sit at https://<host>.
 PEERS_FILE = HERE / ".peers.json"
+WAKE_FILE = HERE / ".wake_targets.json"
+WAKE_SCRIPT = HERE / "wake-macbookpro.sh"
 
 
 def load_peers():
     try:
         return json.loads(PEERS_FILE.read_text())
+    except Exception:
+        return {}
+
+
+def wake_targets():
+    """Tailnet hosts we know how to wake: {host: {ip, mac, ...}}.
+
+    Written out of band -- the LAN address and MAC a magic packet needs are not
+    anything Tailscale will tell us about a node that is already asleep. A
+    missing or malformed file just means nothing is wakeable.
+    """
+    try:
+        d = json.loads(WAKE_FILE.read_text())
+        return d if isinstance(d, dict) else {}
     except Exception:
         return {}
 
@@ -3931,6 +3947,7 @@ def tailnet_macs():
         out.append({"name": node.get("HostName") or host.split(".")[0],
                     "host": host, "url": url, "os": node.get("OS") or "",
                     "online": True if is_self else bool(node.get("Online")),
+                    "wakeable": (not is_self) and host in wake_targets(),
                     "self": is_self})
 
     add(st.get("Self") or {}, True)
@@ -3944,6 +3961,49 @@ async def api_devices(request):
     if not authed(request):
         return web.json_response({"error": "locked"}, status=401)
     return web.json_response({"self": ts_self_host(), "devices": tailnet_macs()})
+
+
+async def api_wake(request):
+    """Wake a sleeping peer so the swapper has somewhere to hop to.
+
+    A laptop peer sleeps, and a magic packet alone only buys it a few seconds of
+    dark wake -- long enough to answer a ping, nowhere near long enough to use.
+    wake-macbookpro.sh is what knows the whole dance (packet, hold it awake,
+    confirm Dispatch came back), so drive that rather than reimplement it here.
+
+    Only hosts already named in the wake-targets file can be asked for, so this
+    cannot be turned into a packet cannon aimed at arbitrary addresses.
+    """
+    if not authed(request):
+        return web.json_response({"error": "locked"}, status=401)
+    try:
+        d = await request.json()
+    except Exception:
+        d = {}
+    host = (d.get("host") or "").rstrip(".")
+    if host not in wake_targets():
+        return web.json_response({"error": "not a wake target"}, status=400)
+    if not WAKE_SCRIPT.exists():
+        return web.json_response({"error": "wake script missing"}, status=500)
+
+    proc = await asyncio.create_subprocess_exec(
+        str(WAKE_SCRIPT), "--wake",
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+        env={**os.environ, "WAKE_HOST": host})
+    try:
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=150)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        return web.json_response({"error": "wake timed out"}, status=504)
+    log = (out or b"").decode("utf-8", "replace").strip()
+    if proc.returncode != 0:
+        # The script is deliberately loud about *why* it failed (not pinned, no
+        # sudoers rule, never came up); pass its last word through to the UI.
+        return web.json_response(
+            {"error": log.splitlines()[-1] if log else "wake failed", "log": log},
+            status=502)
+    return web.json_response({"ok": True, "log": log})
 
 
 # ── background load sampler ─────────────────────────────────────────────────
@@ -4518,6 +4578,7 @@ async def main(connection):
     app.router.add_get("/api/commands", api_commands)
     app.router.add_get("/api/usage", api_usage)
     app.router.add_get("/api/devices", api_devices)
+    app.router.add_post("/api/wake", api_wake)
     app.router.add_get("/api/sysinfo", api_sysinfo)
     app.router.add_get("/api/ping", api_ping)
     app.router.add_get("/api/history", api_history)
