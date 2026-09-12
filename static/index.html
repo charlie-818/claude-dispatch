@@ -88,8 +88,10 @@
   .devrow[aria-disabled=true]{cursor:default}
   .devrow.off{color:var(--dim)}
   .devrow .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* The global .tag pill is smaller than the wake/sleep button it sits next to;
+     match their box so "here" and "sleep" read as the same kind of thing. */
   .devrow .tag{font:600 9.5px var(--mono);letter-spacing:.06em;color:var(--dimmer);
-    text-transform:uppercase}
+    text-transform:uppercase;padding:5px 10px;border-radius:3px}
   .devrow.cur .tag{color:var(--green)}
   .devrow .host{display:block;font:400 10px var(--mono);color:var(--dimmer)}
   /* An asleep peer we know how to wake gets a button rather than a dead row —
@@ -97,7 +99,7 @@
   .devrow .devbtn{flex:none;margin-left:2px;padding:5px 10px;
     font:600 9.5px var(--mono);letter-spacing:.06em;text-transform:uppercase;
     color:var(--blue);background:none;border:1px solid var(--line2);
-    border-radius:999px;cursor:pointer}
+    border-radius:3px;cursor:pointer}
   .devrow .devbtn:active{background:var(--panel2)}
   /* sleep is the quiet counterpart to wake: same pill, without the blue pull */
   .devrow .devbtn.sleep{color:var(--dimmer)}
@@ -5146,7 +5148,9 @@ function devListHTML(){
   return DEVICES.map(d => {
     const cur = d.self;
     const cls = 'devrow' + (cur ? ' cur on' : (d.online ? '' : ' off'));
-    const tag = cur ? 'here' : (d.online ? '' : 'offline');
+    /* Only "here" earns a tag. An asleep peer already carries a wake button,
+       which says "offline" more usefully than the word does. */
+    const tag = cur ? 'here' : '';
     /* A machine we know how to manage gets one control, and which one depends
        on where it is: asleep → wake it to use Dispatch; awake → sleep it, so a
        laptop isn't left spending battery once you're done with it. */
@@ -5158,7 +5162,7 @@ function devListHTML(){
     return `<div class="${cls}" data-url="${_esc(d.url||('https://'+d.host))}" data-self="${cur?1:0}"`
       + `${cur?' aria-disabled="true"':''} onclick="pickDevice(this)">`
       + `<span class="nm">${_esc(d.name)}<span class="host">${_esc(d.host)}</span></span>`
-      + `<span class="tag">${tag}</span>${wake}</div>`;
+      + `${tag ? `<span class="tag">${_esc(tag)}</span>` : ''}${wake}</div>`;
   }).join('');
 }
 /* Repaint in place: a probe finishing while the system page is open updates the
