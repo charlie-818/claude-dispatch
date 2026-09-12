@@ -4537,6 +4537,10 @@ function renderSys(){
         ld.swap_total ? `of <b>${fmtBytes(ld.swap_total)}</b>` : '')}
     </div>
 
+    <div class="sys-sec rule" id="sys-devices"${devListHTML() ? '' : ' hidden'}>
+      <div class="sys-h">Devices</div>
+      <div class="devlist" id="sys-devlist">${devListHTML()}</div>
+    </div>
     <div class="sys-sec rule">
       <div class="sys-h">Diagnostics</div>
       ${sysRow('server', `up ${sysDur(server.uptime)} · ${esc(server.sha ?? '—')}`)}
@@ -4550,10 +4554,6 @@ function renderSys(){
       </div>
       ${sysRow('agents', sysDots([['claude', deps.claude], ['codex', deps.codex], ['grok', deps.grok]]))}
       ${sysRow('tools', sysDots([['whisper', deps.whisper], ['ffmpeg', deps.ffmpeg], ['tailscale', deps.tailscale]]))}
-    </div>
-    <div class="sys-sec rule" id="sys-devices"${devListHTML() ? '' : ' hidden'}>
-      <div class="sys-h">Devices</div>
-      <div class="devlist" id="sys-devlist">${devListHTML()}</div>
     </div>
     <div class="sys-sec rule">
       <div class="sys-h">Settings</div>
