@@ -798,33 +798,24 @@
   .sys-btn.danger{color:var(--red);border-color:rgba(255,107,97,.4)}
 
   /* The four metrics this page is actually about — charge, temperature, CPU,
-     storage — each get their own mark, drawn in one shared language: a
-     --line2 track under every filled arc, mono numerals for the number,
-     status hue from the same green/amber/red set the yard and the usage bars
-     use. Small enough to draw by hand, which is what keeps them consistent
-     with the rest of the app instead of looking like an imported chart. */
-  .sysg{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));
-    gap:24px;margin-bottom:28px}
-  .sysg .sys-sec{margin-bottom:0}
-  .sys-met{display:flex;align-items:center;gap:12px;min-width:0}
-  .sys-met .sys-viz{flex:none;display:block}
-  .sys-num{min-width:0}
+     storage — share one idiom: a 2×2 grid of identical cells, each a ring
+     (a --line track, one filled stroke in a status hue) beside its number,
+     with a single caption line underneath. Same mark for all four so a
+     level, a position on a scale and two plain percentages read alike. */
+  .sys-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px 20px;margin-bottom:28px}
+  .sys-cell{min-width:0}
+  .sys-hero{display:flex;align-items:center;gap:12px;min-width:0}
+  .sys-hero .sys-viz{flex:none;display:block}
   .sys-big{font:700 30px/1 var(--mono);color:var(--fg);white-space:nowrap}
   .sys-big s{font:600 13px var(--mono);color:var(--dim);text-decoration:none;margin-left:1px}
-  /* secondary readings render as plain label/value pairs, not pills — a dim
-     label beside its value in mono --fg, no border to draw around either */
-  .sys-cap{font:13px var(--ui);color:var(--dim);margin-top:6px;
-    overflow:hidden;text-overflow:ellipsis}
+  /* one caption line, dim label text with mono values, ellipsised rather
+     than wrapped so every cell stays the same height */
+  .sys-cap{font:12px var(--ui);color:var(--dim);margin-top:8px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .sys-cap b{font-family:var(--mono);color:var(--fg);font-weight:400}
   .sys-cap b.warn{color:var(--amber)}
   .sys-cap b.bad{color:var(--red)}
   .sys-cap b.good{color:var(--green)}
-  /* CPU history: one sparkline, stretched to the card width. The stroke keeps
-     its 1.5px whatever the x-scale does (non-scaling-stroke), which is what
-     lets preserveAspectRatio="none" stay honest here. */
-  .sys-spark{display:block;width:100%;height:36px;margin:10px 0 0;overflow:visible}
-  .sys-sparl{display:flex;justify-content:space-between;
-    font:10px var(--mono);color:var(--dimmer);margin-top:3px}
   /* split bar: user vs system, one row, legend below */
   .sys-split{display:flex;height:6px;border-radius:3px;overflow:hidden;
     background:var(--line2);margin-top:10px}
@@ -4213,12 +4204,6 @@ function sysDur(s){
 
 let SYS = null, sysTimer = null, SYS_AT = 0, _sysAgeTxt = '';
 const SYS_EVERY = 15;          // seconds between /api/sysinfo polls
-/* CPU history for the sparkline. The server samples `top` on its own 10s timer
-   and we read the cached figure once a poll, so this is one point per poll, not
-   per second — 40 of them is the last ten minutes the page was open. Kept on
-   the client because nothing needs it to survive a reload. */
-const CPU_KEEP = 40;
-let CPUH = [];
 function paintSysAge(){
   const el = document.getElementById('sys-age');
   if (!el) return;
@@ -4250,8 +4235,6 @@ async function loadSys(){
     const d = await r.json();
     SYS = d;
     SYS_AT = Date.now()/1000;
-    const cp = (d.load || {}).cpu_pct;
-    if (cp != null){ CPUH.push(cp); if (CPUH.length > CPU_KEEP) CPUH.shift(); }
     renderSys();
   } catch(e){
     const body = document.getElementById('sys-body');
@@ -4294,75 +4277,20 @@ function sysDot(on, label){
 }
 
 /* ── sys marks ─────────────────────────────────────────
-   Hand-drawn SVG, no library: a battery glyph for charge, a semicircle gauge
-   for temperature, a sparkline for CPU over time, a donut for storage. Four
-   different marks because they answer four different questions — a level, a
-   position on a scale, a trend, a share of a whole — but all built from the
-   same parts: a --line2 track, one filled stroke in a status hue, round caps,
-   and the number itself in mono next to the mark, never inside it. */
+   One ring for all four hero metrics — battery, temperature, CPU, storage —
+   so a share of a whole, a position on a scale and a plain percentage all
+   read the same way: a --line track, one filled stroke in a status hue,
+   round cap, no text inside. The number sits beside it, in mono. */
 const clamp01 = v => Math.max(0, Math.min(1, v));
 
-/* Charge as the shape everyone already reads without a legend. */
-function batGlyph(pct, color, charging){
-  const p = pct == null ? 0 : clamp01(pct / 100);
-  const w = 40 * p;
-  return `<svg class="sys-viz" width="56" height="26" viewBox="0 0 56 26" aria-hidden="true">
-    <rect x="1" y="3" width="47" height="20" rx="5" fill="none" stroke="var(--line2)"/>
-    <rect x="50" y="9" width="4" height="8" rx="2" fill="var(--line2)"/>
-    ${w > 0 ? `<rect x="4" y="6" width="${w.toFixed(1)}" height="14" rx="3" fill="${color}"/>` : ''}
-    ${charging ? `<path d="M26 7l-6 7h4l-1.5 5 6-7h-4z" fill="var(--bg)"
-      stroke="${color}" stroke-width="1.2" stroke-linejoin="round"/>` : ''}
-  </svg>`;
-}
-
-/* Temperature is a POSITION on a fixed scale, not a share of anything, so it
-   gets a gauge with its ends labelled — 20 °C to 60 °C covers every reading a
-   Mac's battery sensor produces short of a fault. */
-function tempGauge(c, color, lo = 20, hi = 60){
-  const R = 30, CX = 36, CY = 36, LEN = Math.PI * R;
-  const f = c == null ? 0 : clamp01((c - lo) / (hi - lo));
-  const arc = `M ${CX - R} ${CY} A ${R} ${R} 0 0 1 ${CX + R} ${CY}`;
-  return `<svg class="sys-viz" width="72" height="50" viewBox="0 0 72 50" aria-hidden="true">
-    <path d="${arc}" fill="none" stroke="var(--line2)" stroke-width="6" stroke-linecap="round"/>
-    ${c == null ? '' : `<path d="${arc}" fill="none" stroke="${color}" stroke-width="6"
-      stroke-linecap="round" stroke-dasharray="${(LEN * f).toFixed(1)} ${LEN.toFixed(1)}"/>`}
-    <text x="${CX - R}" y="${CY + 12}" fill="var(--dimmer)" font-size="8"
-      font-family="ui-monospace,monospace" text-anchor="middle">${lo}</text>
-    <text x="${CX + R}" y="${CY + 12}" fill="var(--dimmer)" font-size="8"
-      font-family="ui-monospace,monospace" text-anchor="middle">${hi}</text>
-  </svg>`;
-}
-
-/* Storage is a share of a fixed whole — the one metric here a donut is right
-   for. Percentage sits in the hole; the bytes are in the legend beside it. */
 function sysRing(pct, color){
-  const R = 26, C = 2 * Math.PI * R;
+  const size = 52, sw = 5, R = (size - sw) / 2, C = 2 * Math.PI * R;
   const p = pct == null ? 0 : clamp01(pct / 100);
-  return `<svg class="sys-viz" width="72" height="72" viewBox="0 0 72 72" aria-hidden="true">
-    <circle cx="36" cy="36" r="${R}" fill="none" stroke="var(--line2)" stroke-width="7"/>
-    ${p > 0 ? `<circle cx="36" cy="36" r="${R}" fill="none" stroke="${color}" stroke-width="7"
-      stroke-linecap="round" transform="rotate(-90 36 36)"
+  return `<svg class="sys-viz" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true">
+    <circle cx="${size/2}" cy="${size/2}" r="${R}" fill="none" stroke="var(--line)" stroke-width="${sw}"/>
+    ${p > 0 ? `<circle cx="${size/2}" cy="${size/2}" r="${R}" fill="none" stroke="${color}" stroke-width="${sw}"
+      stroke-linecap="round" transform="rotate(-90 ${size/2} ${size/2})"
       stroke-dasharray="${(C * p).toFixed(1)} ${C.toFixed(1)}"/>` : ''}
-    <text x="36" y="41" fill="var(--fg)" font-size="16" font-weight="700"
-      font-family="ui-monospace,monospace" text-anchor="middle">${pct == null ? '—' : Math.round(pct) + '%'}</text>
-  </svg>`;
-}
-
-/* CPU is the only metric with a history worth seeing, so it is the only one
-   drawn against time. Fixed 0-100 y-scale: a spike has to LOOK like a spike,
-   which an auto-scaled sparkline would flatten on a quiet machine. */
-function sysSpark(vals, color){
-  if (vals.length < 2) return '';        // one point is not a trend — draw nothing
-  const n = Math.max(vals.length, 2);
-  const x = i => (i * 100 / (n - 1)).toFixed(2);
-  const y = v => (30 - clamp01((v == null ? 0 : v) / 100) * 29).toFixed(2);
-  const pts = vals.map((v, i) => `${x(i)},${y(v)}`);
-  const line = 'M' + pts.join(' L');
-  const area = `${line} L${x(vals.length - 1)},30 L0,30 Z`;
-  return `<svg class="sys-spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">
-    <path d="${area}" fill="${color}" opacity=".16"/>
-    <path d="${line}" fill="none" stroke="${color}" stroke-width="1.5"
-      stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
   </svg>`;
 }
 
@@ -4400,77 +4328,78 @@ function renderSys(){
   const noBat = bat.present === false;
   const batC = batColor(bat);
   const batPct = noBat ? null : bat.percent;
-  const charging = bat.state === 'charging' || bat.state === 'charged';
-  const batCap = noBat ? 'no battery — desktop'
+  const batCapMain = noBat ? 'no battery'
     : bat.state === 'charging' ? 'charging'
     : bat.state === 'charged' ? 'charged'
     : bat.state === 'discharging' ? (bat.remaining ? `${esc(bat.remaining)} left` : 'on battery')
-    : bat.state === 'ac' ? 'on AC, not charging' : '—';
+    : bat.state === 'ac' ? 'on AC' : '—';
+  const batCap = batCapMain + (!noBat && ld.bat_health != null ? ` · ${ld.bat_health}% health` : '');
 
   // ── temperature. The sensor is the battery gas gauge's, the only one a
   // non-root process can read, so it is labelled as the pack and never as a
   // die reading it is not.
   const tC = ld.temp_c;
   const tCol = tempColor(tC);
+  const tRingPct = tC == null ? null : clamp01((tC - 20) / (60 - 20)) * 100;
   const throttled = ld.thermal === 'throttled';
+  const tCap = (ld.temp_cell_c != null ? `cell ${ld.temp_cell_c.toFixed(1)}°` : '—')
+    + (throttled ? ` · <b class="bad">throttled ${esc(ld.cpu_limit)}%</b>` : '');
 
   // ── cpu
   const cpuPct = ld.cpu_pct;
-  const cpuCol = cpuPct == null ? 'var(--dim)' : sysBarColor(cpuPct);
+  const cpuCol = cpuPct == null ? 'var(--dim)' : limitColor(cpuPct);
   const user = ld.cpu_user, sysp = ld.cpu_sys;
   const load = cpu.load || [];
   const loadTxt = load.length ? load.map(v => v == null ? '—' : v.toFixed(2)).join(' / ') : '—';
   const memPct = (mem.total && mem.used != null) ? Math.round(mem.used / mem.total * 100) : null;
   const swapPct = (ld.swap_total && ld.swap_used != null)
     ? Math.round(ld.swap_used / ld.swap_total * 100) : null;
+  const cpuCap = (ld.gpu_pct != null ? `gpu ${ld.gpu_pct}% · ` : '') + `${cpu.cores ?? '—'} cores`;
 
   // ── storage
   const diskPct = (disk.total && disk.used != null) ? Math.round(disk.used / disk.total * 100) : null;
+  const diskCol = diskPct == null ? 'var(--dim)' : limitColor(diskPct);
+  const diskCap = (disk.free != null ? `${fmtBytes(disk.free)} free` : '—')
+    + (disk.free != null && disk.total != null ? ` of ${fmtBytes(disk.total)}` : '');
 
   body.innerHTML = `
-    <div class="sysg">
-      <div class="sys-sec">
+    <div class="sys-grid">
+      <div class="sys-cell">
         <div class="sys-h">Battery</div>
-        <div class="sys-met">
-          ${batGlyph(batPct, batC, charging)}
-          <div class="sys-num">
-            <div class="sys-big" style="color:${noBat ? 'var(--dim)' : batC}">${batPct != null ? Math.round(batPct) + '<s>%</s>' : '—'}</div>
-          </div>
+        <div class="sys-hero">
+          ${sysRing(batPct, noBat ? 'var(--dim)' : batC)}
+          <div class="sys-big" style="color:${noBat ? 'var(--dim)' : batC}">${noBat ? 'AC' : (batPct != null ? Math.round(batPct) + '<s>%</s>' : '—')}</div>
         </div>
         <div class="sys-cap">${batCap}</div>
-        ${noBat ? '' : `<div class="sys-cap">
-          ${ld.bat_health != null ? `health <b${ld.bat_health < 80 ? ' class="warn"' : ''}>${ld.bat_health}%</b>` : ''}
-          ${ld.bat_health != null && ld.bat_cycles != null ? ' · ' : ''}
-          ${ld.bat_cycles != null ? `<b>${ld.bat_cycles}</b> cycles` : ''}
-        </div>`}
       </div>
-      <div class="sys-sec">
+      <div class="sys-cell">
         <div class="sys-h">Temperature</div>
-        <div class="sys-met">
-          ${tempGauge(tC, tCol)}
-          <div class="sys-num">
-            <div class="sys-big" style="color:${tCol}">${tC != null ? tC.toFixed(1) + '<s>°C</s>' : '—'}</div>
-          </div>
+        <div class="sys-hero">
+          ${sysRing(tRingPct, tCol)}
+          <div class="sys-big" style="color:${tCol}">${tC != null ? tC.toFixed(1) + '<s>°</s>' : '—'}</div>
         </div>
-        <div class="sys-cap">
-          ${ld.temp_cell_c != null ? `cell <b>${ld.temp_cell_c.toFixed(1)}°</b>` : ''}
+        <div class="sys-cap">${tCap}</div>
+      </div>
+      <div class="sys-cell">
+        <div class="sys-h">CPU</div>
+        <div class="sys-hero">
+          ${sysRing(cpuPct, cpuCol)}
+          <div class="sys-big" style="color:${cpuCol}">${cpuPct != null ? cpuPct.toFixed(0) + '<s>%</s>' : '—'}</div>
         </div>
-        ${throttled ? `<div class="sys-cap"><b class="bad">throttled to ${esc(ld.cpu_limit)}%</b></div>` : ''}
+        <div class="sys-cap">${cpuCap}</div>
+      </div>
+      <div class="sys-cell">
+        <div class="sys-h">Storage</div>
+        <div class="sys-hero">
+          ${sysRing(diskPct, diskCol)}
+          <div class="sys-big" style="color:${diskCol}">${diskPct != null ? diskPct + '<s>%</s>' : '—'}</div>
+        </div>
+        <div class="sys-cap">${diskCap}</div>
       </div>
     </div>
 
     <div class="sys-sec">
-      <div class="sys-h">CPU</div>
-      <div class="sys-met">
-        <div class="sys-num">
-          <div class="sys-big" style="color:${cpuCol}">${cpuPct != null ? cpuPct.toFixed(0) + '<s>%</s>' : '—'}</div>
-        </div>
-      </div>
-      <div class="sys-cap">
-        ${ld.gpu_pct != null ? `gpu <b>${ld.gpu_pct}%</b> · ` : ''}<b>${cpu.cores ?? '—'}</b> cores
-      </div>
-      ${CPUH.length > 1 ? sysSpark(CPUH, cpuCol) +
-        `<div class="sys-sparl"><span>last ${fmtAge(CPUH.length * SYS_EVERY)}</span><span>100%</span></div>` : ''}
+      <div class="sys-h">Load</div>
       ${(user != null || sysp != null) ? `
         <div class="sys-split">
           <i style="width:${clamp01((user || 0) / 100) * 100}%;background:var(--blue)"></i>
@@ -4485,16 +4414,6 @@ function renderSys(){
       ${sysBar(memPct)}
       ${sysRow('swap', ld.swap_total ? fmtBytes(ld.swap_used) + ' of ' + fmtBytes(ld.swap_total) : 'unused')}
       ${swapPct ? sysBar(swapPct) : ''}
-    </div>
-
-    <div class="sys-sec">
-      <div class="sys-h">Storage</div>
-      <div class="sys-met">
-        ${sysRing(diskPct, diskPct == null ? 'var(--dim)' : sysBarColor(diskPct))}
-      </div>
-      <div class="sys-cap">
-        ${disk.free != null ? `<b>${fmtBytes(disk.free)}</b> free` : ''}${disk.free != null && disk.used != null && disk.total != null ? ' · ' : ''}${disk.used != null && disk.total != null ? `<b>${fmtBytes(disk.used)}</b> of <b>${fmtBytes(disk.total)}</b> used` : ''}
-      </div>
     </div>
 
     <div class="sys-sec rule">
