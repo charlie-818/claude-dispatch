@@ -138,7 +138,7 @@ cmd_setup() {
 }
 
 cmd_wake() {
-  local ip mac addr code; load_target
+  local ip mac addr code i; load_target
   addr=$(wake_and_connect "$ip" "$mac" | tail -1) || die "macbookpro did not wake (is it powered off, or off this LAN?)"
 
   say "pinning it awake ..."
@@ -157,7 +157,12 @@ cmd_wake() {
     ssh_to "$addr" "launchctl kickstart gui/\$(id -u)/com.charliebc.ccdispatch 2>&1 | head -2"
   fi
 
-  code=$(dispatch_ok)
+  # The machine is up and serving before its tailnet name is routable again, so
+  # one early 000 is not a failure -- poll for a bit before believing it.
+  for i in $(seq 1 12); do
+    code=$(dispatch_ok); [ "$code" = 200 ] && break
+    ping -c 2 -W 1000 127.0.0.1 >/dev/null 2>&1
+  done
   if [ "$code" = 200 ]; then
     say
     if [ "$pinned" = yes ]; then
