@@ -198,7 +198,11 @@
   /* The terminal already hard-wrapped at N columns. Wrapping it AGAIN at the
      viewport width is what produced the ragged double-breaks — so we scale the
      font until N columns fit exactly, and never soft-wrap. */
+  /* overscroll-behavior:contain keeps a flick that runs past the end of the
+     transcript inside the pane — without it the rubber band hands the gesture
+     to the page and the scroll dies halfway. */
   .pane{flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch;
+    overscroll-behavior:contain;
     margin:0;padding:12px 10px;font-family:var(--mono);background:var(--bg);
     color:var(--fg);-webkit-text-size-adjust:100%;text-size-adjust:100%;
     font-size:11px;line-height:1.42;white-space:pre;overflow-wrap:normal}
@@ -2446,7 +2450,7 @@ function openSession(uuid){
 
   markEffort(current.effort); markMode(current.mode); markModel(current.model);
   livePrompt = current.prompt || null; promptDismissed = null; renderActions();
-  history = []; live = ''; pinBottom = true;   // land at newest output
+  history = []; live = ''; pinBottom = true; lastSig = null;   // land at newest output
   briefOpen = false; briefHasContent = false; applyBrief();   // brief hidden until the eye is tapped
   // Warm the brief NOW, not when the eye is tapped: the `claude -p` call takes a
   // couple of seconds, so kicking it off on open means the text is already there
@@ -2607,8 +2611,8 @@ function trimChrome(text, prov){
   return lines.join('\n').replace(/\n+$/, '');
 }
 
-let paintPending = false;
-function paint(){
+let paintPending = false, lastSig = null;
+function paint(force){
   const p = document.getElementById('pane');
   // Never touch the DOM under a finger or a fling. iOS restarts or drops a
   // momentum scroll when the scroller's content changes mid-gesture — the
@@ -2616,6 +2620,20 @@ function paint(){
   // live are held and applied once it settles (see the gesture tracker).
   if (userScrolling){ paintPending = true; return; }
   paintPending = false;
+  // trailing blank lines between scrollback and live screen just waste space
+  const hist = history.join('\n').replace(/\n+$/, '');
+  const prov = (current && current.provider) || 'claude';
+  const liveT = trimChrome(live, prov);
+  const lines = colorizeLines(hist ? hist + '\n' + liveT : liveT, prov);
+  // A running pane pushes a frame twice a second because its spinner glyph
+  // moved — text the chrome stripper throws away. Rendering those frames is
+  // pure DOM churn in a scroller someone may be reading. If what we'd draw is
+  // byte-identical to what's already drawn, there is nothing to do.
+  // `force` is for the callers that changed the BOX, not the text — a font
+  // toggle, a window resize — where the same lines must be laid out again.
+  const sig = lines.join('\n');
+  if (!force && sig === lastSig) return;
+  lastSig = sig;
   // Manual scroll anchoring: Safari has none. Remember the first row in view
   // and where it sits, then put it back there after the rewrite so content
   // changing ABOVE the viewport (wrapped live rows re-flowing) can't shift
@@ -2628,11 +2646,6 @@ function paint(){
       if (b.bottom > pt){ anchor = r; anchorTop = b.top; break; }
     }
   }
-  // trailing blank lines between scrollback and live screen just waste space
-  const hist = history.join('\n').replace(/\n+$/, '');
-  const prov = (current && current.provider) || 'claude';
-  const liveT = trimChrome(live, prov);
-  const lines = colorizeLines(hist ? hist + '\n' + liveT : liveT, prov);
   // Diff line-by-line instead of replacing innerHTML. Only changed rows are
   // rewritten; untouched scrollback nodes stay put, so the browser keeps the
   // scroll position natively — no reset-to-0, no anchor math, no drift, and a
@@ -2678,25 +2691,51 @@ function paint(){
 (function(){
   const p = document.getElementById('pane');
   if (!p) return;
-  const nearBottom = () => p.scrollTop + p.clientHeight >= p.scrollHeight - 60;
-  let idle = null;
-  const begin = () => { userScrolling = true; clearTimeout(idle); };
+  // Asymmetric by design. Re-pinning has to mean "parked ON the bottom", so it
+  // takes a couple of pixels of slack, not sixty: while a chat runs, the live
+  // screen re-wraps and the transcript gets SHORTER between frames, and the
+  // browser answers that by clamping scrollTop down — a view parked 40px up
+  // lands exactly at the bottom without anyone touching it. Read through a
+  // 60px window that clamp is indistinguishable from the reader scrolling
+  // back down, so the next gesture re-pinned and every later frame yanked the
+  // view to the newest output. Unpinning stays generous: a small nudge up is
+  // unambiguously someone wanting to read.
+  const PIN_SLACK = 4, UNPIN_SLACK = 24;
+  const gap = () => p.scrollHeight - (p.scrollTop + p.clientHeight);
+  let idle = null, touches = 0, stuck = null;
+  // Counting fingers means a touchend the browser never delivers would hold the
+  // pane frozen for good. Any touch event re-arms this; if none arrives for a
+  // couple of seconds there is no finger, whatever the count says.
+  const watchdog = () => { clearTimeout(stuck);
+    if (!touches) return;
+    stuck = setTimeout(() => { touches = 0; settle(); }, 2500); };
+  const begin = () => { userScrolling = true; clearTimeout(idle); watchdog(); };
   const settle = () => { clearTimeout(idle);
+    // A finger still on the glass is still a gesture, however long it rests
+    // between moves. Releasing the hold there would rewrite the scroller's
+    // rows mid-drag, which is the mutation iOS answers by dropping the scroll.
+    if (touches) return;
     idle = setTimeout(() => {
+      if (touches) return;             // came back down inside the window
       userScrolling = false;
-      pinBottom = nearBottom();        // where the gesture actually ended
+      const g = gap();                 // where the gesture actually ended
+      if (g <= PIN_SLACK) pinBottom = true;
+      else if (g > UNPIN_SLACK) pinBottom = false;
       if (paintPending) paint();       // frames held during the gesture
     }, 180); };
   // a gesture starts tracking; momentum keeps firing 'scroll' until it idles
-  p.addEventListener('touchstart', begin, {passive: true});
+  p.addEventListener('touchstart', () => { touches++; begin(); }, {passive: true});
+  // a drag that pauses is still a drag — keep the hold alive without it
+  p.addEventListener('touchmove', begin, {passive: true});
   p.addEventListener('wheel', () => { begin(); settle(); }, {passive: true});
-  p.addEventListener('touchend', settle, {passive: true});
+  const lift = () => { touches = Math.max(0, touches - 1); watchdog(); settle(); };
+  p.addEventListener('touchend', lift, {passive: true});
   // the browser can take the touch away (a system gesture, the sheet, a rubber
   // band) — without this the pane stayed "user scrolling" and never re-pinned
-  p.addEventListener('touchcancel', settle, {passive: true});
+  p.addEventListener('touchcancel', lift, {passive: true});
   p.addEventListener('scroll', () => {
     if (!userScrolling) return;      // ignore paint()'s own scrollTop writes
-    pinBottom = nearBottom();
+    if (gap() > UNPIN_SLACK) pinBottom = false;   // moved off the bottom: follow no more
     settle();
   }, {passive: true});
 })();
@@ -2785,11 +2824,11 @@ function cycleFit(){
   fitMode = fitMode ? 0 : 1;
   try { localStorage.setItem('fit', fitMode); } catch(e){}
   applyFit();
-  fitFont(cols); paint();
+  fitFont(cols); paint(true);
 }
 window.addEventListener('resize', () => {
   if (!current) return;
-  fitFont(cols); paint();
+  fitFont(cols); paint(true);
   const raw = suggestRaw; suggestRaw = '';   // width changed: re-cut the hint
   if (raw) applySuggest(liveSuggest); else applyBasePlaceholder();
 });
@@ -4573,7 +4612,7 @@ function setSysFit(mode){
   fitMode = mode;
   try { localStorage.setItem('fit', fitMode); } catch(e){}
   applyFit();
-  if (current){ fitFont(cols); paint(); }
+  if (current){ fitFont(cols); paint(true); }
   buzz(8); paintSysSettings();
 }
 function toggleSysChips(){
