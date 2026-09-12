@@ -17,6 +17,33 @@ Which files should be included?
 (space to toggle, enter to confirm)
 """
 
+# AskUserQuestion as Claude Code 2.1 draws it: a tab strip, the question, each
+# option with an indented description, a rule, then the "Chat about this" row
+ASK_PROMPT = """\
+⏺ Use the AskUserQuestion tool
+
+ ☐ Colour
+Which colour?
+❯ 1. Red
+     warm
+  2. Blue
+     cool
+  3. Type something.
+──────────────────────────────────────────────
+  4. Chat about this
+Enter to select · ↑/↓ to navigate · Esc to cancel
+"""
+
+# a permission prompt in a narrow pane: the long label hard-wraps onto lines
+# indented to the label column — those are the SAME label, not a description
+WRAPPED_PROMPT = """\
+Do you want to proceed?
+❯ 1. Yes
+  2. Yes, and don't ask again for
+     npm commands in /tmp
+  3. No
+"""
+
 INPUT_BOX_GHOST = """\
 ────────────────────────────────────────────────
 ❯\xa0fix the bug in the parser
@@ -318,6 +345,27 @@ def test_is_option_row_false_for_prose():
 
 
 # ── detect_prompt ────────────────────────────────────────────────────────────
+
+def test_detect_prompt_ask_user_question():
+    out = srv.detect_prompt(ASK_PROMPT)
+    assert out is not None
+    assert out["question"] == "Which colour?"
+    assert out["multi"] is False
+    labels = [o["label"] for o in out["options"]]
+    assert labels == ["Red", "Blue", "Type something.", "Chat about this"]
+    assert out["options"][0]["desc"] == "warm"
+    assert out["options"][1]["desc"] == "cool"
+    assert "desc" not in out["options"][2]
+    assert out["options"][0]["selected"] is True
+    assert [o["key"] for o in out["options"]] == ["1", "2", "3", "4"]
+
+
+def test_detect_prompt_wrapped_label_is_rejoined():
+    out = srv.detect_prompt(WRAPPED_PROMPT)
+    assert out is not None
+    assert out["options"][1]["label"] == "Yes, and don't ask again for npm commands in /tmp"
+    assert "desc" not in out["options"][1]
+
 
 def test_detect_prompt_numbered_permission():
     out = srv.detect_prompt(NUMBERED_PROMPT)

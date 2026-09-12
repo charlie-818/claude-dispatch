@@ -534,6 +534,11 @@ def _check_state(mark):
 # hard-wraps onto the rows in between, which carry no caret of their own.
 BOX_RULE_RE = re.compile(r"^[─━╌╍—_-]{4,}$")
 
+# AskUserQuestion's chrome: a tab per question above ("☐ Colour", ticked once
+# answered) and a key legend under the rows.
+ASK_TAB_RE = re.compile(r"^\s*[☐☑☒]\s+\S")
+ASK_FOOT_RE = re.compile(r"Enter to select", re.I)
+
 
 def read_input_box(text):
     """(ghost, text) for Claude's ❯ box — "" when it is empty.
@@ -601,10 +606,16 @@ def _fold_tail(cur, l, indent, label_col):
         return "skip"
     s = l.strip()
     if s and indent >= label_col and not set(s) <= set("─━│ ⎿"):
-        cur[-1][2] = (cur[-1][2] + " " + s)[:200]
+        # kept apart from the label: a permission prompt's wrapped label gets
+        # rejoined at emit time, AskUserQuestion's description stays a description
+        cur[-1][4] = (cur[-1][4] + " " + s).strip()[:200]
         return "fold"
     if not s:
         return "blank"                 # blank gutter between options is fine
+    # AskUserQuestion rules off its trailing "Chat about this" row from the
+    # answers above it — a rule inside a run is a divider, not the end
+    if BOX_RULE_RE.match(s):
+        return "blank"
     return "close"
 
 
@@ -628,7 +639,7 @@ def _last_numbered_run(lines):
                 close()                # a number out of sequence starts a new run
             if not cur:
                 label_col = l.index(m.group(2))
-            cur.append([i, m.group(1), m.group(2), bool(SELECT_RE.match(l))])
+            cur.append([i, m.group(1), m.group(2), bool(SELECT_RE.match(l)), ""])
             continue
         if _fold_tail(cur, l, indent, label_col) == "close":
             close()
@@ -659,7 +670,7 @@ def _last_unnumbered_run(lines):
         if m:
             if not cur:
                 label_col = indent
-            cur.append([i, m.group(1), m.group(2), caret])
+            cur.append([i, m.group(1), m.group(2), caret, ""])
             continue
         if _fold_tail(cur, l, indent, label_col) == "close":
             close()
@@ -710,8 +721,16 @@ def detect_prompt(text):
         parts.append(cand)
     q = " ".join(reversed(parts))
 
+    # AskUserQuestion draws a tab strip ("☐ Colour") above the question and an
+    # "Enter to select" footer below the rows; its indented lines under each
+    # option are descriptions. A permission prompt has neither, and its indented
+    # lines are a hard-wrapped label — those get rejoined.
+    head = lines[max(0, run[0][0] - 6):run[0][0]]
+    tail = lines[run[-1][0] + 1:run[-1][0] + 5]
+    ask = any(ASK_TAB_RE.match(l) for l in head) or any(ASK_FOOT_RE.search(l) for l in tail)
+
     opts, multi = [], False
-    for idx, (_, k, lbl, sel) in enumerate(run):
+    for idx, (_, k, lbl, sel, more) in enumerate(run):
         if numbered:
             m = CHECK_RE.match(lbl)
             box, label, key = (m.group(1), m.group(2), k) if m else (None, lbl, k)
@@ -719,8 +738,17 @@ def detect_prompt(text):
             box, label, key = k, lbl, ""   # no number to press on this row
         checked = _check_state(box) if box is not None else False
         multi = multi or box is not None
-        opts.append({"key": key, "label": label[:70], "selected": sel,
-                     "checked": checked, "index": idx})
+        desc = ""
+        if more:
+            if ask:
+                desc = more
+            else:
+                label = (label + " " + more)[:200]
+        o = {"key": key, "label": label[:70], "selected": sel,
+             "checked": checked, "index": idx}
+        if desc:
+            o["desc"] = desc[:120]
+        opts.append(o)
     if not multi:
         for l in lines[run[-1][0] + 1: run[-1][0] + 5]:
             if MULTI_HINT_RE.search(l):

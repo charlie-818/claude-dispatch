@@ -377,6 +377,7 @@
   .act.sel .num{background:var(--panel3);color:var(--blue)}
   .act.slim{flex:1;justify-content:center;padding:12px 8px;font-size:13px}
   .act.stop{color:var(--red);border-color:rgba(255,107,97,.4)}
+  .act .desc{display:block;font:12px/1.35 var(--ui);color:var(--dim);margin-top:2px}
   .act .num.check{background:none;width:19px;height:19px;color:var(--dim)}
   .act .num.check svg{width:19px;height:19px;display:block}
   .act.sel .num.check{color:var(--blue)}
@@ -3198,7 +3199,8 @@ function renderActions(){
     livePrompt.options.forEach(o => {
       const b = document.createElement('button');
       b.className = 'act' + (o.selected ? ' sel' : '');
-      b.innerHTML = `<span class="num">${esc(o.key)}</span><span>${esc(o.label)}</span>`;
+      b.innerHTML = `<span class="num">${esc(o.key)}</span><span>${esc(o.label)}${
+        o.desc ? `<small class="desc">${esc(o.desc)}</small>` : ''}</span>`;
       b.onclick = () => { key(o.key); livePrompt = null; renderActions(); };
       wrap.appendChild(b);
     });
