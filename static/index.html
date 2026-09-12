@@ -611,6 +611,20 @@
   .idle .wtimer::before{display:none}
   @media (prefers-reduced-motion:reduce){.wtimer::before{animation:none}}
 
+  /* A chat can leave a shell running behind it — a dev server, a long build —
+     and nothing else in the yard would say so: the clawd drops back to idle and
+     reads as finished. This chip is that fact. It is deliberately the same pill
+     as the state timer above it, in blue and on a slower pulse, so it reads as
+     "something of this chat's is still up" rather than "working right now". */
+  .bgtag{display:none;margin-top:2px;font:600 10px var(--mono);letter-spacing:.04em;
+    color:#04121f;background:var(--blue);padding:1px 6px;border-radius:4px;
+    text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.4)}
+  .bgtag.on{display:inline-block}
+  .bgtag::before{content:"";display:inline-block;width:5px;height:5px;
+    border-radius:50%;background:#04121f;margin-right:4px;vertical-align:middle;
+    animation:tpulse 2.2s ease-in-out infinite}
+  @media (prefers-reduced-motion:reduce){.bgtag::before{animation:none}}
+
   /* --bdx: horizontal nudge (set per-frame in JS) that keeps a bubble on-screen
      when its clawd walks to the far edge. The tail counters it so it still points
      down at the clawd. */
@@ -1669,6 +1683,16 @@ function syncCritters(rows){
     c.fill.setAttribute('stroke-dasharray', `${dash} 300`);
     c.fill.setAttribute('stroke', ctxColor(s.ctx || 0));
     c.nm.textContent = s.name;
+    // only touched when the count MOVES — the fleet broadcasts every second and
+    // writing an unchanged chip would restart its pulse animation each frame
+    const nbg = s.bg || 0;
+    if (nbg !== c._bg){
+      c.bgtag.textContent = nbg > 1 ? `bg ${nbg}` : 'bg';
+      c.bgtag.title = nbg === 1 ? '1 background shell still running'
+                                : `${nbg} background shells still running`;
+      c.bgtag.classList.toggle('on', nbg > 0);
+      c._bg = nbg;
+    }
     paintIdentity(c);
     syncPups(c);
   });
@@ -1834,7 +1858,8 @@ function spawnCritter(s){
      </div>
      <div class="bubble"></div>
      <div class="ctag"><span class="nm"></span></div>
-     <div class="wtimer"></div>`;
+     <div class="wtimer"></div>
+     <div class="bgtag"></div>`;
   el.onclick = () => tapClawd(CRITTERS.get(s.uuid));
   document.getElementById('yard').appendChild(el);
   const c = {
@@ -1842,6 +1867,7 @@ function spawnCritter(s){
     stage:el.querySelector('.stage'), bubble:el.querySelector('.bubble'),
     fill:el.querySelector('.fill'), nm:el.querySelector('.nm'),
     wtimer:el.querySelector('.wtimer'), _wt:'',
+    bgtag:el.querySelector('.bgtag'), _bg:-1,
     x:null, y:0, vx:0, vy:0, facing:1, next:0, tx:null, ty:null, bubbleOn:false, _cls:'', _sc:'',
     _bhtml:'', _bat:0,          // last announced command + when, for the bubble
     _fling:false, gkey:groupKey(s),

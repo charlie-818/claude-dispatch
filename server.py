@@ -1532,6 +1532,10 @@ async def build_fleet():
             "prompts": (f or {}).get("prompts"),
             "age": (f or {}).get("age"),
             "started": (f or {}).get("started"),
+            # background shells this chat still has running — a dev server left
+            # up, a build still going. Only Claude announces them, so the others
+            # are always 0 here rather than falsely quiet.
+            "bg": _BG.get((f or {}).get("transcript") or "", 0),
             "dur_ms": (f or {}).get("dur_ms"),
             "work_since": (f or {}).get("state_since"),
             "mtime": (f or {}).get("mtime"),      # reaper fallback clock
@@ -3867,6 +3871,107 @@ _LOAD = {}     # cpu_pct/cpu_user/cpu_sys/gpu_pct/mem_free_pct/swap_used/
                # bat_health/sampled — any key may be None
 
 
+# ── background shells ───────────────────────────────────────────────────────
+# A `run_in_background` Bash call keeps running after the turn that started it,
+# and nothing on the pane says so — the transcript scrolls on and the agent looks
+# idle while a dev server or a build is still alive underneath. Two facts have to
+# be joined to know that honestly:
+#
+#   * WHICH shells were backgrounded. Only the transcript says. A foreground tool
+#     call gets an identical wrapper process and an identical .output file, so the
+#     process table cannot tell them apart — but the tool result that launched a
+#     background one announces its id in so many words.
+#   * WHETHER one is still running. An open write fd on its .output file is the
+#     only trustworthy signal: a sleeping shell (a server waiting for requests,
+#     a `sleep`) writes nothing for minutes, so file mtime says "finished" about
+#     a task that is very much alive.
+#
+# So: ids from the transcript, liveness from one lsof over every task file at
+# once, joined on the 10s sampler rather than per fleet frame.
+_BG_OUT = f"/private/tmp/claude-{os.getuid()}/*/*/tasks/*.output"
+_BG_RE = re.compile(r"running in background with ID:\s*([A-Za-z0-9_-]{4,32})")
+_BG_SEEN = {}   # transcript path -> {"off": bytes scanned, "ids": [task id, ...]}
+_BG = {}        # transcript path -> how many of its background shells are alive
+_BG_KEEP = 200  # ids remembered per session; a finished one can never come back
+
+
+def _bg_ids(path):
+    """Every background-shell id this transcript has ever announced.
+
+    Incremental, like session_ops: only the bytes appended since the last pass
+    are scanned, so a 20 MB transcript costs nothing to follow. A transcript that
+    shrank was replaced (a /clear starts a new session file), so the offset and
+    the id list reset with it.
+    """
+    st = _BG_SEEN.setdefault(path, {"off": 0, "ids": []})
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return st["ids"]
+    if size < st["off"]:
+        st["off"], st["ids"] = 0, []
+    if size > st["off"]:
+        try:
+            with open(path, "rb") as f:
+                f.seek(st["off"])
+                chunk = f.read(size - st["off"]).decode("utf-8", "ignore")
+        except OSError:
+            return st["ids"]
+        st["off"] = size
+        for m in _BG_RE.finditer(chunk):
+            tid = m.group(1)
+            if tid not in st["ids"]:
+                st["ids"].append(tid)
+        if len(st["ids"]) > _BG_KEEP:
+            del st["ids"][:-_BG_KEEP]
+    return st["ids"]
+
+
+async def _live_task_ids():
+    """Task ids whose output file some process still holds open."""
+    paths = {}
+    for p in glob.glob(_BG_OUT):
+        paths[os.path.basename(p)[:-len(".output")]] = p
+    if not paths:
+        return set()
+    live = set()
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "lsof", "-Fn", "--", *list(paths.values())[:256],
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=8)
+    except Exception:
+        return set()
+    # lsof exits non-zero when SOME of the files have no readers, which is the
+    # normal case here — the exit code says nothing, only the lines do.
+    for line in (out or b"").decode(errors="ignore").splitlines():
+        if not line.startswith("n"):
+            continue
+        base = os.path.basename(line[1:])
+        if base.endswith(".output"):
+            live.add(base[:-len(".output")])
+    return live
+
+
+async def _bg_sampler():
+    while True:
+        try:
+            live = await _live_task_ids()
+            counts = {}
+            for rec in read_fleet_files().values():
+                tp = rec.get("transcript")
+                if not tp:
+                    continue
+                n = sum(1 for tid in _bg_ids(tp) if tid in live)
+                if n:
+                    counts[tp] = n
+            _BG.clear()
+            _BG.update(counts)
+        except Exception as e:
+            print(f"  [bg] sampler: {type(e).__name__}: {e}", flush=True)
+        await asyncio.sleep(10)
+
+
 async def _load_sampler():
     while True:
         try:
@@ -4387,6 +4492,7 @@ async def main(connection):
     asyncio.create_task(_grow_janitor())       # never leave a pane maximized with nobody watching
     asyncio.create_task(_rebuild_history())    # warm the history cache so first open is instant
     asyncio.create_task(_load_sampler())       # background CPU/GPU/thermal snapshot for /api/sysinfo
+    asyncio.create_task(_bg_sampler())         # which chats still have a background shell alive
 
     async def _normalize_once():
         await asyncio.sleep(2)                 # let APP settle after (re-)connect
