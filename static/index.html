@@ -704,13 +704,13 @@
     font:11px var(--mono);color:var(--dim)}
   .statusbar .sb-lim{display:flex;align-items:center;gap:6px;flex:none}
   .tabbar{display:flex;flex:none;border-top:1px solid var(--line2);background:var(--panel2)}
-  .tabbar button{flex:1;background:none;border:none;cursor:pointer;position:relative;
-    display:flex;align-items:center;justify-content:center;
-    min-height:44px;padding:10px 0 calc(10px + env(safe-area-inset-bottom));
+  .tabbar button{flex:1;background:none;border:none;cursor:pointer;
+    padding:13px 0 calc(13px + env(safe-area-inset-bottom));
+    font:700 11px var(--ui);letter-spacing:.12em;text-transform:uppercase;
     color:var(--dim);border-top:2px solid transparent;margin-top:-1px}
-  .tabbar button svg{display:block}
   .tabbar button.cur{color:var(--blue);border-top-color:var(--blue)}
-  .tabdot{display:none;position:absolute;top:7px;left:calc(50% + 6px);width:7px;height:7px;
+  .tabbar button{position:relative}
+  .tabdot{display:none;position:absolute;top:9px;margin-left:5px;width:7px;height:7px;
     border-radius:50%;background:var(--red);box-shadow:0 0 0 2px var(--panel2)}
   .tabdot.on{display:inline-block;animation:pulse 1.3s infinite}
 
@@ -1118,11 +1118,10 @@
     <button class="fab" id="fab" onclick="spawnSession()" title="new session">+</button>
   </div>
   <div class="tabbar">
-    <button class="cur" onclick="showFleet()" aria-label="fleet" title="fleet"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg></button>
-    <button onclick="showUsage()" aria-label="usage" title="usage"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="13" width="4" height="7" rx="1"/><rect x="10" y="9" width="4" height="11" rx="1"/><rect x="16.5" y="4" width="4" height="16" rx="1"/></svg></button>
-    <button onclick="showHistory()" aria-label="history" title="history"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><line x1="12" y1="12" x2="12" y2="7"/><line x1="12" y1="12" x2="16" y2="14"/></svg></button>
-    <button onclick="showAuth()" aria-label="auth" title="auth"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="12" r="4"/><line x1="11" y1="12" x2="20" y2="12"/><line x1="16" y1="12" x2="16" y2="16"/><line x1="19" y1="12" x2="19" y2="15"/></svg><i class="tabdot" id="authdot"></i></button>
-    <button onclick="showSys()" aria-label="sys" title="sys"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><circle cx="9" cy="6" r="1.6" fill="currentColor" stroke="none"/><line x1="3" y1="12" x2="21" y2="12"/><circle cx="15" cy="12" r="1.6" fill="currentColor" stroke="none"/><line x1="3" y1="18" x2="21" y2="18"/><circle cx="11" cy="18" r="1.6" fill="currentColor" stroke="none"/></svg></button>
+    <button class="cur" onclick="showFleet()">fleet</button>
+    <button onclick="showUsage()">usage</button>
+    <button onclick="showHistory()">history</button>
+    <button onclick="showSys()">sys</button>
   </div>
 </div>
 
@@ -1140,11 +1139,10 @@
   </div>
   <div id="usage-body"><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div></div>
   <div class="tabbar">
-    <button onclick="showFleet()" aria-label="fleet" title="fleet"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg></button>
-    <button class="cur" onclick="showUsage()" aria-label="usage" title="usage"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="13" width="4" height="7" rx="1"/><rect x="10" y="9" width="4" height="11" rx="1"/><rect x="16.5" y="4" width="4" height="16" rx="1"/></svg></button>
-    <button onclick="showHistory()" aria-label="history" title="history"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><line x1="12" y1="12" x2="12" y2="7"/><line x1="12" y1="12" x2="16" y2="14"/></svg></button>
-    <button onclick="showAuth()" aria-label="auth" title="auth"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="12" r="4"/><line x1="11" y1="12" x2="20" y2="12"/><line x1="16" y1="12" x2="16" y2="16"/><line x1="19" y1="12" x2="19" y2="15"/></svg><i class="tabdot" id="authdot2"></i></button>
-    <button onclick="showSys()" aria-label="sys" title="sys"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><circle cx="9" cy="6" r="1.6" fill="currentColor" stroke="none"/><line x1="3" y1="12" x2="21" y2="12"/><circle cx="15" cy="12" r="1.6" fill="currentColor" stroke="none"/><line x1="3" y1="18" x2="21" y2="18"/><circle cx="11" cy="18" r="1.6" fill="currentColor" stroke="none"/></svg></button>
+    <button onclick="showFleet()">fleet</button>
+    <button class="cur" onclick="showUsage()">usage</button>
+    <button onclick="showHistory()">history</button>
+    <button onclick="showSys()">sys</button>
   </div>
 </div>
 
@@ -1180,11 +1178,10 @@
   </div>
   <div id="hist-body"><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div></div>
   <div class="tabbar">
-    <button onclick="showFleet()" aria-label="fleet" title="fleet"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg></button>
-    <button onclick="showUsage()" aria-label="usage" title="usage"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="13" width="4" height="7" rx="1"/><rect x="10" y="9" width="4" height="11" rx="1"/><rect x="16.5" y="4" width="4" height="16" rx="1"/></svg></button>
-    <button class="cur" onclick="showHistory()" aria-label="history" title="history"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><line x1="12" y1="12" x2="12" y2="7"/><line x1="12" y1="12" x2="16" y2="14"/></svg></button>
-    <button onclick="showAuth()" aria-label="auth" title="auth"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="12" r="4"/><line x1="11" y1="12" x2="20" y2="12"/><line x1="16" y1="12" x2="16" y2="16"/><line x1="19" y1="12" x2="19" y2="15"/></svg><i class="tabdot" id="authdot3"></i></button>
-    <button onclick="showSys()" aria-label="sys" title="sys"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><circle cx="9" cy="6" r="1.6" fill="currentColor" stroke="none"/><line x1="3" y1="12" x2="21" y2="12"/><circle cx="15" cy="12" r="1.6" fill="currentColor" stroke="none"/><line x1="3" y1="18" x2="21" y2="18"/><circle cx="11" cy="18" r="1.6" fill="currentColor" stroke="none"/></svg></button>
+    <button onclick="showFleet()">fleet</button>
+    <button onclick="showUsage()">usage</button>
+    <button class="cur" onclick="showHistory()">history</button>
+    <button onclick="showSys()">sys</button>
   </div>
 </div>
 
@@ -1215,11 +1212,10 @@
     </section>
   </div>
   <div class="tabbar">
-    <button onclick="showFleet()" aria-label="fleet" title="fleet"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg></button>
-    <button onclick="showUsage()" aria-label="usage" title="usage"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="13" width="4" height="7" rx="1"/><rect x="10" y="9" width="4" height="11" rx="1"/><rect x="16.5" y="4" width="4" height="16" rx="1"/></svg></button>
-    <button onclick="showHistory()" aria-label="history" title="history"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><line x1="12" y1="12" x2="12" y2="7"/><line x1="12" y1="12" x2="16" y2="14"/></svg></button>
-    <button class="cur" onclick="showAuth()" aria-label="auth" title="auth"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="12" r="4"/><line x1="11" y1="12" x2="20" y2="12"/><line x1="16" y1="12" x2="16" y2="16"/><line x1="19" y1="12" x2="19" y2="15"/></svg><i class="tabdot" id="authdot4"></i></button>
-    <button onclick="showSys()" aria-label="sys" title="sys"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><circle cx="9" cy="6" r="1.6" fill="currentColor" stroke="none"/><line x1="3" y1="12" x2="21" y2="12"/><circle cx="15" cy="12" r="1.6" fill="currentColor" stroke="none"/><line x1="3" y1="18" x2="21" y2="18"/><circle cx="11" cy="18" r="1.6" fill="currentColor" stroke="none"/></svg></button>
+    <button onclick="showFleet()">fleet</button>
+    <button onclick="showUsage()">usage</button>
+    <button onclick="showHistory()">history</button>
+    <button onclick="showSys()">sys</button>
   </div>
 </div>
 
@@ -1236,11 +1232,10 @@
   </div>
   <div id="sys-body"></div>
   <div class="tabbar">
-    <button onclick="showFleet()" aria-label="fleet" title="fleet"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg></button>
-    <button onclick="showUsage()" aria-label="usage" title="usage"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="13" width="4" height="7" rx="1"/><rect x="10" y="9" width="4" height="11" rx="1"/><rect x="16.5" y="4" width="4" height="16" rx="1"/></svg></button>
-    <button onclick="showHistory()" aria-label="history" title="history"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><line x1="12" y1="12" x2="12" y2="7"/><line x1="12" y1="12" x2="16" y2="14"/></svg></button>
-    <button onclick="showAuth()" aria-label="auth" title="auth"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="12" r="4"/><line x1="11" y1="12" x2="20" y2="12"/><line x1="16" y1="12" x2="16" y2="16"/><line x1="19" y1="12" x2="19" y2="15"/></svg><i class="tabdot" id="authdot5"></i></button>
-    <button class="cur" onclick="showSys()" aria-label="sys" title="sys"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><circle cx="9" cy="6" r="1.6" fill="currentColor" stroke="none"/><line x1="3" y1="12" x2="21" y2="12"/><circle cx="15" cy="12" r="1.6" fill="currentColor" stroke="none"/><line x1="3" y1="18" x2="21" y2="18"/><circle cx="11" cy="18" r="1.6" fill="currentColor" stroke="none"/></svg></button>
+    <button onclick="showFleet()">fleet</button>
+    <button onclick="showUsage()">usage</button>
+    <button onclick="showHistory()">history</button>
+    <button class="cur" onclick="showSys()">sys</button>
   </div>
 </div>
 
@@ -2325,7 +2320,7 @@ function connectFleet(){
 
 /* The red dot on the auth tab: how many agents are waiting on the owner. */
 function setAuthBadge(n){
-  ['authdot','authdot2','authdot3','authdot4','authdot5'].forEach(id => {
+  ['authdot'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.classList.toggle('on', n > 0);
   });
@@ -4572,6 +4567,7 @@ function renderSys(){
         <div class="sys-sw" id="sys-sw-haptics" onclick="toggleSysHaptics()"><i></i></div></div>
     </div>
     <div class="sys-sec">
+      <button class="sys-btn" onclick="showAuth()">Auth &amp; integrations<i class="tabdot" id="authdot"></i></button>
       <button class="sys-btn" onclick="hardReload()">Hard reload</button>
       <button class="sys-btn" onclick="sysClearCaches()">Clear caches &amp; unregister SW</button>
       <button class="sys-btn danger" onclick="sysLogout()">Log out</button>
