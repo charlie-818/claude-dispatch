@@ -55,3 +55,7 @@ deploy.out
 
 # Reboot-resilience watchdog log
 ensure.out
+
+# Files uploaded from a phone into a pane's working dir
+.dispatch-uploads/
+uploads/
