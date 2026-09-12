@@ -4025,7 +4025,15 @@ async function uploadFiles(files){
           body: f});
         if (r.status === 401){ authState().then(relock); return; }
         const d = await r.json().catch(()=>({}));
-        if (!r.ok || d.error){ toast(d.error || ('upload '+r.status), true); continue; }
+        // A body too large can be refused by aiohttp itself, which answers with
+        // no JSON at all — so a bare status needs its own sentence, or the toast
+        // is just a number and the file silently never attaches.
+        if (!r.ok || d.error){
+          toast(d.error || (r.status === 413
+            ? `${f.name} is too big (${(f.size / 1048576).toFixed(1)} MB)`
+            : 'upload failed — ' + r.status), true);
+          continue;
+        }
         const cur = input.value;
         input.value = (cur ? cur.replace(/\s*$/,'') + ' ' : '') + d.path + ' ';
         autosize();

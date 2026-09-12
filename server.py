@@ -2088,15 +2088,22 @@ def _safe_name(name):
     return name[:120]
 
 
+def _mb(n):
+    return f"{n / (1024 * 1024):.1f} MB"
+
+
 @guard
 async def api_upload(request):
     uuid = (request.headers.get("X-Uuid") or "").upper()
     fname = _safe_name(request.headers.get("X-Filename") or "file")
-    raw = await request.read()
-    if not raw:
-        return web.json_response({"error": "no file"}, status=400)
-    if len(raw) > _UPLOAD_MAX:
-        return web.json_response({"error": "file too large"}, status=413)
+    # Refuse on the declared length before reading a byte, so an oversized file
+    # is answered immediately instead of after a phone has spent a minute
+    # uploading it over a tailnet.
+    declared = request.content_length or 0
+    if declared > _UPLOAD_MAX:
+        return web.json_response(
+            {"error": f"file is {_mb(declared)} — the limit is {_mb(_UPLOAD_MAX)}"},
+            status=413)
     # target dir: the pane's live working dir, else the fallback
     dest_dir = None
     s = (await all_sessions()).get(uuid)
@@ -2108,6 +2115,8 @@ async def api_upload(request):
             dest_dir = os.path.join(cwd, ".dispatch-uploads")
     if dest_dir is None:
         dest_dir = str(_UPLOAD_FALLBACK)
+    path = None
+    written = 0
     try:
         os.makedirs(dest_dir, exist_ok=True)
         path = os.path.join(dest_dir, fname)
@@ -2116,12 +2125,37 @@ async def api_upload(request):
         n = 1
         while os.path.exists(path):
             path = os.path.join(dest_dir, f"{stem}-{n}{ext}"); n += 1
-        await asyncio.to_thread(lambda: open(path, "wb").write(raw))
+        # Stream it. A 4K video is hundreds of megabytes; reading that into a
+        # bytes object first would hold the whole thing in the server's memory
+        # for no reason, and a body that lied about its length would get past
+        # the check above.
+        with open(path, "wb") as fh:
+            async for chunk in request.content.iter_chunked(256 * 1024):
+                written += len(chunk)
+                if written > _UPLOAD_MAX:
+                    fh.close()
+                    os.unlink(path)
+                    return web.json_response(
+                        {"error": f"file exceeds the {_mb(_UPLOAD_MAX)} limit"},
+                        status=413)
+                await asyncio.to_thread(fh.write, chunk)
     except Exception as e:
+        if path and os.path.exists(path) and not written:
+            try:
+                os.unlink(path)            # never leave a 0-byte stub behind
+            except OSError:
+                pass
         return web.json_response({"error": f"{type(e).__name__}: {e}"}, status=500)
-    auth.audit(request, "upload", {"path": path, "bytes": len(raw)})
-    print(f"  [upload] {len(raw)}B → {path}", flush=True)
-    return web.json_response({"ok": True, "path": path, "name": os.path.basename(path)})
+    if not written:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        return web.json_response({"error": "no file"}, status=400)
+    auth.audit(request, "upload", {"path": path, "bytes": written})
+    print(f"  [upload] {written}B → {path}", flush=True)
+    return web.json_response({"ok": True, "path": path, "name": os.path.basename(path),
+                              "bytes": written})
 
 
 # ── voice → text (local whisper.cpp) ───────────────────────────────────────
@@ -4576,7 +4610,13 @@ async def main(connection):
     CONN = connection
     APP = await iterm2.async_get_app(connection)
 
-    app = web.Application()
+    # aiohttp caps a request body at 1 MB by default and answers anything larger
+    # with its own bare 413 — which is what every phone photo hit, long before
+    # api_upload's own limit could have an opinion. Raise the ceiling to just
+    # past the upload limit so the handler is the thing that enforces it and can
+    # say what happened; api_upload streams to disk, so a big body is never held
+    # in memory whole.
+    app = web.Application(client_max_size=_UPLOAD_MAX + 4 * 1024 * 1024)
     app["TOKEN"] = TOKEN
     app.router.add_get("/", index)
     app.router.add_get("/api/fleet", api_fleet)
