@@ -425,6 +425,14 @@
   .mic:active{background:var(--panel3);color:var(--fg)}
   .mic:disabled{opacity:.55;cursor:default}
   .mic .i-stop{display:none}
+  /* `capture` only means anything on a device with a camera it can open; on a
+     mouse-and-keyboard browser it degrades to a second file picker, so hide it
+     there rather than show attach twice. */
+  @media (hover:hover) and (pointer:fine){#camerabtn{display:none}}
+  /* Attach and camera are two halves of one intent — "add a picture" — so they
+     sit as a pair: the camera pulls back into the attach button's tap-target
+     gutter, leaving the 4px cbar gap to separate that pair from the mic. */
+  #attachbtn + #camerabtn{margin-left:-8px}
   .mic.rec{background:var(--red);border-color:transparent;color:#1a1200;
     animation:micpulse 1.1s ease-in-out infinite}
   .mic.rec:active,.mic.busy:active{color:#1a1200}
@@ -1331,6 +1339,10 @@
   <div class="composer">
     <input type="file" id="fileinput" accept="image/*,video/*" multiple hidden
            onchange="uploadFiles(this.files)">
+    <!-- Same upload path as attach; `capture` asks the phone for the camera
+         itself rather than the photo library. -->
+    <input type="file" id="caminput" accept="image/*" capture="environment" hidden
+           onchange="uploadFiles(this.files, 'camerabtn')">
     <div class="cbox">
       <textarea id="input" rows="1" placeholder=""></textarea>
       <div class="cbar">
@@ -1338,6 +1350,13 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M21 11.5l-8.5 8.5a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.6 1.6 0 0 1-2.3-2.3l7.8-7.8"/>
+          </svg>
+        </button>
+        <button class="mic" id="camerabtn" onclick="document.getElementById('caminput').click()" aria-label="take picture">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 8.5h3.2l1.5-2.5h8.6l1.5 2.5H21a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1z"/>
+            <circle cx="12" cy="13.5" r="3.5"/>
           </svg>
         </button>
         <span class="gap"></span>
@@ -4013,9 +4032,9 @@ function applySuggest(s){
 /* Upload image/video from the device. The server saves it in the pane's working
    dir and returns an absolute path; we drop that path into the composer so
    Claude Code can Read/view it when you send. */
-async function uploadFiles(files){
+async function uploadFiles(files, btnId){
   if (!current || !files || !files.length) return;
-  const attach = document.getElementById('attachbtn');
+  const attach = document.getElementById(btnId || 'attachbtn');
   attach.classList.add('busy'); attach.disabled = true; buzz(12);
   try {
     for (const f of files){
@@ -4046,7 +4065,9 @@ async function uploadFiles(files){
     input.focus();
   } finally {
     attach.classList.remove('busy'); attach.disabled = false;
-    document.getElementById('fileinput').value = '';   // allow re-picking same file
+    // allow re-picking the same file, and re-shooting after a first shot
+    document.getElementById('fileinput').value = '';
+    document.getElementById('caminput').value = '';
   }
 }
 
