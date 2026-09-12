@@ -809,6 +809,13 @@
     border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
   .sys-cell .sys-h{margin-bottom:10px}
   .sys-hero{display:flex;align-items:center;gap:12px;min-width:0;height:52px}
+  .sk-cell .sk-line{margin:0}
+  .sk-cell > .sk-line:first-child{height:10px;margin-bottom:10px}
+  .sk-cell > .sk-line:last-child{margin-top:8px}
+  .sk-ring{flex:none;width:52px;height:52px;border-radius:50%;
+    border:5px solid var(--line2);box-sizing:border-box}
+  .sk-cell .sys-hero .sk-line{flex:1}
+  #sys-body .meter .top .sk-line{height:10px;display:block}
   .sys-hero .sys-viz{flex:none;display:block}
   .sys-big{font:700 clamp(22px, 7.4vw, 30px)/1 var(--mono);color:var(--fg);
     white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis}
@@ -4219,7 +4226,7 @@ function showSys(){
   pushNav({v: 'sys'});
   hideScreens();
   document.getElementById('s-sys').classList.add('on');
-  if (SYS) renderSys(); else document.getElementById('sys-body').innerHTML = skelList(4);
+  if (SYS) renderSys(); else document.getElementById('sys-body').innerHTML = skelSys();
   loadSys();
   clearInterval(sysTimer);
   sysTimer = setInterval(() => {
@@ -4263,6 +4270,23 @@ function batColor(bat){
 /* A usage-page meter: caps label + bold mono value on one line, the tall
    track under it, and an optional dim mono footnote — the same shape the
    rate-limit cards use, so the two screens read as one. */
+/* Loading state drawn in the page's own shapes: the 2×2 gauge boxes (ring,
+   number, caption) and four meters under a Load header, so nothing jumps when
+   the real numbers land. */
+function skelSys(){
+  const cell = `<div class="sys-cell sk-cell">
+      <div class="sk-line w40"></div>
+      <div class="sys-hero"><span class="sk-ring"></span><div class="sk-line tall w60"></div></div>
+      <div class="sk-line w75"></div>
+    </div>`;
+  const meter = `<div class="meter">
+      <div class="top"><span class="sk-line w40"></span><span class="sk-line" style="width:44px"></span></div>
+      <div class="track tall"></div>
+    </div>`;
+  return `<div class="sys-grid">${cell.repeat(4)}</div>
+    <div class="sys-sec"><div class="sys-h">Load</div>${meter.repeat(4)}</div>`;
+}
+
 function sysMeter(label, value, pctFill, color, foot){
   const w = pctFill == null ? 0 : Math.max(0, Math.min(100, pctFill));
   return `<div class="meter">
@@ -4318,7 +4342,7 @@ function tempColor(c){
 function renderSys(){
   paintSysAge();
   const body = document.getElementById('sys-body');
-  if (!SYS){ body.innerHTML = skelList(4); return; }
+  if (!SYS){ body.innerHTML = skelSys(); return; }
   const s = SYS;
   const bat = s.battery || {};
   const disk = s.disk || {};
