@@ -2520,15 +2520,19 @@ async def api_browse(request):
         return web.json_response({"error": "not a directory"}, status=404)
     dirs = []
     try:
-        for name in sorted(os.listdir(path), key=str.lower):
+        for name in os.listdir(path):
             if name.startswith("."):
                 continue                       # hide dotfiles/dirs
             full = os.path.join(path, name)
             try:
                 if os.path.isdir(full):
-                    dirs.append({"name": name, "path": full})
+                    dirs.append({"name": name, "path": full,
+                                 "mtime": os.stat(full).st_mtime})
             except OSError:
                 continue
+        # most recently touched first — the project you were just in floats to
+        # the top; ties (same second) fall back to name so the order is stable
+        dirs.sort(key=lambda d: (-d["mtime"], d["name"].lower()))
     except OSError as e:
         return web.json_response({"error": str(e)}, status=403)
     parent = os.path.dirname(path.rstrip("/"))

@@ -289,16 +289,9 @@
   .sheet-note{font:11px/1.55 var(--ui);color:var(--dim);margin-top:6px}
   .sheet-note.warn{color:var(--red)}
   /* ── directory picker (start new agent) ─────────────────
-     Rows scroll; the crumb pins to the top and the back/start bar pins to the
-     bottom, so both stay reachable however long the folder list gets. */
-  .dp-crumb{position:sticky;top:0;z-index:2;font:12px/1.4 var(--mono);
-    color:var(--dim);background:var(--panel3);border:1px solid var(--line2);
-    border-radius:var(--r);padding:9px 12px;margin-bottom:9px;word-break:break-all;
-    /* solid block above the pinned crumb so scrolling rows can't peek through the
-       sheet's top padding strip */
-    box-shadow:0 -12px 0 0 var(--panel2)}
-  .dp-crumb b{color:var(--fg2);font-weight:600}
-  /* filter box — pinned under the crumb, narrows the folder list as you type */
+     Rows scroll; the back/start bar pins to the bottom so it stays reachable
+     however long the folder list gets. */
+  /* filter box — pinned at the top, narrows the folder list as you type */
   .dp-search{margin-bottom:9px}
   .dp-search input{width:100%;box-sizing:border-box;
     background:var(--panel3);border:1px solid var(--line2);border-radius:var(--r);
@@ -3751,21 +3744,9 @@ function renderDirPicker(data){
   body.innerHTML = '';
   const atRoot = !data.path;
 
-  // who runs — only the clients this host actually has, resolved before anything
-  // renders so the crumb and the launch agree on one answer
+  // who runs — only the clients this host actually has
   const agents = data.agents || ['claude'];
   if (!agents.includes(SPAWN_AGENT)) SPAWN_AGENT = agents[0] || 'claude';
-
-  // pinned crumb — which agent starts, and where
-  const crumb = document.createElement('div');
-  crumb.className = 'dp-crumb';
-  const drawCrumb = () => {
-    const who = esc(AGENT_LABEL[SPAWN_AGENT] || SPAWN_AGENT);
-    crumb.innerHTML = atRoot ? ('pick where ' + who + ' starts')
-      : ('start ' + who + ' in <b>' + esc(data.path) + '</b>');
-  };
-  drawCrumb();
-  body.appendChild(crumb);
 
   // One agent installed is no choice at all, so the row is dropped rather than
   // shown as a single dead tile.
@@ -3786,7 +3767,6 @@ function renderDirPicker(data){
         // you have already clicked down into
         ap.querySelectorAll('.ap-opt').forEach((o, i) =>
           o.setAttribute('aria-pressed', String(agents[i] === a)));
-        drawCrumb();
       };
       ap.appendChild(b);
     });
