@@ -772,8 +772,6 @@
     padding:6px 0;font:13px var(--ui);color:var(--dim)}
   .sys-row > span:last-child{font:13px var(--mono);color:var(--fg);text-align:right;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
-  .sys-bar{height:4px;border-radius:2px;background:var(--line2);overflow:hidden;margin:8px 0 12px}
-  .sys-bar i{display:block;height:100%;transition:width .5s}
   .sys-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;
     background:var(--dimmer)}
   .sys-dot.on{background:var(--green)}
@@ -823,12 +821,6 @@
   .sys-cap b.bad{color:var(--red)}
   .sys-cap b.good{color:var(--green)}
   /* split bar: user vs system, one row, legend below */
-  .sys-split{display:flex;height:6px;border-radius:3px;overflow:hidden;
-    background:var(--line2);margin-top:10px}
-  .sys-split i{display:block;height:100%;transition:width .5s}
-  .sys-key{display:flex;gap:12px;margin-top:6px;font:13px var(--mono);color:var(--dim)}
-  .sys-key span{display:flex;align-items:center;gap:5px}
-  .sys-key i{width:8px;height:8px;border-radius:2px;flex:none}
 
   /* Usage is a monitor screen: it SCROLLS, most-urgent first. The running-agent
      cards up top are the point, so they get real room; the account totals sit
@@ -958,6 +950,7 @@
 
   .meter{margin-bottom:11px;min-width:0}
   .meter:last-child{margin-bottom:0}
+  #sys-body .meter{margin-bottom:14px}
   .meter .top{display:flex;justify-content:space-between;align-items:baseline;
     gap:8px;margin-bottom:5px}
   .meter .top .k{font:600 10px var(--ui);color:var(--dim);letter-spacing:.09em;
@@ -4263,13 +4256,18 @@ function batColor(bat){
 }
 
 /* generic fill-bar colour: red past 90%, amber past 75%, else blue */
-function sysBarColor(p){
-  return p > 90 ? 'var(--red)' : p > 75 ? 'var(--amber)' : 'var(--blue)';
-}
 
-function sysBar(pct){
-  const p = pct == null ? 0 : Math.max(0, Math.min(100, pct));
-  return `<div class="sys-bar"><i style="width:${p}%;background:${sysBarColor(p)}"></i></div>`;
+
+/* A usage-page meter: caps label + bold mono value on one line, the tall
+   track under it, and an optional dim mono footnote — the same shape the
+   rate-limit cards use, so the two screens read as one. */
+function sysMeter(label, value, pctFill, color, foot){
+  const w = pctFill == null ? 0 : Math.max(0, Math.min(100, pctFill));
+  return `<div class="meter">
+    <div class="top"><span class="k">${esc(label)}</span><b>${esc(value)}</b></div>
+    <div class="track tall"><i style="width:${w}%;background:${color}"></i></div>
+    ${foot ? `<div class="mbot"><div class="pace">${foot}</div></div>` : ''}
+  </div>`;
 }
 
 function sysRow(label, value){
@@ -4406,20 +4404,19 @@ function renderSys(){
 
     <div class="sys-sec">
       <div class="sys-h">Load</div>
-      ${(user != null || sysp != null) ? `
-        <div class="sys-split">
-          <i style="width:${clamp01((user || 0) / 100) * 100}%;background:var(--blue)"></i>
-          <i style="width:${clamp01((sysp || 0) / 100) * 100}%;background:var(--c-orange)"></i>
-        </div>
-        <div class="sys-key">
-          <span><i style="background:var(--blue)"></i>user ${user != null ? user.toFixed(1) + '%' : '—'}</span>
-          <span><i style="background:var(--c-orange)"></i>system ${sysp != null ? sysp.toFixed(1) + '%' : '—'}</span>
-        </div>` : ''}
-      ${sysRow('load avg', esc(loadTxt))}
-      ${sysRow('memory', (mem.used != null ? fmtBytes(mem.used) : '—') + ' of ' + (mem.total != null ? fmtBytes(mem.total) : '—'))}
-      ${sysBar(memPct)}
-      ${sysRow('swap', ld.swap_total ? fmtBytes(ld.swap_used) + ' of ' + fmtBytes(ld.swap_total) : 'unused')}
-      ${swapPct ? sysBar(swapPct) : ''}
+      ${sysMeter('cpu', cpuPct != null ? pct(cpuPct) : '—', cpuPct, cpuCol,
+        (user != null || sysp != null)
+          ? `user <b>${user != null ? user.toFixed(1) + '%' : '—'}</b><span class="pc-sep">·</span>system <b>${sysp != null ? sysp.toFixed(1) + '%' : '—'}</b>` : '')}
+      ${sysMeter('load avg', load.length && load[0] != null ? load[0].toFixed(2) : '—',
+        (load.length && load[0] != null && cpu.cores) ? load[0] / cpu.cores * 100 : null,
+        (load.length && load[0] != null && cpu.cores) ? limitColor(load[0] / cpu.cores * 100) : 'var(--dim)',
+        load.length > 2 ? `5m <b>${load[1] == null ? '—' : load[1].toFixed(2)}</b><span class="pc-sep">·</span>15m <b>${load[2] == null ? '—' : load[2].toFixed(2)}</b><span class="pc-sep">·</span><b>${cpu.cores ?? '—'}</b> cores` : '')}
+      ${sysMeter('memory', mem.used != null ? fmtBytes(mem.used) : '—', memPct,
+        memPct == null ? 'var(--dim)' : limitColor(memPct),
+        `of <b>${mem.total != null ? fmtBytes(mem.total) : '—'}</b>` + (ld.mem_free_pct != null ? `<span class="pc-sep">·</span><b>${ld.mem_free_pct}%</b> free` : ''))}
+      ${sysMeter('swap', ld.swap_total ? fmtBytes(ld.swap_used) : 'unused', swapPct,
+        swapPct == null ? 'var(--dim)' : limitColor(swapPct),
+        ld.swap_total ? `of <b>${fmtBytes(ld.swap_total)}</b>` : '')}
     </div>
 
     <div class="sys-sec rule">
