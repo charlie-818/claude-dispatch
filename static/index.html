@@ -93,6 +93,11 @@
   .devrow .tag{font:600 9.5px var(--mono);letter-spacing:.06em;color:var(--dimmer);
     text-transform:uppercase;padding:5px 10px;border-radius:3px}
   .devrow.cur .tag{color:var(--green)}
+  /* Peer charge level. Mono so the digits don't jiggle between probes; the
+     colour comes from the same batColor the hero ring uses. */
+  .devrow .devbat{flex:none;font:600 11px var(--mono);letter-spacing:.02em;
+    display:flex;align-items:center;gap:3px}
+  .devrow .devbat .bolt{font-size:9px;line-height:1}
   .devrow .host{display:block;font:400 10px var(--mono);color:var(--dimmer)}
   /* An asleep peer we know how to wake gets a button rather than a dead row —
      tapping the row itself would only navigate to a host that isn't answering. */
@@ -3864,17 +3869,33 @@ const input = document.getElementById('input'), sendbtn = document.getElementByI
 /* Height tracks the line count; the icon row below it never moves. Every path
    that writes into the box (typing, dictation, an attached file's path, the
    clear after send) goes through here, or the box keeps a stale height. */
+/* Off-screen twin of the textarea, used only to measure (see textH). It lives
+   outside the composer so growing it can never reflow the bar. */
+const mirror = document.createElement('div');
+mirror.setAttribute('aria-hidden', 'true');
+mirror.style.cssText = 'position:absolute;top:0;left:-9999px;visibility:hidden;' +
+  'white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;height:auto;';
+document.body.appendChild(mirror);
+
+let lastH = 0, lastOv = '';
 function autosize(){
-  input.style.height = 'auto';
+  // Nothing measurable while the chat screen is hidden — a zero-width mirror
+  // would report a nonsense height. The next paint calls back through here.
+  if (!input.clientWidth) return;
   // An empty box is still as tall as the placeholder it is showing — the
   // greeting and the suggestion are real content here, not hints you can clip.
-  const need = Math.ceil(input.value ? input.scrollHeight
-                         : Math.max(input.scrollHeight, suggestH, placeH));
-  input.style.height = Math.min(need, 132) + 'px';
+  const need = Math.ceil(input.value ? textH(input.value)
+                         : Math.max(textH(input.placeholder || ''), suggestH, placeH));
+  const h = Math.min(Math.max(need, 26), 132);
+  // Write the height only when it actually changes. An unchanged assignment is
+  // still a style write, and on iOS it is enough to re-run the browser's
+  // scroll-to-caret while the keyboard is up.
+  if (h !== lastH){ input.style.height = h + 'px'; lastH = h; }
   // A scrollbar only ever belongs on a box that has hit its cap. Below the cap
   // an overflowing box also means the browser owns the scroll position, which
   // is what made it lurch after every pause.
-  input.style.overflowY = need > 132 ? 'auto' : 'hidden';
+  const ov = need > 132 ? 'auto' : 'hidden';
+  if (ov !== lastOv){ input.style.overflowY = ov; lastOv = ov; }
 }
 input.addEventListener('input', () => {
   // Enabled whenever the pane can take input — an empty box still submits
@@ -3963,16 +3984,23 @@ function applyBasePlaceholder(){
 const SUGGEST_LINES = 4;
 let suggestH = 0, suggestRaw = '';   // px the box needs, and the untruncated hint
 
-/* Height this textarea would take with `text` in it. Measured on the real
-   element, so font, padding and wrap width never have to be duplicated. */
+/* Height this textarea would take with `text` in it. Measured on a mirror that
+   copies the box's typography and wrap width, never on the box itself: reading
+   scrollHeight off the real element means clearing its height first, which
+   collapses it to one line for a frame before it regrows. That collapse is the
+   bar dropping and snapping back on every keystroke once the text wraps. */
 function textH(text){
-  const keep = input.value;
-  input.value = text;
-  input.style.height = 'auto';
-  const h = input.scrollHeight;
-  input.value = keep;
-  input.style.height = 'auto';
-  return h;
+  const cs = getComputedStyle(input);
+  mirror.style.width = input.clientWidth + 'px';
+  mirror.style.font = cs.font || (cs.fontStyle + ' ' + cs.fontWeight + ' ' +
+    cs.fontSize + '/' + cs.lineHeight + ' ' + cs.fontFamily);
+  mirror.style.lineHeight = cs.lineHeight;
+  mirror.style.letterSpacing = cs.letterSpacing;
+  mirror.style.padding = cs.padding;
+  // A trailing newline keeps the last empty line: "a\n" has to measure two rows,
+  // and a bare trailing \n collapses in a normal block.
+  mirror.textContent = (text || '') + '\n';
+  return mirror.scrollHeight;
 }
 
 /* Longest prefix of `text` that still fits SUGGEST_LINES lines. Binary search —
@@ -5155,6 +5183,18 @@ function devListHTML(){
     /* A machine we know how to manage gets one control, and which one depends
        on where it is: asleep → wake it to use Dispatch; awake → sleep it, so a
        laptop isn't left spending battery once you're done with it. */
+    /* A peer's charge, from its own ping — the one number you'd otherwise have
+       to hop over to read. A plugged-in machine carries a bolt, so "42%" on a
+       charger never reads as a machine about to die. Desktops report no pack
+       and get no badge. */
+    const b = !cur && d.online && d.bat && d.bat.present !== false ? d.bat : null;
+    const charging = b && (b.state === 'charging' || b.state === 'charged'
+                            || b.state === 'ac' || b.on_ac);
+    const badge = b && b.percent != null
+      ? `<span class="devbat${charging ? ' ac' : ''}" style="color:${batColor(b)}"`
+        + ` title="${charging ? 'on charger' : 'on battery'}">`
+        + `${charging ? '<span class="bolt">⚡</span>' : ''}${b.percent}%</span>`
+      : '';
     const wake = !cur && d.wakeable
       ? (d.online
           ? `<button class="devbtn sleep" data-host="${_esc(d.host)}" onclick="sleepDevice(event,this)">sleep</button>`
@@ -5163,7 +5203,7 @@ function devListHTML(){
     return `<div class="${cls}" data-url="${_esc(d.url||('https://'+d.host))}" data-self="${cur?1:0}"`
       + `${cur?' aria-disabled="true"':''} onclick="pickDevice(this)">`
       + `<span class="nm">${_esc(d.name)}<span class="host">${_esc(d.host)}</span></span>`
-      + `${tag ? `<span class="tag">${_esc(tag)}</span>` : ''}${wake}</div>`;
+      + `${badge}${tag ? `<span class="tag">${_esc(tag)}</span>` : ''}${wake}</div>`;
   }).join('');
 }
 /* Repaint in place: a probe finishing while the system page is open updates the
@@ -5230,6 +5270,7 @@ async function probePeers(){
       clearTimeout(t);
       const j = r.ok ? await r.json().catch(() => null) : null;
       d.online = !!(j && j.dispatch);
+      d.bat = d.online ? (j.battery || null) : null;   // charge, for the row badge
       if(d.online && j.url) d.url = j.url;   // trust the peer's own origin
       if(d.online) warmPeer((d.url || 'https://' + d.host).replace(/\/+$/, ''));
     }catch(e){ d.online = false; }

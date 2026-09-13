@@ -4563,17 +4563,39 @@ async def api_sysinfo(request):
     })
 
 
+_PING_BAT = {"t": 0.0, "v": None}
+
+
+def _ping_battery():
+    """Charge level for the Devices list on every OTHER machine.
+
+    /api/ping is polled by each peer that has the system page open, so the
+    pmset shell-out behind it is cached: a charge level is slow-moving and a
+    quarter-minute stale is invisible in a badge.
+    """
+    now = time.monotonic()
+    if _PING_BAT["v"] is None or now - _PING_BAT["t"] > 15:
+        b = _sysinfo_battery()
+        _PING_BAT["v"] = {"percent": b.get("percent"), "state": b.get("state"),
+                          "on_ac": bool(b.get("on_ac")),
+                          "present": bool(b.get("present"))}
+        _PING_BAT["t"] = now
+    return _PING_BAT["v"]
+
+
 async def api_ping(request):
     """Cross-origin reachability probe. Unauthenticated and CORS-open ON PURPOSE:
     the swapper on device A fetches deviceB/api/ping to light its status dot, a
-    cross-origin GET. It reveals only that Dispatch is up, the tailnet hostname
-    and this server's own public origin — all already visible on the tailnet —
-    and never reads a cookie, so opening it wide costs nothing. `url` lets the
-    swapper adopt the peer's authoritative origin. It is the ONLY such route."""
+    cross-origin GET. It reveals only that Dispatch is up, the tailnet hostname,
+    this server's own public origin and its charge level — all already visible
+    on the tailnet — and never reads a cookie, so opening it wide costs nothing.
+    `url` lets the swapper adopt the peer's authoritative origin. It is the ONLY
+    such route."""
     self_ = next((d for d in tailnet_macs() if d["self"]), {})
     return web.json_response(
         {"dispatch": True, "host": ts_self_host(),
-         "url": self_origin(), "name": self_.get("name", "")},
+         "url": self_origin(), "name": self_.get("name", ""),
+         "battery": _ping_battery()},
         headers={"Access-Control-Allow-Origin": "*"})
 
 
