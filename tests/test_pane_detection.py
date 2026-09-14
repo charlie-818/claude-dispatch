@@ -275,13 +275,14 @@ def test_fleet_refresh_repaints_context_after_current_session_assignment():
 
 # ── _is_spinner / _collapse_repeats / clean_history ────────────────────────
 
-def test_chat_header_uses_shadow_without_bottom_divider():
+def test_chat_header_uses_text_fade_without_shadow_or_bottom_divider():
     html = (Path(__file__).parents[1] / "static" / "index.html").read_text()
     rule = html.split("#s-session > header{", 1)[1].split("}", 1)[0]
     assert "border-bottom:0" in rule
-    assert "box-shadow:0 16px 36px -16px rgba(0,0,0,.55)" in rule
-    assert "position:relative" in rule
-    assert "z-index:2" in rule
+    assert "box-shadow" not in rule
+    pane = html.split(".pane{", 1)[1].split("}", 1)[0]
+    assert "-webkit-mask-image:linear-gradient(to bottom,rgba(0,0,0,.2) 0,rgba(0,0,0,.58) 32px,#000 84px)" in pane
+    assert "mask-image:linear-gradient(to bottom,rgba(0,0,0,.2) 0,rgba(0,0,0,.58) 32px,#000 84px)" in pane
 
 
 def test_is_spinner_matches_elapsed_line():
