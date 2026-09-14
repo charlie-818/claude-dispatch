@@ -279,7 +279,7 @@ def test_chat_header_uses_shadow_without_bottom_divider():
     html = (Path(__file__).parents[1] / "static" / "index.html").read_text()
     rule = html.split("#s-session > header{", 1)[1].split("}", 1)[0]
     assert "border-bottom:0" in rule
-    assert "box-shadow:0 6px 12px -8px rgba(0,0,0,.65)" in rule
+    assert "box-shadow:0 16px 36px -16px rgba(0,0,0,.55)" in rule
     assert "position:relative" in rule
     assert "z-index:2" in rule
 
