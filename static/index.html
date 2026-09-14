@@ -18,6 +18,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet"
   href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&display=swap">
+<link rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20,300,0,-25&icon_names=attach_file,delete_sweep,history,home,mic,notifications,photo_camera,query_stats,send,stop,tune&display=block">
 <title>The Yard — CC Dispatch</title>
 <style>
   :root{
@@ -52,7 +54,12 @@
      tabs. Vertical padding is a floor, not the height. */
   header{display:flex;align-items:center;gap:10px;padding:8px 14px;
     min-height:48px;box-sizing:border-box;
-    border-bottom:1px solid var(--line);background:var(--panel2);flex:none}
+    border-bottom:1px solid var(--line);background:var(--bg);flex:none}
+  .material-symbols-rounded{font-family:"Material Symbols Rounded";
+    font-weight:normal;font-style:normal;font-size:20px;line-height:1;
+    letter-spacing:normal;text-transform:none;display:inline-block;white-space:nowrap;
+    word-wrap:normal;direction:ltr;-webkit-font-smoothing:antialiased;
+    font-feature-settings:"liga";font-variation-settings:"FILL" 0,"wght" 300,"GRAD" -25,"opsz" 20}
   header .title{font:700 13px var(--ui);letter-spacing:.1em;flex:1;min-width:0;
     text-transform:uppercase;color:var(--fg);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -69,7 +76,7 @@
   .brand .logo{display:flex;align-items:center;flex:none}
   .brand svg{width:20px;height:20px;display:block}
   .brand .body{fill:#d77757}
-  .brand .eye{fill:var(--panel2)}
+  .brand .eye{fill:var(--bg)}
   .brand .wm{font:700 13px var(--ui);letter-spacing:.16em;color:var(--fg);
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .brand .wm b{font-weight:700;color:#d77757}
@@ -151,14 +158,14 @@
   header .reap{flex:none;background:none;border:1px solid var(--line);
     border-radius:6px;color:var(--dim);font:11px var(--mono);height:30px;
     padding:0 8px;cursor:pointer;display:flex;align-items:center;gap:5px}
-  header .reap svg{width:14px;height:14px}
+  header .reap .material-symbols-rounded{font-size:16px}
   header .reap:active{transform:scale(.94)}
   header .reap.hot{color:var(--red);border-color:rgba(255,107,97,.5)}
   header .reap:disabled{opacity:.4;cursor:default}
   header .bell{flex:none;background:none;border:1px solid var(--line);
     border-radius:6px;color:var(--dim);width:30px;height:30px;cursor:pointer;
     padding:0;display:flex;align-items:center;justify-content:center}
-  header .bell svg{width:16px;height:16px}
+  header .bell .material-symbols-rounded{font-size:18px}
   header .bell:active{transform:scale(.92)}
   header .bell.on{color:var(--blue);border-color:var(--blue)}
   header .bell.busy{opacity:.5}
@@ -166,10 +173,6 @@
      piece of chrome in a header that is mostly brand. */
   #brand{opacity:.5;filter:grayscale(.9);transition:opacity .2s,filter .2s}
   #brand.live{opacity:1;filter:none}
-  .limit{display:flex;align-items:center;gap:6px;font:11px var(--mono);color:var(--dim);flex:none}
-  .bar{width:44px;height:6px;border-radius:2px;background:var(--line2);overflow:hidden}
-  .bar i{display:block;height:100%;background:var(--green);transition:width .4s}
-
   .list{flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;
     min-width:0;background:var(--bg)}
 
@@ -416,7 +419,7 @@
   .mic,.send{flex:none;width:34px;height:34px;border-radius:999px;cursor:pointer;
     display:flex;align-items:center;justify-content:center;padding:0;
     -webkit-tap-highlight-color:transparent}
-  .mic svg,.send svg{width:19px;height:19px;display:block}
+  .cbar .material-symbols-rounded{font-size:20px}
   .send{border:none;background:var(--blue);color:#06172e}
   .send:disabled{background:var(--line);color:var(--dimmer)}
   .mic{border:none;background:transparent;color:var(--dim)}
@@ -717,22 +720,16 @@
      #1a1d23 — all six checks PASS. Status hues are the fixed reserved palette. */
   :root{ --c-blue:#3987e5; --c-orange:#d95926;
          --st-good:#0ca30c; --st-warn:#fab219; --st-serious:#ec835a; --st-crit:#d03b3b; }
-  /* Persistent global-status strip: a thin row above the bottom nav, present on
-     every screen that shows the nav. Holds pane count + usage — moved out of the
-     header so the header stays brand + controls. */
-  .statusbar{display:flex;align-items:center;justify-content:space-between;gap:12px;
-    flex:none;padding:5px 14px;background:var(--panel2);border-bottom:1px solid var(--line);
-    font:11px var(--mono);color:var(--dim)}
-  .statusbar .sb-lim{display:flex;align-items:center;gap:6px;flex:none}
-  .tabbar{display:flex;flex:none;border-top:1px solid var(--line2);background:var(--panel2)}
+  .tabbar{display:flex;flex:none;border-top:1px solid var(--line);background:var(--bg)}
   .tabbar button{flex:1;background:none;border:none;cursor:pointer;
-    padding:13px 0 calc(13px + env(safe-area-inset-bottom));
-    font:700 11px var(--ui);letter-spacing:.12em;text-transform:uppercase;
-    color:var(--dim);border-top:2px solid transparent;margin-top:-1px}
-  .tabbar button.cur{color:var(--blue);border-top-color:var(--blue)}
+    padding:9px 0 calc(9px + env(safe-area-inset-bottom));
+    font:500 10px var(--ui);letter-spacing:.08em;text-transform:uppercase;
+    color:var(--dim);display:flex;flex-direction:column;align-items:center;gap:4px}
+  .tabbar button.cur{color:var(--blue);font-weight:700}
+  .tabbar .material-symbols-rounded{font-size:22px}
   .tabbar button{position:relative}
   .tabdot{display:none;position:absolute;top:9px;margin-left:5px;width:7px;height:7px;
-    border-radius:50%;background:var(--red);box-shadow:0 0 0 2px var(--panel2)}
+    border-radius:50%;background:var(--red);box-shadow:0 0 0 2px var(--bg)}
   .tabdot.on{display:inline-block;animation:pulse 1.3s infinite}
 
   /* ── auth / integrations ─────────────────────────────── */
@@ -821,12 +818,14 @@
      (a --line track, one filled stroke in a status hue) beside its number,
      with a single caption line underneath. Same mark for all four so a
      level, a position on a scale and two plain percentages read alike. */
-  .sys-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:28px}
+  .sys-grid{display:grid;grid-template-columns:1fr 1fr;gap:0;margin-bottom:28px}
   /* the four gauges are boxed, and every box is the same shape: header, then
      ring + number on one row, then exactly one caption line — nothing may wrap
      or overflow, so the number shrinks on narrow phones and the caption clips */
-  .sys-cell{min-width:0;padding:12px 14px 13px;background:var(--panel);
-    border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+  .sys-cell{min-width:0;padding:12px 14px 13px;background:none;
+    border:0;border-radius:0;overflow:hidden}
+  .sys-cell:nth-child(odd){border-right:1px solid var(--line)}
+  .sys-cell:nth-child(-n+2){border-bottom:1px solid var(--line)}
   .sys-cell .sys-h{margin-bottom:10px}
   .sys-hero{display:flex;align-items:center;gap:12px;min-width:0;height:52px}
   .sk-cell .sk-line{margin:0}
@@ -840,6 +839,7 @@
   .sys-big{font:700 clamp(22px, 7.4vw, 30px)/1 var(--mono);color:var(--fg);
     white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis}
   .sys-big s{font:600 13px var(--mono);color:var(--dim);text-decoration:none;margin-left:1px}
+  .sys-big .sys-unit{font:600 13px var(--mono);color:var(--dim);margin-left:1px}
   /* one caption line, dim label text with mono values, ellipsised rather
      than wrapped so every cell stays the same height */
   .sys-cap{font:12px var(--ui);color:var(--dim);margin-top:8px;
@@ -1093,33 +1093,23 @@
       <span class="wm"><b>THE</b> YARD</span></div>
     <button class="reap" id="reap" onclick="askReap()" disabled
             aria-label="end old sessions" title="end sessions over 3h old">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>
+      <span class="material-symbols-rounded" aria-hidden="true">delete_sweep</span>
       <span id="reapn">0</span>
     </button>
     <button class="bell" id="bell" onclick="toggleNotify()" aria-label="notifications" title="notifications">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
-        <path d="M13.7 21a2 2 0 0 1-3.4 0"/>
-      </svg>
+      <span class="material-symbols-rounded" aria-hidden="true">notifications</span>
     </button>
   </header>
-  <div class="statusbar">
-    <span class="sb-panes">—</span>
-    <span class="sb-lim"><span class="bar"><i class="sb-lim-fill" style="width:0%"></i></span><span class="sb-lim-t">—</span></span>
-  </div>
   <div id="yard">
     <div id="yard-status" class="quiet"><span class="dots"><i></i><i></i><i></i></span></div>
     <div class="trash" id="trash" aria-hidden="true">✕</div>
     <button class="fab" id="fab" onclick="spawnSession()" title="new session">+</button>
   </div>
   <div class="tabbar">
-    <button class="cur" onclick="showFleet()">yard</button>
-    <button onclick="showHistory()">history</button>
-    <button onclick="showUsage()">usage</button>
-    <button onclick="showSys()">system</button>
+    <button class="cur" onclick="showFleet()"><span class="material-symbols-rounded" aria-hidden="true">home</span><span>yard</span></button>
+    <button onclick="showHistory()"><span class="material-symbols-rounded" aria-hidden="true">history</span><span>history</span></button>
+    <button onclick="showUsage()"><span class="material-symbols-rounded" aria-hidden="true">query_stats</span><span>usage</span></button>
+    <button onclick="showSys()"><span class="material-symbols-rounded" aria-hidden="true">tune</span><span>system</span></button>
   </div>
 </div>
 
@@ -1129,16 +1119,12 @@
       <span class="wm">NOW</span></div>
     <div class="meta" id="usage-age"></div>
   </header>
-  <div class="statusbar">
-    <span class="sb-panes">—</span>
-    <span class="sb-lim"><span class="bar"><i class="sb-lim-fill" style="width:0%"></i></span><span class="sb-lim-t">—</span></span>
-  </div>
   <div id="usage-body"><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div></div>
   <div class="tabbar">
-    <button onclick="showFleet()">yard</button>
-    <button onclick="showHistory()">history</button>
-    <button class="cur" onclick="showUsage()">usage</button>
-    <button onclick="showSys()">system</button>
+    <button onclick="showFleet()"><span class="material-symbols-rounded" aria-hidden="true">home</span><span>yard</span></button>
+    <button onclick="showHistory()"><span class="material-symbols-rounded" aria-hidden="true">history</span><span>history</span></button>
+    <button class="cur" onclick="showUsage()"><span class="material-symbols-rounded" aria-hidden="true">query_stats</span><span>usage</span></button>
+    <button onclick="showSys()"><span class="material-symbols-rounded" aria-hidden="true">tune</span><span>system</span></button>
   </div>
 </div>
 
@@ -1148,10 +1134,6 @@
       <span class="wm">PAST</span></div>
     <div class="meta" id="hist-meta"></div>
   </header>
-  <div class="statusbar">
-    <span class="sb-panes">—</span>
-    <span class="sb-lim"><span class="bar"><i class="sb-lim-fill" style="width:0%"></i></span><span class="sb-lim-t">—</span></span>
-  </div>
   <div class="hsearch">
     <div class="hqbox">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -1172,10 +1154,10 @@
   </div>
   <div id="hist-body"><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div></div>
   <div class="tabbar">
-    <button onclick="showFleet()">yard</button>
-    <button class="cur" onclick="showHistory()">history</button>
-    <button onclick="showUsage()">usage</button>
-    <button onclick="showSys()">system</button>
+    <button onclick="showFleet()"><span class="material-symbols-rounded" aria-hidden="true">home</span><span>yard</span></button>
+    <button class="cur" onclick="showHistory()"><span class="material-symbols-rounded" aria-hidden="true">history</span><span>history</span></button>
+    <button onclick="showUsage()"><span class="material-symbols-rounded" aria-hidden="true">query_stats</span><span>usage</span></button>
+    <button onclick="showSys()"><span class="material-symbols-rounded" aria-hidden="true">tune</span><span>system</span></button>
   </div>
 </div>
 
@@ -1185,10 +1167,6 @@
       <span class="wm">AUTH</span></div>
     <div class="meta" id="auth-meta"></div>
   </header>
-  <div class="statusbar">
-    <span class="sb-panes">—</span>
-    <span class="sb-lim"><span class="bar"><i class="sb-lim-fill" style="width:0%"></i></span><span class="sb-lim-t">—</span></span>
-  </div>
   <div id="auth-body">
     <section id="auth-requests" hidden>
       <div class="auth-h">Pending requests</div>
@@ -1205,10 +1183,10 @@
     </section>
   </div>
   <div class="tabbar">
-    <button onclick="showFleet()">yard</button>
-    <button onclick="showHistory()">history</button>
-    <button onclick="showUsage()">usage</button>
-    <button onclick="showSys()">system</button>
+    <button onclick="showFleet()"><span class="material-symbols-rounded" aria-hidden="true">home</span><span>yard</span></button>
+    <button onclick="showHistory()"><span class="material-symbols-rounded" aria-hidden="true">history</span><span>history</span></button>
+    <button onclick="showUsage()"><span class="material-symbols-rounded" aria-hidden="true">query_stats</span><span>usage</span></button>
+    <button onclick="showSys()"><span class="material-symbols-rounded" aria-hidden="true">tune</span><span>system</span></button>
   </div>
 </div>
 
@@ -1218,16 +1196,12 @@
       <span class="wm">SYSTEM</span></div>
     <div class="meta" id="sys-age"></div>
   </header>
-  <div class="statusbar">
-    <span class="sb-panes">—</span>
-    <span class="sb-lim"><span class="bar"><i class="sb-lim-fill" style="width:0%"></i></span><span class="sb-lim-t">—</span></span>
-  </div>
   <div id="sys-body"></div>
   <div class="tabbar">
-    <button onclick="showFleet()">yard</button>
-    <button onclick="showHistory()">history</button>
-    <button onclick="showUsage()">usage</button>
-    <button class="cur" onclick="showSys()">system</button>
+    <button onclick="showFleet()"><span class="material-symbols-rounded" aria-hidden="true">home</span><span>yard</span></button>
+    <button onclick="showHistory()"><span class="material-symbols-rounded" aria-hidden="true">history</span><span>history</span></button>
+    <button onclick="showUsage()"><span class="material-symbols-rounded" aria-hidden="true">query_stats</span><span>usage</span></button>
+    <button class="cur" onclick="showSys()"><span class="material-symbols-rounded" aria-hidden="true">tune</span><span>system</span></button>
   </div>
 </div>
 
@@ -1345,33 +1319,18 @@
       <textarea id="input" rows="1" placeholder=""></textarea>
       <div class="cbar">
         <button class="mic" id="attachbtn" onclick="document.getElementById('fileinput').click()" aria-label="attach">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M21 11.5l-8.5 8.5a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.6 1.6 0 0 1-2.3-2.3l7.8-7.8"/>
-          </svg>
+          <span class="material-symbols-rounded" aria-hidden="true">attach_file</span>
         </button>
         <button class="mic" id="camerabtn" onclick="document.getElementById('caminput').click()" aria-label="take picture">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M3 8.5h3.2l1.5-2.5h8.6l1.5 2.5H21a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1z"/>
-            <circle cx="12" cy="13.5" r="3.5"/>
-          </svg>
+          <span class="material-symbols-rounded" aria-hidden="true">photo_camera</span>
         </button>
         <span class="gap"></span>
         <button class="mic" id="micbtn" onclick="toggleMic()" aria-label="dictate">
-          <svg class="i-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="9" y="2.5" width="6" height="11" rx="3"/>
-            <path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="21.5"/>
-          </svg>
-          <svg class="i-stop" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <rect x="6" y="6" width="12" height="12" rx="2.5"/>
-          </svg>
+          <span class="material-symbols-rounded i-mic" aria-hidden="true">mic</span>
+          <span class="material-symbols-rounded i-stop" aria-hidden="true">stop</span>
         </button>
         <button class="send" id="sendbtn" onclick="send()" disabled aria-label="send">
-          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M3.5 20.6l16.9-8.1c.8-.4.8-1.6 0-2L3.5 2.4c-.8-.4-1.6.4-1.3 1.2L4 11l-1.8 6.4c-.3.8.5 1.6 1.3 1.2z"/>
-          </svg>
+          <span class="material-symbols-rounded" aria-hidden="true">send</span>
         </button>
       </div>
     </div>
@@ -4527,7 +4486,7 @@ function renderSys(){
         <div class="sys-h">Temperature</div>
         <div class="sys-hero">
           ${sysRing(tRingPct, tCol)}
-          <div class="sys-big" style="color:${tCol}">${tC != null ? tC.toFixed(1) + '<s>°</s>' : '—'}</div>
+          <div class="sys-big" style="color:${tCol}">${tC != null ? tC.toFixed(1) + '<span class="sys-unit">°C</span>' : '—'}</div>
         </div>
         <div class="sys-cap">${tCap}</div>
       </div>
