@@ -55,6 +55,8 @@
   header{display:flex;align-items:center;gap:10px;padding:8px 14px;
     min-height:48px;box-sizing:border-box;
     border-bottom:1px solid var(--line);background:var(--bg);flex:none}
+  #s-session > header{position:relative;z-index:2;border-bottom:0;
+    box-shadow:0 6px 12px -8px rgba(0,0,0,.65)}
   .material-symbols-rounded{font-family:"Material Symbols Rounded";
     font-weight:normal;font-style:normal;font-size:20px;line-height:1;
     letter-spacing:normal;text-transform:none;display:inline-block;white-space:nowrap;
@@ -1469,7 +1471,7 @@ function renderFleet(rows){
   }
   if (current){                     // keep the open session's effort in sync
     const fresh = rows.find(r => r.uuid === current.uuid);
-    if (fresh){ current = fresh; markEffort(fresh.effort); markMode(fresh.mode); markModel(fresh.model); renderActions(); }
+    if (fresh){ current = fresh; paintCtxBar(fresh.ctx); markEffort(fresh.effort); markMode(fresh.mode); markModel(fresh.model); renderActions(); }
   }
   const panes = `${rows.length} pane${rows.length===1?'':'s'}`;
   document.querySelectorAll('.sb-panes').forEach(e => e.textContent = panes);

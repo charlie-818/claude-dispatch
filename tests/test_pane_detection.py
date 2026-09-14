@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import server as srv
 
@@ -265,7 +266,23 @@ def test_codex_fleet_preserves_hook_context(tmp_path, monkeypatch):
     assert _codex_fleet_row(tmp_path, monkeypatch, 25)["ctx"] == 25
 
 
+def test_fleet_refresh_repaints_context_after_current_session_assignment():
+    html = (Path(__file__).parents[1] / "static" / "index.html").read_text()
+    refresh = html.split("if (fresh){", 1)[1].split("}", 1)[0]
+    assert refresh.index("current = fresh;") < refresh.index("paintCtxBar(fresh.ctx);")
+    assert refresh.index("paintCtxBar(fresh.ctx);") < refresh.index("markEffort(fresh.effort);")
+
+
 # ── _is_spinner / _collapse_repeats / clean_history ────────────────────────
+
+def test_chat_header_uses_shadow_without_bottom_divider():
+    html = (Path(__file__).parents[1] / "static" / "index.html").read_text()
+    rule = html.split("#s-session > header{", 1)[1].split("}", 1)[0]
+    assert "border-bottom:0" in rule
+    assert "box-shadow:0 6px 12px -8px rgba(0,0,0,.65)" in rule
+    assert "position:relative" in rule
+    assert "z-index:2" in rule
+
 
 def test_is_spinner_matches_elapsed_line():
     assert srv._is_spinner("· Seasoning… (2m 52s)")
