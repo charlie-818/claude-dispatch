@@ -281,8 +281,8 @@ def test_chat_header_uses_text_fade_without_shadow_or_bottom_divider():
     assert "border-bottom:0" in rule
     assert "box-shadow" not in rule
     pane = html.split(".pane{", 1)[1].split("}", 1)[0]
-    assert "-webkit-mask-image:linear-gradient(to bottom,rgba(0,0,0,.2) 0,rgba(0,0,0,.58) 32px,#000 84px)" in pane
-    assert "mask-image:linear-gradient(to bottom,rgba(0,0,0,.2) 0,rgba(0,0,0,.58) 32px,#000 84px)" in pane
+    assert "-webkit-mask-image:linear-gradient(to bottom,rgba(0,0,0,.08) 0,rgba(0,0,0,.42) 38px,#000 104px)" in pane
+    assert "mask-image:linear-gradient(to bottom,rgba(0,0,0,.08) 0,rgba(0,0,0,.42) 38px,#000 104px)" in pane
 
 
 def test_is_spinner_matches_elapsed_line():
