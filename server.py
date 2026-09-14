@@ -22,6 +22,7 @@ import asyncio
 import errno
 import glob
 import json
+import math
 import os
 import pathlib
 import platform
@@ -937,7 +938,7 @@ def journal_path(provider, sid):
 
 def _fresh_native():
     return {"off": 0, "files": set(), "prompts": 0, "add": 0, "del": 0,
-            "action": None, "stamp": None}
+            "action": None, "stamp": None, "ctx": None}
 
 
 def codex_ops(path):
@@ -964,10 +965,29 @@ def codex_ops(path):
         st["off"] += cut
         for line in data[:cut].decode("utf-8", "ignore").splitlines():
             try:
-                p = (json.loads(line) or {}).get("payload") or {}
+                record = json.loads(line) or {}
+                p = record.get("payload") or {}
             except Exception:
                 continue
             typ = p.get("type")
+            if record.get("type") == "event_msg" and typ == "token_count":
+                info = p.get("info") or {}
+                usage = info.get("last_token_usage") or {}
+                total = usage.get("total_tokens")
+                window = info.get("model_context_window")
+                try:
+                    if isinstance(total, bool) or isinstance(window, bool):
+                        raise ValueError
+                    total, window = float(total), float(window)
+                    if not math.isfinite(total) or not math.isfinite(window):
+                        raise ValueError
+                    if total < 0 or window <= 0:
+                        raise ValueError
+                except (TypeError, ValueError):
+                    pass
+                else:
+                    st["ctx"] = max(0, min(100, total / window * 100))
+                continue
             if typ == "message" and p.get("role") == "user":
                 txt = " ".join(x.get("text", "") for x in (p.get("content") or [])
                                if isinstance(x, dict) and x.get("type") == "input_text")
@@ -1192,6 +1212,8 @@ def read_fleet_files():
             row["lines_add"] = st["add"] if st else 0
             row["lines_del"] = st["del"] if st else 0
             row["action"] = (st or {}).get("action")
+            if provider == "codex" and row["ctx"] is None and st:
+                row["ctx"] = st.get("ctx")
             row["subs"] = []
         # A hook child can lose ITERM_SESSION_ID, so a record may name only the tty
         # it was written from. Index those by tty and let build_fleet match them to
