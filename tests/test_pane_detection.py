@@ -302,9 +302,13 @@ def test_bottom_nav_has_labeled_heavy_material_symbols():
     tabbar = html.split('.tabbar button{', 1)[1].split('}', 1)[0]
     assert 'min-height:48px' in tabbar
     icons = html.split('.tabbar .material-symbols-rounded{', 1)[1].split('}', 1)[0]
-    assert 'font-size:23px' in icons
+    assert 'font-size:21px' in icons
+    assert '"opsz" 21' in icons
     assert 'font-weight:600' in icons
     assert '"wght" 600' in icons
+    labels = html.split('.tabbar .tab-label{', 1)[1].split('}', 1)[0]
+    assert 'font:600 10px var(--ui)' in labels
+    assert 'margin-left:5px' in labels
 
 
 def test_is_spinner_matches_elapsed_line():
