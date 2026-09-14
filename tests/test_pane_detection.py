@@ -285,23 +285,26 @@ def test_chat_header_uses_text_fade_without_shadow_or_bottom_divider():
     assert "mask-image:linear-gradient(to bottom,rgba(0,0,0,.08) 0,rgba(0,0,0,.42) 38px,#000 104px)" in pane
 
 
-def test_bottom_nav_is_icon_only_with_bold_material_symbols():
+def test_bottom_nav_has_labeled_heavy_material_symbols():
     html = (Path(__file__).parents[1] / "static" / "index.html").read_text()
     assert html.count('<div class="tabbar">') == 5
     assert html.count('aria-label="yard"') == 5
     assert html.count('aria-label="history"') == 5
     assert html.count('aria-label="usage"') == 5
     assert html.count('aria-label="system"') == 5
-    assert '<span>yard</span>' not in html
-    assert '<span>history</span>' not in html
-    assert '<span>usage</span>' not in html
-    assert '<span>system</span>' not in html
+    assert html.count('<span class="tab-label">yard</span>') == 5
+    assert html.count('<span class="tab-label">history</span>') == 5
+    assert html.count('<span class="tab-label">usage</span>') == 5
+    assert html.count('<span class="tab-label">system</span>') == 5
+    assert html.count('>query_stats<') == 0
+    assert html.count('>tune<') == 5
+    assert html.count('>settings<') == 5
     tabbar = html.split('.tabbar button{', 1)[1].split('}', 1)[0]
     assert 'min-height:48px' in tabbar
     icons = html.split('.tabbar .material-symbols-rounded{', 1)[1].split('}', 1)[0]
-    assert 'font-size:22px' in icons
-    assert 'font-weight:500' in icons
-    assert '"wght" 500' in icons
+    assert 'font-size:23px' in icons
+    assert 'font-weight:600' in icons
+    assert '"wght" 600' in icons
 
 
 def test_is_spinner_matches_elapsed_line():

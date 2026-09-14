@@ -19,7 +19,7 @@
 <link rel="stylesheet"
   href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&display=swap">
 <link rel="stylesheet"
-  href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20,300,0,-25&icon_names=attach_file,delete_sweep,history,home,mic,notifications,photo_camera,query_stats,stop,tune&display=block">
+  href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20,300..700,0,-25&icon_names=attach_file,delete_sweep,history,home,mic,notifications,photo_camera,settings,stop,tune&display=block">
 <title>The Yard — CC Dispatch</title>
 <style>
   :root{
@@ -729,8 +729,9 @@
     min-height:48px;padding:12px 0 calc(12px + env(safe-area-inset-bottom));
     color:var(--dim);display:flex;align-items:center;justify-content:center}
   .tabbar button.cur{color:var(--blue);font-weight:700}
-  .tabbar .material-symbols-rounded{font-size:22px;font-weight:500;
-    font-variation-settings:"FILL" 0,"wght" 500,"GRAD" -25,"opsz" 22}
+  .tabbar .material-symbols-rounded{font-size:23px;font-weight:600;
+    font-variation-settings:"FILL" 0,"wght" 600,"GRAD" -25,"opsz" 23}
+  .tabbar .tab-label{font:600 11px var(--ui);letter-spacing:.03em;margin-left:5px}
   .tabbar button{position:relative}
   .tabdot{display:none;position:absolute;top:9px;margin-left:5px;width:7px;height:7px;
     border-radius:50%;background:var(--red);box-shadow:0 0 0 2px var(--bg)}
@@ -1110,10 +1111,10 @@
     <button class="fab" id="fab" onclick="spawnSession()" title="new session">+</button>
   </div>
   <div class="tabbar">
-    <button class="cur" onclick="showFleet()" aria-label="yard"><span class="material-symbols-rounded" aria-hidden="true">home</span></button>
-    <button onclick="showHistory()" aria-label="history"><span class="material-symbols-rounded" aria-hidden="true">history</span></button>
-    <button onclick="showUsage()" aria-label="usage"><span class="material-symbols-rounded" aria-hidden="true">query_stats</span></button>
-    <button onclick="showSys()" aria-label="system"><span class="material-symbols-rounded" aria-hidden="true">tune</span></button>
+    <button class="cur" onclick="showFleet()" aria-label="yard"><span class="material-symbols-rounded" aria-hidden="true">home</span><span class="tab-label">yard</span></button>
+    <button onclick="showHistory()" aria-label="history"><span class="material-symbols-rounded" aria-hidden="true">history</span><span class="tab-label">history</span></button>
+    <button onclick="showUsage()" aria-label="usage"><span class="material-symbols-rounded" aria-hidden="true">tune</span><span class="tab-label">usage</span></button>
+    <button onclick="showSys()" aria-label="system"><span class="material-symbols-rounded" aria-hidden="true">settings</span><span class="tab-label">system</span></button>
   </div>
 </div>
 
@@ -1125,10 +1126,10 @@
   </header>
   <div id="usage-body"><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div></div>
   <div class="tabbar">
-    <button onclick="showFleet()" aria-label="yard"><span class="material-symbols-rounded" aria-hidden="true">home</span></button>
-    <button onclick="showHistory()" aria-label="history"><span class="material-symbols-rounded" aria-hidden="true">history</span></button>
-    <button class="cur" onclick="showUsage()" aria-label="usage"><span class="material-symbols-rounded" aria-hidden="true">query_stats</span></button>
-    <button onclick="showSys()" aria-label="system"><span class="material-symbols-rounded" aria-hidden="true">tune</span></button>
+    <button onclick="showFleet()" aria-label="yard"><span class="material-symbols-rounded" aria-hidden="true">home</span><span class="tab-label">yard</span></button>
+    <button onclick="showHistory()" aria-label="history"><span class="material-symbols-rounded" aria-hidden="true">history</span><span class="tab-label">history</span></button>
+    <button class="cur" onclick="showUsage()" aria-label="usage"><span class="material-symbols-rounded" aria-hidden="true">tune</span><span class="tab-label">usage</span></button>
+    <button onclick="showSys()" aria-label="system"><span class="material-symbols-rounded" aria-hidden="true">settings</span><span class="tab-label">system</span></button>
   </div>
 </div>
 
@@ -1158,10 +1159,10 @@
   </div>
   <div id="hist-body"><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div></div>
   <div class="tabbar">
-    <button onclick="showFleet()" aria-label="yard"><span class="material-symbols-rounded" aria-hidden="true">home</span></button>
-    <button class="cur" onclick="showHistory()" aria-label="history"><span class="material-symbols-rounded" aria-hidden="true">history</span></button>
-    <button onclick="showUsage()" aria-label="usage"><span class="material-symbols-rounded" aria-hidden="true">query_stats</span></button>
-    <button onclick="showSys()" aria-label="system"><span class="material-symbols-rounded" aria-hidden="true">tune</span></button>
+    <button onclick="showFleet()" aria-label="yard"><span class="material-symbols-rounded" aria-hidden="true">home</span><span class="tab-label">yard</span></button>
+    <button class="cur" onclick="showHistory()" aria-label="history"><span class="material-symbols-rounded" aria-hidden="true">history</span><span class="tab-label">history</span></button>
+    <button onclick="showUsage()" aria-label="usage"><span class="material-symbols-rounded" aria-hidden="true">tune</span><span class="tab-label">usage</span></button>
+    <button onclick="showSys()" aria-label="system"><span class="material-symbols-rounded" aria-hidden="true">settings</span><span class="tab-label">system</span></button>
   </div>
 </div>
 
@@ -1187,10 +1188,10 @@
     </section>
   </div>
   <div class="tabbar">
-    <button onclick="showFleet()" aria-label="yard"><span class="material-symbols-rounded" aria-hidden="true">home</span></button>
-    <button onclick="showHistory()" aria-label="history"><span class="material-symbols-rounded" aria-hidden="true">history</span></button>
-    <button onclick="showUsage()" aria-label="usage"><span class="material-symbols-rounded" aria-hidden="true">query_stats</span></button>
-    <button onclick="showSys()" aria-label="system"><span class="material-symbols-rounded" aria-hidden="true">tune</span></button>
+    <button onclick="showFleet()" aria-label="yard"><span class="material-symbols-rounded" aria-hidden="true">home</span><span class="tab-label">yard</span></button>
+    <button onclick="showHistory()" aria-label="history"><span class="material-symbols-rounded" aria-hidden="true">history</span><span class="tab-label">history</span></button>
+    <button onclick="showUsage()" aria-label="usage"><span class="material-symbols-rounded" aria-hidden="true">tune</span><span class="tab-label">usage</span></button>
+    <button onclick="showSys()" aria-label="system"><span class="material-symbols-rounded" aria-hidden="true">settings</span><span class="tab-label">system</span></button>
   </div>
 </div>
 
@@ -1202,10 +1203,10 @@
   </header>
   <div id="sys-body"></div>
   <div class="tabbar">
-    <button onclick="showFleet()" aria-label="yard"><span class="material-symbols-rounded" aria-hidden="true">home</span></button>
-    <button onclick="showHistory()" aria-label="history"><span class="material-symbols-rounded" aria-hidden="true">history</span></button>
-    <button onclick="showUsage()" aria-label="usage"><span class="material-symbols-rounded" aria-hidden="true">query_stats</span></button>
-    <button class="cur" onclick="showSys()" aria-label="system"><span class="material-symbols-rounded" aria-hidden="true">tune</span></button>
+    <button onclick="showFleet()" aria-label="yard"><span class="material-symbols-rounded" aria-hidden="true">home</span><span class="tab-label">yard</span></button>
+    <button onclick="showHistory()" aria-label="history"><span class="material-symbols-rounded" aria-hidden="true">history</span><span class="tab-label">history</span></button>
+    <button onclick="showUsage()" aria-label="usage"><span class="material-symbols-rounded" aria-hidden="true">tune</span><span class="tab-label">usage</span></button>
+    <button class="cur" onclick="showSys()" aria-label="system"><span class="material-symbols-rounded" aria-hidden="true">settings</span><span class="tab-label">system</span></button>
   </div>
 </div>
 
