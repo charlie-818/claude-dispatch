@@ -414,16 +414,18 @@
     background:transparent;color:var(--fg);border:none;border-radius:0;
     padding:3px 5px;font:15px/22px var(--ui);outline:none;overflow-y:hidden}
   .composer textarea::placeholder{color:var(--dimmer)}
-  /* the persistent bottom line — attach on the left, mic + send on the right */
+  /* the persistent bottom line — attach on the left, send on the right */
   .cbar{display:flex;align-items:center;gap:4px}
   .cbar .gap{flex:1}
-  /* mic + send share one footprint and center an SVG icon, so the row reads as a
-     matched set. Ghost buttons inside the box; only send carries the accent. */
+  /* composer controls share one footprint and center their icons. Ghost buttons
+     stay inside the box; only send carries the accent. */
   .mic,.send{flex:none;width:34px;height:34px;border-radius:999px;cursor:pointer;
     display:flex;align-items:center;justify-content:center;padding:0;
     -webkit-tap-highlight-color:transparent}
-  .cbar .material-symbols-rounded{font-size:20px}
-  .send svg{width:19px;height:19px;display:block}
+  .cbar .material-symbols-rounded{font-size:21px;font-variation-settings:"FILL" 0,"wght" 700,"GRAD" -25,"opsz" 21}
+  #micbtn{display:none}
+  #sendbtn{width:40px;height:40px}
+  .send svg{width:20px;height:20px;display:block}
   .send{border:none;background:var(--blue);color:#06172e}
   .send:disabled{background:var(--line);color:var(--dimmer)}
   .mic{border:none;background:transparent;color:var(--dim)}

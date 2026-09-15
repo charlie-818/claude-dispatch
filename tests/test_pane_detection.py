@@ -311,6 +311,17 @@ def test_bottom_nav_has_labeled_heavy_material_symbols():
     assert 'margin-left:5px' in labels
 
 
+def test_composer_controls_hide_mic_and_use_heavy_icons():
+    html = (Path(__file__).parents[1] / "static" / "index.html").read_text()
+    assert 'id="micbtn"' in html
+    assert '#micbtn{display:none}' in html
+    cbar = html.split('.cbar .material-symbols-rounded{', 1)[1].split('}', 1)[0]
+    assert 'font-size:21px' in cbar
+    assert '"wght" 700' in cbar
+    assert '#sendbtn{width:40px;height:40px}' in html
+    assert '.send svg{width:20px;height:20px' in html
+
+
 def test_is_spinner_matches_elapsed_line():
     assert srv._is_spinner("· Seasoning… (2m 52s)")
     assert srv._is_spinner("✳ Doing thing… (12s)")
