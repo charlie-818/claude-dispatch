@@ -1863,6 +1863,8 @@ def read_fleet_files():
             row["lines_add"] = st["add"] if st else 0
             row["lines_del"] = st["del"] if st else 0
             row["action"] = (st or {}).get("action")
+            if provider == "codex" and row["ctx"] is None and st:
+                row["ctx"] = st.get("ctx")
             row["subs"] = []
             if provider == "codex" and st:
                 row["model"] = row["model"] or st.get("model") or ""

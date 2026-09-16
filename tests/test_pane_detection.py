@@ -1,6 +1,7 @@
 import asyncio
 import json
 import pathlib
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import server as srv
@@ -205,7 +206,124 @@ def test_claude_only_defaults_to_claude_when_unknown():
     assert srv.claude_only("nope", "mode") is None
 
 
+# ── Codex context usage ────────────────────────────────────────────────────
+
+def _write_codex_records(path, records):
+    path.write_text("".join(json.dumps(record) + "\n" for record in records))
+    srv._NATIVE.pop(str(path), None)
+    return str(path)
+
+
+def _codex_token_count(total, window):
+    return {"type": "event_msg", "payload": {"type": "token_count", "info": {
+        "last_token_usage": {"total_tokens": total},
+        "model_context_window": window,
+    }}}
+
+
+def test_codex_context_percentages_and_clamp(tmp_path):
+    cases = [(0, 200, 0), (100, 200, 50), (200, 200, 100), (250, 200, 100)]
+    for index, (total, window, expected) in enumerate(cases):
+        path = tmp_path / f"rollout-{index}.jsonl"
+        assert srv.codex_ops(_write_codex_records(
+            path, [_codex_token_count(total, window)]))["ctx"] == expected
+
+
+def test_codex_context_preserves_valid_value_after_invalid_records(tmp_path):
+    path = tmp_path / "rollout.jsonl"
+    records = [_codex_token_count(100, 200)]
+    journal = _write_codex_records(path, records)
+    assert srv.codex_ops(journal)["ctx"] == 50
+
+    records.extend([
+        _codex_token_count(None, 200),
+        _codex_token_count(100, 0),
+        _codex_token_count("bad", 200),
+    ])
+    path.write_text("".join(json.dumps(record) + "\n" for record in records))
+    assert srv.codex_ops(journal)["ctx"] == 50
+
+
+def _codex_fleet_row(tmp_path, monkeypatch, hook_ctx):
+    record = {
+        "provider": "codex", "fleet_key": "session", "session_id": "session",
+        "iterm_pane": "window:tab:ABC", "context_window": {},
+    }
+    if hook_ctx is not None:
+        record["context_window"]["used_percentage"] = hook_ctx
+    (tmp_path / "session.json").write_text(json.dumps(record))
+    monkeypatch.setattr(srv, "FLEET_DIR", str(tmp_path))
+    monkeypatch.setattr(srv, "journal_path", lambda provider, sid: "/tmp/codex.jsonl")
+    monkeypatch.setattr(srv, "native_ops", lambda provider, path: {
+        "files": set(), "prompts": 0, "add": 0, "del": 0,
+        "action": None, "ctx": 50,
+    })
+    return srv.read_fleet_files()["ABC"]
+
+
+def test_codex_fleet_uses_native_context_when_hook_context_absent(tmp_path, monkeypatch):
+    assert _codex_fleet_row(tmp_path, monkeypatch, None)["ctx"] == 50
+
+
+def test_codex_fleet_preserves_hook_context(tmp_path, monkeypatch):
+    assert _codex_fleet_row(tmp_path, monkeypatch, 25)["ctx"] == 25
+
+
+def test_fleet_refresh_repaints_context_after_current_session_assignment():
+    html = (Path(__file__).parents[1] / "static" / "index.html").read_text()
+    refresh = html.split("if (fresh){", 1)[1].split("}", 1)[0]
+    assert refresh.index("current = fresh;") < refresh.index("paintCtxBar(fresh.ctx);")
+    assert refresh.index("paintCtxBar(fresh.ctx);") < refresh.index("markEffort(fresh.effort);")
+
+
 # ── _is_spinner / _collapse_repeats / clean_history ────────────────────────
+
+def test_chat_header_uses_text_fade_without_shadow_or_bottom_divider():
+    html = (Path(__file__).parents[1] / "static" / "index.html").read_text()
+    rule = html.split("#s-session > header{", 1)[1].split("}", 1)[0]
+    assert "border-bottom:0" in rule
+    assert "box-shadow" not in rule
+    pane = html.split(".pane{", 1)[1].split("}", 1)[0]
+    assert "-webkit-mask-image:linear-gradient(to bottom,rgba(0,0,0,.08) 0,rgba(0,0,0,.42) 38px,#000 104px)" in pane
+    assert "mask-image:linear-gradient(to bottom,rgba(0,0,0,.08) 0,rgba(0,0,0,.42) 38px,#000 104px)" in pane
+
+
+def test_bottom_nav_has_labeled_heavy_material_symbols():
+    html = (Path(__file__).parents[1] / "static" / "index.html").read_text()
+    assert html.count('<div class="tabbar">') == 5
+    assert html.count('aria-label="yard"') == 5
+    assert html.count('aria-label="history"') == 5
+    assert html.count('aria-label="usage"') == 5
+    assert html.count('aria-label="system"') == 5
+    assert html.count('<span class="tab-label">yard</span>') == 5
+    assert html.count('<span class="tab-label">history</span>') == 5
+    assert html.count('<span class="tab-label">usage</span>') == 5
+    assert html.count('<span class="tab-label">system</span>') == 5
+    assert html.count('>query_stats<') == 0
+    assert html.count('>tune<') == 5
+    assert html.count('>settings<') == 5
+    tabbar = html.split('.tabbar button{', 1)[1].split('}', 1)[0]
+    assert 'min-height:52px' in tabbar
+    icons = html.split('.tabbar button .material-symbols-rounded{', 1)[1].split('}', 1)[0]
+    assert 'font-size:21px' in icons
+    assert '"opsz" 21' in icons
+    assert '"wght" 600' in icons
+    labels = html.split('.tabbar button .tab-label{', 1)[1].split('}', 1)[0]
+    assert 'font:600 10px var(--ui)' in labels
+    assert 'margin-left:5px' in labels
+
+
+def test_composer_controls_hide_mic_and_use_heavy_icons():
+    html = (Path(__file__).parents[1] / "static" / "index.html").read_text()
+    assert 'id="micbtn"' in html
+    assert '#micbtn{display:none}' in html
+    cbar = html.split('#attachbtn .material-symbols-rounded,#camerabtn '
+                      '.material-symbols-rounded{', 1)[1].split('}', 1)[0]
+    assert 'font-size:21px' in cbar
+    assert '"wght" 700' in cbar
+    assert '#sendbtn{width:40px;height:40px}' in html
+    assert '.send svg{width:20px;height:20px' in html
+
 
 def test_is_spinner_matches_elapsed_line():
     assert srv._is_spinner("· Seasoning… (2m 52s)")
