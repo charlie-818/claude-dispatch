@@ -22,6 +22,7 @@ import asyncio
 import errno
 import glob
 import json
+import math
 import os
 import pathlib
 import platform
@@ -214,10 +215,8 @@ GRID_MAX_COLS = 3    # top row grows to this many columns before rows start fill
 # ~456px tall → 11 rows) crushes Claude's TUI vertically, cutting off the top and
 # never reaching the bottom, even when the width already matches.
 PANE_COLS = 52
-# Rows are the whole conversation on a client with no scrollback (Grok redraws a
-# single alt-screen), but a dozen tiled panes cannot each be phone-height in one
-# window — iTerm refuses the resize. So this stays the floor for a normal pane,
-# and height for the pane a phone is actually watching comes from grow_pane().
+# Rows are the pane floor for every client. A dozen tiled panes cannot each be
+# phone-height in one window — iTerm refuses the resize.
 PANE_ROWS = 25
 COL_TOL = 3              # accept 52..55 cols (a tiled window fills to 53/54); only
                         # a pane outside this band (e.g. font-drift balloon) is reset
@@ -545,10 +544,10 @@ async def pane_text(session):
                      for i in range(c.number_of_lines)).rstrip()
 
 
-OPTION_RE = re.compile(r"^\s*[❯>]?\s*(\d)\.\s+(\S.*?)\s*$")
-# The caret Claude parks on the highlighted row of a select dialog. Its presence
-# is what separates a live prompt from a numbered list Claude merely printed.
-SELECT_RE = re.compile(r"^\s*[❯>]\s")
+OPTION_RE = re.compile(r"^\s*[❯>›]?\s*(\d+)\.\s+(\S.*?)\s*$")
+# The caret Claude or Codex parks on the highlighted row of a select dialog.
+# Its presence separates a live prompt from a merely printed numbered list.
+SELECT_RE = re.compile(r"^\s*[❯>›]\s")
 
 # A leading checkbox glyph on an option label — multi-select (AskUserQuestion
 # with multiSelect) draws one of these instead of a number. group(1) is the
@@ -622,12 +621,21 @@ def read_input_box(text):
     return False, ""
 
 
-def detect_input(text):
+def detect_input(text, provider=None):
     """The text sitting in Claude's ❯ input box — a greyed ghost suggestion
     (rendered after a NON-breaking space) or already-typed/queued text. We strip
     the box from the phone's pane view, so surface this so it still shows in the
     mobile composer. Returns {"text","ghost"} or None."""
-    ghost, s = read_input_box(text)
+    if provider == "codex":
+        if _codex_prompt(text):
+            return None
+        ghost, s = _codex_input(text)
+    elif provider == "grok":
+        if _grok_prompt(text):
+            return None
+        ghost, s = read_input_box(text)
+    else:
+        ghost, s = read_input_box(text)
     if not s:
         return None
     return {"text": s[:600], "ghost": ghost}
@@ -728,7 +736,7 @@ def _is_option_row(l):
     return bool(CHECK_RE.match(s))
 
 
-def detect_prompt(text):
+def detect_prompt(text, provider=None, uuid=None):
     """Find a choice Claude is waiting on: permission/plan approval (numbered,
     single choice) or a checkbox multi-select (AskUserQuestion multiSelect,
     numbered or not). Returns {"question", "options", "multi"} or None, where
@@ -736,6 +744,31 @@ def detect_prompt(text):
     run of consecutive option lines counts — earlier ones are scrollback from
     prompts already answered.
     """
+    if provider == "codex":
+        prompt = _codex_prompt(text)
+        if uuid:
+            pane = uuid.upper()
+            if prompt is None:
+                _CODEX_PROMPT_EPISODES.pop(pane, None)
+            else:
+                identities = _CODEX_PROMPT_EPISODES.setdefault(pane, {})
+                immutable = json.dumps([prompt["kind"], prompt.get("variant"), prompt["question"], prompt.get("context"),
+                                        prompt.get("question_index"), prompt.get("question_count"),
+                                        [(o["label"], o.get("desc", "")) for o in prompt["options"]]])
+                prompt["id"] = identities.setdefault(immutable, secrets.token_hex(16))
+        return prompt
+    if provider == "grok":
+        prompt = _grok_prompt(text)
+        if uuid:
+            pane = uuid.upper()
+            if prompt is None:
+                _GROK_PROMPT_EPISODES.pop(pane, None)
+            else:
+                identities = _GROK_PROMPT_EPISODES.setdefault(pane, {})
+                immutable = json.dumps([prompt["kind"], prompt["question"],
+                                        [(o["label"], o.get("desc", "")) for o in prompt["options"]]])
+                prompt["id"] = identities.setdefault(immutable, secrets.token_hex(16))
+        return prompt
     lines = text.splitlines()
     run = _last_numbered_run(lines)
     numbered = run is not None
@@ -796,6 +829,384 @@ def detect_prompt(text):
     return {"question": q[:160], "options": opts[:9], "multi": multi}
 
 
+_GROK_PROMPT_EPISODES = {}
+# Grok's slash pickers sit between two dashed rules. The top rule stamps the
+# visible row count just before the last dash ("──2─"); the bottom is plain.
+_GROK_RULE = re.compile(r"^\s*[─━]{4,}\d*[─━]*\s*$")
+_GROK_BAR_TAIL = re.compile(r" {2,}[█▌│]+\s*$")
+_GROK_PICKER_CMD = re.compile(r"^/(model|effort)\b.+$")
+_GROK_STATUS = re.compile(
+    r"╰─+\s*(.*?)\s*(?:\((\w+)\))?\s*(?:·\s*([\w-]+))?\s*─*╯")
+_GROK_MODE_MARK = {
+    "always-approve": "always-approve",
+    "auto-approve": "auto",
+    "approve-edits": "accept",
+    "plan": "plan",
+}
+
+
+def _grok_clean(line):
+    return _GROK_BAR_TAIL.sub("", line or "").rstrip()
+
+
+def detect_grok_status(text):
+    """Model, effort and permission mode from Grok's input-box footer."""
+    out = {}
+    for raw in reversed((text or "").splitlines()):
+        line = _grok_clean(raw)
+        m = _GROK_STATUS.search(line)
+        if not m:
+            continue
+        name = (m.group(1) or "").strip()
+        if name:
+            out["model"] = name
+        if m.group(2):
+            out["effort"] = m.group(2).lower()
+        mark = (m.group(3) or "").lower()
+        if mark in _GROK_MODE_MARK:
+            out["mode"] = _GROK_MODE_MARK[mark]
+        elif mark:
+            out["mode"] = mark
+        else:
+            out["mode"] = "ask"
+        return out
+    return out
+
+
+def _grok_picker_command(text):
+    """The slash command currently driving a Grok dropdown, or None.
+
+    `/model` or `/effort` alone is the autocomplete menu. The picker itself
+    fills the box with a template (`/model <model> [effort]`, `/effort <level>`)
+    or the chosen model (`/model Grok 4.6`) while effort rows are showing.
+    """
+    ghost, s = read_input_box(text)
+    cmd = (s or "").strip()
+    if ghost:
+        return None
+    return cmd.split()[0] if _GROK_PICKER_CMD.match(cmd) else None
+
+
+def _grok_label_col(line):
+    s = line.lstrip()
+    if s.startswith("❯"):
+        return line.find("❯") + 2
+    return len(line) - len(s)
+
+
+# Grok's TUI can paint a model logo (image cell / private-use glyph) before the
+# name. Those are not part of the option and they break wrapping on a 52-col pane.
+_GROK_ICON = re.compile(
+    r"^[\s\uE000-\uF8FF￼�◆◇▶▷●○■□▪▫✦✧★☆⭐🖼🖥]+")
+
+
+def _grok_strip_icon(text):
+    return _GROK_ICON.sub("", text or "").strip()
+
+
+def _grok_prompt(text):
+    """Grok's `/model` and `/effort` dropdowns: unnumbered caret rows between
+    two dashed rules, parked above the input box. Returns a picker dict or None.
+    """
+    command = _grok_picker_command(text)
+    if not command:
+        return None
+    lines = [_grok_clean(l) for l in (text or "").splitlines()]
+    rules = [i for i, l in enumerate(lines) if _GROK_RULE.match(l)]
+    if len(rules) < 2:
+        return None
+    start, end = rules[-2], rules[-1]
+    if end - start < 2:
+        return None
+    rows, label_col = [], None
+    for line in lines[start + 1:end]:
+        if not line.strip():
+            continue
+        col = _grok_label_col(line)
+        if label_col is None:
+            label_col = col
+        if col > label_col and rows:
+            extra = line.strip()
+            if extra:
+                rows[-1]["rest"] = (rows[-1]["rest"] + " " + extra).strip()
+            continue
+        if col < label_col:
+            continue
+        rest = line[col:].rstrip()
+        if not rest.strip() or rest.lstrip().startswith("/"):
+            continue
+        rows.append({"selected": "❯" in line[:col], "rest": rest.strip()})
+    desc_col = None
+    for rest in (r["rest"] for r in rows):
+        m = re.search(r"\s{2,}\S", rest)
+        if m:
+            at = m.end() - 1
+            desc_col = at if desc_col is None else min(desc_col, at)
+    options = []
+    for row in rows:
+        rest = row["rest"]
+        label, desc = rest, ""
+        if desc_col is not None and len(rest) > desc_col:
+            label, desc = rest[:desc_col].rstrip(), rest[desc_col:].strip()
+        else:
+            marked = re.match(r"^(.+? \((?:current|active)\))\s+(\S.*)$", rest)
+            if marked:
+                label, desc = marked.group(1), marked.group(2)
+        option = {"key": "", "label": _grok_strip_icon(label), "selected": row["selected"],
+                  "checked": False, "index": len(options)}
+        if desc:
+            option["desc"] = desc
+        options.append(option)
+    if len(options) < 2 or sum(1 for o in options if o["selected"]) != 1:
+        return None
+    kind = "effort" if command == "/effort" or all(
+        "effort" in o["label"].lower() for o in options) else "model"
+    question = "Select reasoning effort" if kind == "effort" else "Select model"
+    return {"provider": "grok", "kind": "picker", "variant": kind,
+            "question": question, "context": "", "options": options,
+            "multi": False, "actions": ["choose", "cancel"]}
+
+
+_CODEX_PROMPT_EPISODES = {}
+_CODEX_QUESTION = re.compile(r"^\s*Question (\d+)/(\d+)(?:\s+\([^)]*\))?\s*$")
+_CODEX_PLACEHOLDERS = {"Ask Codex to do anything", "Add notes", "Add notes or text", "Type your answer (optional)",
+                       "Write tests for @filename", "Explain this codebase", "Find and fix a bug in @filename",
+                       "Implement {feature}", "Summarize recent commits", "Improve documentation in @filename"}
+
+
+_CODEX_INPUT_FOOT = re.compile(
+    r"context left|for shortcuts|to submit|to clear notes|to add notes|esc to|gpt-\S+.*·", re.I)
+_CODEX_FINISHED_TURN = re.compile(r"^[•■⚠]")
+_CODEX_PICKER_TITLES = re.compile(
+    r"^Select Model$|^Select Model and Effort$|^Advanced Reasoning$|^Select Reasoning Level\b|"
+    r"^Apply reasoning change$|^Choose where to apply\b")
+
+
+def _codex_input(text):
+    animation = re.compile(r"(?=.*[\u2800-\u28ff])[\s\u2800-\u28ff]+", re.S)
+    lines = text.splitlines()
+    for i in range(len(lines) - 1, -1, -1):
+        line = lines[i]
+        if not line.lstrip().startswith("›") or OPTION_RE.match(line):
+            continue
+        value = line.lstrip()[1:].lstrip()
+        if animation.fullmatch(value):
+            value = ""
+        continuation, finished = [], False
+        for tail in lines[i + 1:]:
+            if animation.fullmatch(tail):
+                continue
+            stripped = tail.strip()
+            if not stripped or _CODEX_INPUT_FOOT.search(stripped):
+                break
+            if OPTION_RE.match(tail) or BOX_RULE_RE.match(stripped):
+                break
+            if _CODEX_FINISHED_TURN.search(stripped):
+                finished = True
+                break
+            continuation.append(tail[2:] if tail.startswith("  ") else tail)
+        if finished:
+            continue
+        value = "\n".join([value, *continuation]).rstrip()
+        for placeholder in sorted(_CODEX_PLACEHOLDERS, key=len, reverse=True):
+            if value.startswith(placeholder):
+                decoration = value[len(placeholder):]
+                if decoration and decoration[0].isspace() and animation.fullmatch(decoration):
+                    value = placeholder
+                    break
+        return value in _CODEX_PLACEHOLDERS, value
+    return False, ""
+
+
+def _codex_prompt(text):
+    asynchronous = _codex_async_prompt(text)
+    if asynchronous:
+        return asynchronous
+    lines = text.splitlines()
+    headers = [(i, _CODEX_QUESTION.match(line)) for i, line in enumerate(lines)
+               if _CODEX_QUESTION.match(line)]
+    if headers:
+        start, header = headers[-1]
+        body = lines[start + 1:]
+        footer = next((i for i, line in enumerate(body) if re.search(r"enter to submit (?:answer|all)", line, re.I)), None)
+        if footer is not None:
+            if any(line.lstrip().startswith("›") and not OPTION_RE.match(line) for line in body[footer + 1:]):
+                return None
+            content = body[:footer]
+            # A completed transcript below a stale header is not an overlay.
+            if not any(re.search(r"tab|esc to interrupt|navigate questions", line, re.I) for line in body[footer:footer + 3]):
+                return None
+            options = []
+            first = next((i for i, line in enumerate(content) if OPTION_RE.match(line)
+                          or line.lstrip().startswith("›")), len(content))
+            question = "\n".join(line.strip() for line in content[:first]).strip()
+            for line in content[first:]:
+                match = OPTION_RE.match(line)
+                if match:
+                    parts = re.split(r"\s{2,}", match[2], maxsplit=1)
+                    option = {"key": match[1], "label": parts[0], "selected": bool(SELECT_RE.match(line)),
+                              "checked": False, "index": len(options)}
+                    if len(parts) > 1:
+                        option["desc"] = parts[1]
+                    options.append(option)
+                elif line.lstrip().startswith("›"):
+                    break
+                elif line.strip() and options:
+                    options[-1]["desc"] = (options[-1].get("desc", "") + " " + line.strip()).strip()
+            ghost, draft = _codex_input("\n".join(content))
+            visible = any(line.lstrip().startswith("›") and not OPTION_RE.match(line) for line in content)
+            index, count = int(header[1]), int(header[2])
+            return {"provider": "codex", "kind": "question", "question": question,
+                    "context": "", "options": options, "multi": False,
+                    "question_index": index, "question_count": count,
+                    "input": {"allowed": True, "visible": visible, "text": "" if ghost else draft,
+                              "placeholder": draft if ghost else "Add notes or text"},
+                    "actions": ["submit", *(["previous"] if index > 1 else []),
+                                *(["next"] if index < count else []), "cancel"]}
+    # Native approval/model dialogs have a confirmation footer. Plain numbered
+    # prose, including old answered questions, has no such live footer.
+    footers = [i for i, line in enumerate(lines) if re.search(r"(?:press )?enter to (?:confirm|select)", line, re.I)]
+    if not footers:
+        return None
+    end = footers[-1]
+    if any(line.lstrip().startswith("›") and not OPTION_RE.match(line) for line in lines[end + 1:]):
+        return None
+    run = _last_numbered_run(lines[:end])
+    if not run:
+        return None
+    start = run[0][0]
+    titles = [i for i, line in enumerate(lines[:start]) if re.search(
+        r"Would you like to|Do you want to|^\s*(?:Select |Advanced Reasoning)|(?<!\bwithout your )approval|\bapprove\b",
+        line, re.I)]
+    head_start = titles[-1] if titles else max(0, start - 8)
+    context = "\n".join(line.strip() for line in lines[head_start:start]).strip()
+    approval = bool(re.search(
+        r"Would you like to|Do you want to|run the following|(?<!\bwithout your )approval|\bapprove\b",
+        context, re.I))
+    options = []
+    for i, (_, key, label, selected, tail) in enumerate(run):
+        parts = re.split(r"\s{2,}", label, maxsplit=1)
+        option = {"key": key, "label": parts[0], "selected": selected, "checked": False, "index": i}
+        desc = " ".join(filter(None, [parts[1] if len(parts) > 1 else "", tail]))
+        if desc:
+            option["desc"] = desc
+        options.append(option)
+    return {"provider": "codex", "kind": "approval" if approval else "picker",
+            "question": context.split("\n")[0] if context else "Choose an option",
+            "context": context, "options": options, "multi": False,
+            "input": {"allowed": False, "visible": False, "text": "", "placeholder": ""},
+            "actions": ["choose", "cancel"]}
+
+
+_CODEX_QUEUE_EPISODES = {}
+_CODEX_QUESTION_KEYS = {"alt_up": "\x1b[1;3A", "shift_left": "\x1b[1;2D",
+                        "alt_down": "\x1b[1;3B", "shift_right": "\x1b[1;2C"}
+
+
+def _codex_question_key(hint, direction):
+    hint = re.sub(r"\s+", "", hint).lower().replace("option", "alt").replace("⌥", "alt").replace("⇧", "shift")
+    if direction == "forward":
+        return "alt_up" if hint in ("alt+↑", "alt+up") else "shift_left" if hint in ("shift+←", "shift+left") else None
+    return "alt_down" if hint in ("alt+↓", "alt+down") else "shift_right" if hint in ("shift+→", "shift+right") else None
+
+
+def _codex_async_prompt(text):
+    lines = text.splitlines()
+    footers = [i for i, line in enumerate(lines) if re.search(r"\benter\s+submit\b", line, re.I)]
+    if not footers:
+        return None
+    end = footers[-1]
+    footer = "\n".join(lines[end:])
+    if not re.search(r"ctrl\s*\+\s*\]\s+skip", footer, re.I):
+        return None
+    back = re.search(r"([^\n·]+?)\s+(main prompt|prev question)", footer, re.I)
+    if not back or any(line.lstrip().startswith("›") for line in lines[end + 1:]):
+        return None
+    # Each hint can share a footer line, separated by three spaces.
+    back_hint = re.split(r"\s{2,}", back[1].strip())[-1]
+    back_key = _codex_question_key(back_hint, "back")
+    forward = re.search(r"([^\n·]+?)\s+next question", footer, re.I)
+    forward_key = _codex_question_key(re.split(r"\s{2,}", forward[1].strip())[-1], "forward") if forward else None
+    run = _last_numbered_run(lines[:end])
+    if not run:
+        return None
+    start = run[0][0]
+    parts, first = [], start
+    for i in range(start - 1, -1, -1):
+        value = lines[i].strip()
+        if not value and parts:
+            break
+        if value:
+            parts.append(value)
+            first = i
+    question = "\n".join(reversed(parts))
+    progress = re.match(r"^(\d+) of (\d+)\n", question)
+    if progress:
+        index, count = int(progress[1]), int(progress[2])
+        question = question[progress.end():]
+    else:
+        above = next((line.strip() for line in reversed(lines[:first]) if line.strip()), "")
+        progress = re.fullmatch(r"(\d+) of (\d+)", above)
+        index, count = (int(progress[1]), int(progress[2])) if progress else (1, 1)
+    if not question or not 1 <= index <= count:
+        return None
+    options = []
+    for i, (_, key, label, selected, tail) in enumerate(run):
+        value = " ".join(filter(None, [label, tail]))
+        options.append({"key": key, "label": value, "selected": selected, "checked": False, "index": i})
+    other = options[-1]
+    draft = other["label"] if other["label"] != "Other" else ""
+    other.update(label="Other", custom=True)
+    actions = ["submit", "skip"]
+    if back_key:
+        actions.append("close")
+        if back[2] == "prev question":
+            actions.append("previous")
+    if forward_key:
+        actions.append("next")
+    return {"provider": "codex", "kind": "question", "variant": "async", "question": question,
+            "context": "", "options": options, "multi": False,
+            "question_index": index, "question_count": count,
+            "input": {"allowed": True, "visible": other["selected"], "text": draft,
+                      "placeholder": "Type your answer"}, "actions": actions,
+            "navigation": {"back_key": back_key, "forward_key": forward_key}}
+
+
+def detect_queued_questions(text, provider=None, uuid=None):
+    queued = None
+    if provider == "codex" and not _codex_prompt(text):
+        lines = text.splitlines()
+        headers = [i for i, line in enumerate(lines) if line.strip() == "Queued follow-up inputs"]
+        if headers:
+            tail = lines[headers[-1] + 1:]
+            summary = next((i for i, line in enumerate(tail) if re.fullmatch(
+                r"\s*\?\s*(\d+) questions?(?:\s*·.*)?\s*", line)), None)
+            if summary is not None:
+                count = int(re.search(r"\d+", tail[summary])[0])
+                shortcut = re.fullmatch(r"\s*(.+?)\s+to answer\s*", tail[summary + 1]) if len(tail) > summary + 1 else None
+                # The summary must belong to the live composer area, not to an
+                # earlier transcript quotation. Only native chrome may follow.
+                remaining = tail[summary + 2:]
+                live = all(not line.strip() or line.lstrip().startswith(("›", "↳"))
+                           or re.search(r"context left|for shortcuts|esc to interrupt|gpt-\S+.*·", line, re.I)
+                           or BOX_RULE_RE.match(line.strip())
+                           or re.fullmatch(r"[\s\u2800-\u28ff]+", line) for line in remaining)
+                if count and shortcut and live:
+                    queued = {"count": count, "open_key": _codex_question_key(shortcut[1], "forward")}
+    if uuid:
+        pane = uuid.upper()
+        if queued is None:
+            _CODEX_QUEUE_EPISODES.pop(pane, None)
+        else:
+            old = _CODEX_QUEUE_EPISODES.get(pane)
+            signature = (queued["count"], queued["open_key"])
+            if not old or old[0] != signature:
+                old = (signature, secrets.token_hex(16))
+                _CODEX_QUEUE_EPISODES[pane] = old
+            queued["id"] = old[1]
+    return queued
+
+
 _EDIT_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
 # Harness-injected user lines that aren't something a human typed — excluded from
 # the prompt count, mirroring cc-dashboard's _NOISE filter.
@@ -803,7 +1214,8 @@ _PROMPT_NOISE = ("Caveat:", "<command-name>", "<command-message>", "<local-comma
                  "[Request interrupted", "system-reminder", "<user-prompt-submit",
                  # harness-injected turns the other clients open a session with —
                  # same list cc-dashboard filters on, so the counts agree
-                 "task-notification", "<environment_context", "<channel")
+                 "task-notification", "<environment_context", "<channel",
+                 "# AGENTS.md instructions", "<INSTRUCTIONS>")
 # The harness staples these onto ordinary user turns — CLAUDE.md context, memory
 # recalls, task nudges — so their presence says nothing about who typed the turn.
 # They come off before the noise test; what is left is what the human actually
@@ -811,6 +1223,7 @@ _PROMPT_NOISE = ("Caveat:", "<command-name>", "<command-message>", "<local-comma
 # stripped rather than treated as noise.
 _WRAPPERS = re.compile(
     r"<system-reminder>.*?</system-reminder>|<channel\b[^>]*>|</channel>", re.S)
+_USER_QUERY = re.compile(r"<user_query>\s*(.*?)\s*</user_query>", re.S)
 
 
 def human_prompt(txt):
@@ -913,6 +1326,7 @@ def session_ops(path):
 # way, so both dashboards always agree about a session.
 CODEX_SESSIONS = os.path.expanduser("~/.codex/sessions")
 GROK_SESSIONS = os.path.expanduser("~/.grok/sessions")
+GROK_LOG = os.path.expanduser("~/.grok/logs/unified.jsonl")
 _journals = {}                   # (provider, sid) -> path, cached: the glob is not free
 _NATIVE = {}                     # path -> incremental scan state
 
@@ -937,7 +1351,46 @@ def journal_path(provider, sid):
 
 def _fresh_native():
     return {"off": 0, "files": set(), "prompts": 0, "add": 0, "del": 0,
-            "action": None, "stamp": None}
+            "action": None, "stamp": None, "model": None, "effort": None,
+            "mode": None, "tokens": 0, "cost": 0.0, "ctx": None}
+
+
+_CODEX_PRICING = {
+    # USD per million: uncached input, cached input, cache write, output.
+    "gpt-6-astra": (10.0, 1.0, 12.5, 50.0),
+    "gpt-5.6-sol": (4.0, .4, 5.0, 20.0),
+    "gpt-5.6-terra": (2.0, .2, 2.5, 12.0),
+    "gpt-5.6-luna": (.2, .02, .25, 1.2),
+    "gpt-5.5": (5.0, .5, 0.0, 30.0),
+    "gpt-5.3": (1.75, .175, 0.0, 14.0),
+}
+
+
+def _codex_cost(model, inp, cached, cache_write, out):
+    """API-equivalent USD for Codex tokens; unknown models stay unpriced."""
+    name = (model or "").lower().replace("-build", "")
+    if name == "gpt-5.6":
+        name = "gpt-5.6-sol"
+    rate = next((v for k, v in _CODEX_PRICING.items() if name.startswith(k)), None)
+    if not rate:
+        return 0.0
+    pin, pcached, pwrite, pout = rate
+    uncached = max(0, (inp or 0) - (cached or 0))
+    return (uncached * pin + (cached or 0) * pcached
+            + (cache_write or 0) * pwrite + (out or 0) * pout) / 1e6
+
+
+def _codex_permission_mode(context):
+    """Codex turn_context permissions in the same three labels as its picker."""
+    profile = context.get("permission_profile") or {}
+    sandbox = context.get("sandbox_policy") or {}
+    profile_type = profile.get("type") if isinstance(profile, dict) else profile
+    sandbox_type = sandbox.get("type") if isinstance(sandbox, dict) else sandbox
+    if profile_type == "disabled" or sandbox_type == "danger-full-access":
+        return "Full access"
+    if sandbox_type == "read-only" or profile_type == "read-only":
+        return "Read only"
+    return "Default"
 
 
 def codex_ops(path):
@@ -964,10 +1417,42 @@ def codex_ops(path):
         st["off"] += cut
         for line in data[:cut].decode("utf-8", "ignore").splitlines():
             try:
-                p = (json.loads(line) or {}).get("payload") or {}
+                rec = json.loads(line) or {}
+                p = rec.get("payload") or {}
             except Exception:
                 continue
-            typ = p.get("type")
+            typ = p.get("type") or rec.get("type")
+            if typ == "turn_context":
+                st["model"] = p.get("model") or st.get("model")
+                collaboration = p.get("collaboration_mode") or {}
+                settings = collaboration.get("settings") or {}
+                st["effort"] = (p.get("effort") or p.get("reasoning_effort")
+                                or settings.get("reasoning_effort") or st.get("effort"))
+                st["mode"] = _codex_permission_mode(p)
+                continue
+            if typ == "token_count":
+                info = p.get("info") if isinstance(p.get("info"), dict) else {}
+                last = info.get("last_token_usage") if isinstance(
+                    info.get("last_token_usage"), dict) else {}
+                total = last.get("total_tokens")
+                window = info.get("model_context_window")
+                if not isinstance(total, bool) and not isinstance(window, bool):
+                    try:
+                        total, window = float(total), float(window)
+                        if math.isfinite(total) and math.isfinite(window) and window > 0:
+                            st["ctx"] = round(max(0.0, min(100.0,
+                                                          total / window * 100)))
+                    except (TypeError, ValueError):
+                        pass
+                u = info.get("total_token_usage") if isinstance(
+                    info.get("total_token_usage"), dict) else {}
+                i = u.get("input_tokens") or 0
+                c = u.get("cached_input_tokens") or 0
+                w = u.get("cache_write_input_tokens") or 0
+                o = u.get("output_tokens") or 0
+                st["tokens"] = _produced_tokens(i, c, w, o)
+                st["cost"] = _codex_cost(st.get("model"), i, c, w, o)
+                continue
             if typ == "message" and p.get("role") == "user":
                 txt = " ".join(x.get("text", "") for x in (p.get("content") or [])
                                if isinstance(x, dict) and x.get("type") == "input_text")
@@ -1084,6 +1569,192 @@ def native_ops(provider, path):
     return codex_ops(path) if provider == "codex" else grok_ops(path)
 
 
+# ── live running / idle ─────────────────────────────────────────────────────
+# Claude's working/idle .state file is rewritten on every UserPromptSubmit/Stop
+# and stays honest. Codex and Grok only touch theirs at lifecycle hooks, which
+# miss Stop often enough that the yard latches on the wrong verb.
+#
+# Each TUI already tells the user a turn is in flight — Codex paints
+# "esc to interrupt" on the live progress line, Grok writes turn_started /
+# turn_ended into events.jsonl and "Worked for" onto the transcript. Read those
+# same signals and overlay them on the hook file. None = no signal, keep the hook.
+_TURN_BUSY = {}                      # path -> {off, busy} incremental jsonl scan
+
+# Codex 0.153+ animates the progress glyph between • and ◦; elapsed expands at
+# the minute and hour; the composer hint can share the same line. The question
+# footer also says "esc to interrupt" but never with an elapsed `(12s • …)`.
+# Older builds painted a bare "Working (esc to interrupt)" — still match that,
+# but only as that exact phrase so a question does not look like a live turn.
+_CODEX_PROGRESS_RE = re.compile(
+    r"(?:"
+    r"[•◦][^\n]*\((?:(?:\d+h\s+)?\d+m\s+)?\d+s\s*•\s*esc to interrupt\)"
+    r"|Working \(esc to interrupt\)"
+    r")",
+    re.I,
+)
+
+_GROK_INTERRUPT_RE = re.compile(
+    r"ctrl\+c to (?:interrupt|cancel)|send a message to interrupt|"
+    r"\bstill running\b",
+    re.I,
+)
+# Live footer Grok paints while a turn runs: spinner + elapsed + `[stop]`.
+# Leftover `◈ tool` rows stay on the alt-screen after the turn ends and must
+# not count as busy — that is what latched the yard on "working".
+_GROK_PROGRESS_RE = re.compile(
+    r"(?:"
+    r"\[stop\]"
+    r"|[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏].{0,80}\b\d+(?:\.\d+)?\s*s\b"
+    r")",
+    re.I,
+)
+_GROK_COMPACT_Q = re.compile(
+    r"^\s*#\d+\s+.+\(\+\d+\s+lines?\)", re.M)
+_GROK_DONE_RE = re.compile(r"^\s*Worked for\s+", re.I)
+# In-flight thinking only. `◆ Thought for 1.4s` and `◈ read_file` are history.
+_GROK_LIVE_RE = re.compile(
+    r"^\s*(?:◆\s*Thinking\b|Thinking\.\.\.)",
+    re.I,
+)
+
+
+def _turn_busy_scan(path, classify):
+    """Incremental jsonl scan: True if the last start/end event was a start.
+
+    classify(obj) -> 'start' | 'end' | None. Missing/empty file, or a file that
+    has never logged a turn edge, returns None so the caller can fall through.
+    """
+    if not path:
+        return None
+    st = _TURN_BUSY.get(path) or {"off": 0, "busy": None}
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return None
+    if size < st["off"]:
+        st = {"off": 0, "busy": None}
+    if size > st["off"]:
+        try:
+            with open(path, "rb") as fh:
+                fh.seek(st["off"])
+                data = fh.read()
+        except OSError:
+            return st.get("busy")
+        cut = data.rfind(b"\n") + 1
+        st["off"] += cut
+        for line in data[:cut].decode("utf-8", "ignore").splitlines():
+            try:
+                obj = json.loads(line)
+            except Exception:
+                continue
+            kind = classify(obj)
+            if kind == "start":
+                st["busy"] = True
+            elif kind == "end":
+                st["busy"] = False
+        _TURN_BUSY[path] = st
+    return st.get("busy")
+
+
+def _codex_turn_kind(obj):
+    if (obj or {}).get("type") != "event_msg":
+        return None
+    typ = ((obj.get("payload") or {}).get("type") or "")
+    if typ == "task_started":
+        return "start"
+    if typ in ("task_complete", "turn_aborted"):
+        return "end"
+    return None
+
+
+def _grok_turn_kind(obj):
+    typ = (obj or {}).get("type")
+    if typ == "turn_started":
+        return "start"
+    if typ == "turn_ended":
+        return "end"
+    return None
+
+
+def _grok_events_path(transcript):
+    """events.jsonl sits next to the chat_history.jsonl journal_path returns."""
+    if not transcript:
+        return ""
+    path = os.path.join(os.path.dirname(transcript), "events.jsonl")
+    return path if os.path.exists(path) else ""
+
+
+def _grok_transcript(text):
+    """Visible Grok chat above the composer box."""
+    lines = [_grok_clean(l) for l in (text or "").splitlines()]
+    end = next((i for i in range(len(lines) - 1, -1, -1)
+                if _GROK_STATUS.search(lines[i])), None)
+    if end is None:
+        return lines
+    start = end
+    while start > 0 and "╭" not in lines[start]:
+        start -= 1
+    return lines[:start] if "╭" in lines[start] else lines[:end]
+
+
+def _grok_busy(text):
+    """True when Grok's live frame is showing an in-flight turn."""
+    raw = text or ""
+    if _GROK_PROGRESS_RE.search(raw) or _GROK_INTERRUPT_RE.search(raw):
+        return True
+    if _GROK_COMPACT_Q.search(raw):
+        return True
+    if _grok_prompt(raw):
+        return False
+    last_done = last_live = -1
+    for i, line in enumerate(_grok_transcript(raw)):
+        if _GROK_DONE_RE.match(line):
+            last_done = i
+        if _GROK_LIVE_RE.match(line):
+            last_live = i
+    return last_live > last_done
+
+
+def _grok_idle(text):
+    if detect_prompt(text, "grok") or _grok_busy(text):
+        return False
+    ghost, draft = read_input_box(text)
+    return (not draft) or ghost
+
+
+def detect_running(provider, text, transcript=""):
+    """Whether this pane is mid-turn. True / False / None (no signal).
+
+    Screen chrome wins when it is decisive: that is what the user is looking
+    at. Grok's live status line (`[stop]`, spinner + elapsed) is the working
+    signal; an idle composer without it is stopped, even if events.jsonl
+    missed turn_ended. The journal is only the fallback when the screen is
+    ambiguous. Codex's rollout task_started/task_complete is the same idea
+    when the progress line is off the live tail.
+    """
+    if provider == "codex":
+        if _codex_busy(text):
+            return True
+        journal = _turn_busy_scan(transcript, _codex_turn_kind) if transcript else None
+        if journal is True:
+            return True
+        if _codex_idle(text):
+            return False
+        return journal
+    if provider == "grok":
+        if _grok_busy(text):
+            return True
+        if _grok_idle(text):
+            return False
+        journal = _turn_busy_scan(_grok_events_path(transcript), _grok_turn_kind)
+        if journal is True:
+            return True
+        if journal is False:
+            return False
+        return None
+    return None
+
+
 REAP_AFTER = 3 * 3600            # the reaper button's cutoff: sessions this old
 
 
@@ -1193,6 +1864,35 @@ def read_fleet_files():
             row["lines_del"] = st["del"] if st else 0
             row["action"] = (st or {}).get("action")
             row["subs"] = []
+            if provider == "codex" and st:
+                row["model"] = row["model"] or st.get("model") or ""
+                row["effort"] = row["effort"] or st.get("effort")
+                row["mode"] = st.get("mode")
+                if row["ctx"] is None:
+                    row["ctx"] = st.get("ctx")
+                row["tokens"] = st.get("tokens") or 0
+                row["cost"] = round(st.get("cost") or 0, 2)
+            # Grok's fleet dump has no cost/context; the session dir does.
+            if provider == "grok" and tp:
+                sdir = os.path.dirname(tp)
+                try:
+                    sig = json.load(open(os.path.join(sdir, "signals.json")))
+                    if sig.get("contextWindowUsage") is not None:
+                        row["ctx"] = sig["contextWindowUsage"]
+                except Exception:
+                    pass
+                try:
+                    sess = (json.load(open(os.path.join(sdir, "usage.json")))
+                            or {}).get("session") or {}
+                    row["tokens"] = _produced_tokens(
+                        sess.get("inputTokens") or 0,
+                        sess.get("cachedReadTokens") or 0,
+                        sess.get("cacheCreationTokens") or 0,
+                        sess.get("outputTokens") or 0)
+                    row["cost"] = round(
+                        (sess.get("costUsdTicks") or 0) / GROK_COST_TICKS, 2)
+                except Exception:
+                    pass
         # A hook child can lose ITERM_SESSION_ID, so a record may name only the tty
         # it was written from. Index those by tty and let build_fleet match them to
         # the pane it is already looking at.
@@ -1529,8 +2229,17 @@ async def build_fleet():
             continue                      # hide scratch shells entirely
         KNOWN_AGENTS.setdefault(uuid, provider)
         lines = [l for l in txt.splitlines() if l.strip()]
-        mode = detect_mode(txt) if provider == DEFAULT_PROVIDER else ""
-        prompt = detect_prompt(txt)
+        grok_st = detect_grok_status(txt) if provider == "grok" else {}
+        mode = (detect_mode(txt) if provider == DEFAULT_PROVIDER else
+                (f or {}).get("mode") or grok_st.get("mode", ""))
+        prompt = detect_prompt(txt, provider, uuid)
+        state = (f or {}).get("state", "idle")
+        if state != "ended":
+            running = detect_running(provider, txt, (f or {}).get("transcript") or "")
+            if running is True:
+                state = "working"
+            elif running is False:
+                state = "idle"
         # live working dir: the transcript's current cwd (follows `cd`s), then the
         # statusline's launch-pinned dir, then the iTerm pane path — same order as ccdash
         # Only Claude's transcript records a per-entry cwd; the others pin theirs in
@@ -1551,15 +2260,16 @@ async def build_fleet():
             ch = None
         rows.append({
             "uuid": uuid,
+            "sid": (f or {}).get("sid"),
             "job": job,
             "provider": provider,          # claude | codex | grok — picks the sprite
             "cwd": live_cwd,
             "name": os.path.basename(live_cwd.rstrip("/")) or "?",
-            "state": (f or {}).get("state", "idle"),
-            "model": (f or {}).get("model", ""),
+            "state": state,
+            "model": (f or {}).get("model", "") or grok_st.get("model", ""),
             "ctx": (f or {}).get("ctx"),
             "cost": (f or {}).get("cost"),
-            "effort": (f or {}).get("effort"),
+            "effort": (f or {}).get("effort") or grok_st.get("effort"),
             "mode": mode,
             "prompt": prompt,
             "sendable": True,
@@ -1635,6 +2345,51 @@ def _save_summaries():
         print(f"  [summary] save failed: {type(e).__name__}: {e}", flush=True)
 
 
+def _content_text(content):
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    return " ".join(
+        c.get("text", "") for c in content
+        if isinstance(c, dict) and (
+            c.get("type") in ("text", "input_text", "output_text")
+            or str(c.get("type") or "").endswith("_text")))
+
+
+def _digest_turn(o):
+    """One (role, text) pair from a Claude, Codex or Grok journal line, or None."""
+    pl = o.get("payload")
+    if isinstance(pl, dict):
+        if pl.get("type") != "message":
+            return None
+        role, content = pl.get("role"), pl.get("content")
+    elif o.get("message"):
+        msg = o["message"]
+        role, content = msg.get("role") or o.get("type"), msg.get("content")
+    elif o.get("type") in ("user", "assistant"):
+        role, content = o.get("type"), o.get("content")
+    else:
+        return None
+    if role in ("system", "developer") or role not in ("user", "assistant"):
+        return None
+    text = _content_text(content)
+    q = _USER_QUERY.search(text or "")
+    if q:
+        text = q.group(1).strip()
+    elif role == "user":
+        text = human_prompt(text)
+        if text.startswith(("<user_info>", "<git_status>")):
+            return None
+    else:
+        text = (text or "").strip()
+        if any(n in text for n in _PROMPT_NOISE):
+            return None
+    if not text:
+        return None
+    return f"{role}: {text}"
+
+
 def _transcript_digest(path, max_chars=20000):
     """Compact text of a session for summarisation: the opening user prompt (the
     task) plus the tail of the conversation, so both 'what it set out to do' and
@@ -1649,26 +2404,9 @@ def _transcript_digest(path, max_chars=20000):
             o = json.loads(ln)
         except Exception:
             continue
-        # Codex keeps its turns one level down, under `payload`. Grok's chat log
-        # already matches Claude's {type, content} shape, so it needs nothing.
-        pl = o.get("payload")
-        if isinstance(pl, dict) and pl.get("type") == "message":
-            o = {"message": {"role": pl.get("role"), "content": [
-                b for b in (pl.get("content") or [])
-                if isinstance(b, dict) and b.get("type", "").endswith("_text")]}}
-            for b in o["message"]["content"]:
-                b["type"] = "text"
-        role = (o.get("message") or {}).get("role") or o.get("type")
-        content = (o.get("message") or {}).get("content")
-        if isinstance(content, list):
-            content = " ".join(
-                c.get("text", "") for c in content
-                if isinstance(c, dict) and c.get("type") == "text")
-        if not isinstance(content, str) or not content.strip():
-            continue
-        if any(n in content for n in _PROMPT_NOISE):
-            continue
-        msgs.append(f"{role}: {content.strip()}")
+        turn = _digest_turn(o)
+        if turn:
+            msgs.append(turn)
     if not msgs:
         return ""
     first = msgs[0]
@@ -1719,10 +2457,10 @@ def _claude_bin():
 _BINS = {}
 
 
-async def _claude_summary(digest, running):
-    """Ask `claude -p` for the two lines. Returns (summary, success|None)."""
+async def _provider_summary(provider, digest, running, cwd=None):
+    """Ask the selected native CLI for the two-line brief."""
     ask = (
-        "You are labeling a Claude Code coding session for a phone status bar. "
+        "You are labeling a coding session for a phone status bar. "
         "Below is a transcript digest (first prompt, then recent messages). "
         "Reply with EXACTLY two lines and nothing else:\n"
         "SUMMARY: <one sentence, <=110 chars, what this session has been doing overall>\n"
@@ -1731,14 +2469,22 @@ async def _claude_summary(digest, running):
             "current task stop/finish>" if running else "the word NONE") + "\n\n"
         "Transcript digest:\n" + digest)
     try:
-        # --model haiku: the label is a cheap two-line job; the fast model keeps it
-        # snappy and cheap while staying on the local subscription (no API key).
+        if provider == "codex":
+            # `exec` is Codex's non-interactive mode; ephemeral prevents this
+            # labeling request from creating another saved session.
+            cmd = [agent_bin("codex"), "exec", "--ephemeral", "-s", "read-only", ask]
+        elif provider == "grok":
+            # Grok's `--single` is its non-interactive equivalent.
+            cmd = [agent_bin("grok"), "--single", ask, "--permission-mode", "plan"]
+        else:
+            # --model haiku keeps Claude labels cheap and fast.
+            cmd = [_claude_bin(), "-p", "--model", "haiku", ask]
         proc = await asyncio.create_subprocess_exec(
-            _claude_bin(), "-p", "--model", "haiku", ask,
+            *cmd, cwd=cwd if cwd and os.path.isdir(cwd) else None,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=45)
     except Exception as e:
-        print(f"  [summary] claude -p failed: {type(e).__name__}: {e}", flush=True)
+        print(f"  [summary] {provider} summary failed: {type(e).__name__}: {e}", flush=True)
         return None, None
     text = out.decode(errors="replace")
     summary, success = None, None
@@ -1752,7 +2498,7 @@ async def _claude_summary(digest, running):
     return summary, success
 
 
-async def _ensure_summary(uuid, path, pcount, running):
+async def _ensure_summary(uuid, path, pcount, running, provider=DEFAULT_PROVIDER, cwd=None):
     """Return this run's stored summary, computing it once if the prompt count
     moved (a new prompt = a new run to describe). One claude call per pane."""
     entry = _summaries.get(uuid)
@@ -1766,7 +2512,7 @@ async def _ensure_summary(uuid, path, pcount, running):
         digest = await asyncio.to_thread(_transcript_digest, path)
         if not digest:
             return entry
-        summary, success = await _claude_summary(digest, running)
+        summary, success = await _provider_summary(provider, digest, running, cwd)
         if summary is None and success is None:
             # The claude call itself failed (timeout, not installed). Don't cache
             # the blank — it would stick for the whole run; leave the slot stale
@@ -1795,7 +2541,8 @@ async def api_summary(request):
     provider = f.get("provider") or DEFAULT_PROVIDER
     pcount = (session_ops(path)[1] if provider == DEFAULT_PROVIDER
               else native_ops(provider, path)["prompts"])
-    entry = await _ensure_summary(uuid, path, pcount, running) or {}
+    entry = await _ensure_summary(uuid, path, pcount, running, provider,
+                                  f.get("cwd")) or {}
     return web.json_response({"summary": entry.get("summary"),
                               "success": entry.get("success"),
                               "running": running, "prompts": pcount})
@@ -1847,6 +2594,9 @@ def guard(handler):
     return wrapped
 
 
+_PANE_WRITES = set()
+
+
 def writes(action):
     """Wrap a state-changing endpoint: audit it, and never let it run locked."""
     def deco(handler):
@@ -1866,7 +2616,17 @@ def writes(action):
                 pass
             request["_body"] = body
             auth.audit(request, action, {k: str(v)[:120] for k, v in body.items()})
-            return await handler(request)
+            uuid = str(body.get("uuid", "")).upper()
+            serial = uuid and action in {"key", "send", "cmd", "model", "effort", "mode", "prompt"}
+            if serial and uuid in _PANE_WRITES:
+                return web.json_response({"error": "pane control is busy; try again"}, status=409)
+            if serial:
+                _PANE_WRITES.add(uuid)
+            try:
+                return await handler(request)
+            finally:
+                if serial:
+                    _PANE_WRITES.discard(uuid)
         return wrapped
     return deco
 
@@ -1892,7 +2652,7 @@ async def manifest(request):
         "name": "The Yard", "short_name": "Yard",
         "start_url": "/", "scope": "/",
         "display": "standalone", "orientation": "portrait",
-        "background_color": "#14171b", "theme_color": "#22262d",
+        "background_color": "#14171b", "theme_color": "#14171b",
         "icons": [
             {"src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
             {"src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
@@ -2086,16 +2846,164 @@ async def api_send(request):
     if not s:
         return web.json_response({"error": "no such pane"}, status=404)
     job = await s.async_get_variable("jobName") or ""
-    if not is_agent_pane(uuid, job, await pane_text(s)):
+    screen = await pane_text(s)
+    provider = pane_provider(uuid, job, screen)
+    if not provider:
         return web.json_response(
             {"error": f"pane is running {job!r} and shows no agent UI — refusing"},
             status=403)
-    # literal, byte-exact: $ ` " ' and newlines all survive (probe_keys.py test 1)
-    await s.async_send_text(text)
+    if provider == "codex":
+        if detect_prompt(screen, provider, uuid):
+            return web.json_response({"error": "answer the active Codex prompt first"}, status=409)
+        try:
+            text = await _send_provider_text(s, text, provider, submit)
+        except ValueError as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+    else:
+        text = await _send_provider_text(s, text, provider, submit)
+    return web.json_response({"ok": True, "chars": len(text)})
+
+
+def _codex_safe_text(text):
+    if not isinstance(text, str):
+        raise ValueError("text must be a string")
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    if any((ord(c) < 32 and c != "\n") or 127 <= ord(c) <= 159 for c in text):
+        raise ValueError("text contains terminal control characters")
+    return text
+
+
+async def _send_provider_text(sess, text, provider, submit=True):
+    """Type literal text using the target client's safe paste semantics."""
+    if provider == "codex":
+        text = _codex_safe_text(text)
+        await sess.async_send_text("\x1b[200~" + text + "\x1b[201~")
+    else:
+        await sess.async_send_text(text)
     if submit:
         await asyncio.sleep(0.15)
-        await s.async_send_text("\r")
-    return web.json_response({"ok": True, "chars": len(text)})
+        await sess.async_send_text("\r")
+    return text
+
+
+async def _prompt_wait(s, uuid, predicate):
+    for _ in range(20):
+        prompt = detect_prompt(await pane_text(s), "codex", uuid)
+        if predicate(prompt):
+            return prompt
+        await asyncio.sleep(0.15)
+    raise RuntimeError("Codex prompt did not change as expected; refresh and try again")
+
+
+async def _codex_prompt_action(s, uuid, prompt, action, option_index=None, text=None):
+    identity = prompt["id"]
+
+    def same(p):
+        return p is not None and p.get("id") == identity
+
+    async def stable():
+        fresh = detect_prompt(await pane_text(s), "codex", uuid)
+        if not same(fresh):
+            raise RuntimeError("Codex prompt changed; refresh before answering")
+        return fresh
+
+    if action in ("previous", "next"):
+        await s.async_send_text("\x10" if action == "previous" else "\x0e")
+        wanted = prompt["question_index"] + (-1 if action == "previous" else 1)
+        return await _prompt_wait(s, uuid, lambda p: p is not None and p.get("question_index") == wanted)
+    if action == "cancel":
+        for attempt in range(2):
+            await s.async_send_text("\x03" if prompt["kind"] == "question" else "\x1b")
+            try:
+                return await _prompt_wait(s, uuid, lambda p: not same(p))
+            except RuntimeError:
+                if attempt or prompt["kind"] != "question":
+                    raise
+                await stable()  # first Ctrl-C may only clear the notes composer
+        raise RuntimeError("Codex prompt did not cancel")
+
+    if text is None:
+        text = prompt["input"]["text"]
+    # Tab clears notes and restores the option caret. Preserve the requested
+    # draft locally, then replace it after navigating the selected option.
+    if prompt["options"] and prompt["input"]["visible"]:
+        await s.async_send_text("\t")
+        prompt = await _prompt_wait(s, uuid, lambda p: same(p) and not p["input"]["visible"])
+    if prompt["options"]:
+        selected = next((o["index"] for o in prompt["options"] if o["selected"]), None)
+        if selected is None:
+            raise RuntimeError("Codex option caret is not visible")
+        target = selected if option_index is None else option_index
+        for _ in range(len(prompt["options"])):
+            if selected == target:
+                break
+            step = 1 if target > selected else -1
+            await stable()
+            await s.async_send_text("\x1b[B" if step > 0 else "\x1b[A")
+            selected += step
+            prompt = await _prompt_wait(s, uuid, lambda p: same(p) and any(
+                o["index"] == selected and o["selected"] for o in p["options"]))
+        label = prompt["options"][target]["label"].lower()
+        if action == "submit" and (text or label.startswith("none of the above")):
+            await s.async_send_text("\t")
+            prompt = await _prompt_wait(s, uuid, lambda p: same(p) and p["input"]["visible"])
+    elif prompt["input"]["text"]:
+        await s.async_send_text("\x03")
+        prompt = await _prompt_wait(s, uuid, lambda p: same(p) and p["input"]["visible"] and not p["input"]["text"])
+    if action == "submit" and text:
+        await stable()
+        await s.async_send_text("\x1b[200~" + text + "\x1b[201~")
+        normalized = " ".join(text.split())
+        await _prompt_wait(s, uuid, lambda p: same(p) and " ".join(p["input"]["text"].split()) == normalized)
+    await stable()
+    await s.async_send_text("\r")
+    return await _prompt_wait(s, uuid, lambda p: not same(p))
+
+
+@writes("prompt")
+async def api_prompt(request):
+    body = await request.json()
+    uuid = str(body.get("uuid", "")).upper()
+    s = (await all_sessions()).get(uuid)
+    if not s:
+        return web.json_response({"error": "no such pane"}, status=404)
+    screen = await pane_text(s)
+    provider = pane_provider(uuid, await s.async_get_variable("jobName") or "", screen)
+    if provider not in ("codex", "grok"):
+        return web.json_response(
+            {"error": "this prompt control requires a Codex or Grok pane"}, status=403)
+    prompt = detect_prompt(screen, provider, uuid)
+    if not prompt or prompt.get("id") != body.get("prompt_id"):
+        return web.json_response(
+            {"error": f"{provider.capitalize()} prompt is stale; refresh before answering"},
+            status=409)
+    action = body.get("action")
+    if action not in prompt["actions"]:
+        return web.json_response({"error": "action is not available for this prompt"}, status=400)
+    index = body.get("option_index")
+    if index is not None and (type(index) is not int or not 0 <= index < len(prompt["options"])):
+        return web.json_response({"error": "invalid option index"}, status=400)
+    if action == "choose" and index is None:
+        return web.json_response({"error": "option index is required"}, status=400)
+    if provider == "grok":
+        if action not in ("choose", "cancel"):
+            return web.json_response({"error": "action is not available for this prompt"}, status=400)
+        try:
+            fresh = await _grok_prompt_action(s, uuid, prompt, action, index)
+            return web.json_response({"ok": True, "prompt": fresh})
+        except RuntimeError as exc:
+            return web.json_response({"error": str(exc)}, status=409)
+    try:
+        text = _codex_safe_text(body["text"]) if "text" in body else None
+        if text and (action != "submit" or not prompt["input"]["allowed"]):
+            raise ValueError("text is not supported for this action")
+    except ValueError as exc:
+        return web.json_response({"error": str(exc)}, status=400)
+    try:
+        fresh = await _codex_prompt_action(s, uuid, prompt, action, index, text)
+        return web.json_response({"ok": True, "prompt": fresh})
+    except RuntimeError as exc:
+        return web.json_response({"error": str(exc)}, status=409)
 
 
 # ── file upload (image / video from the phone) ──────────────────────────────
@@ -2388,6 +3296,50 @@ def _discard_launcher(d):
     shutil.rmtree(d, ignore_errors=True)
 
 
+INITIAL_PROMPT_MAX = 2000
+
+
+def _spawn_options(body):
+    """Validate spawn inputs, preserving the requested agent for prompted launches."""
+    provider = (body.get("provider") or DEFAULT_PROVIDER).strip().lower()
+    prompt = body.get("initial_prompt")
+    if prompt is not None:
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise ValueError("initial prompt must be non-empty text")
+        prompt = prompt.strip()
+        if len(prompt) > INITIAL_PROMPT_MAX:
+            raise ValueError(f"initial prompt exceeds {INITIAL_PROMPT_MAX} characters")
+        return provider, prompt
+    return provider, None
+
+
+async def _deliver_initial_prompt(sess, prompt, provider=DEFAULT_PROVIDER,
+                                  timeout=30):
+    """Wait for the launched agent's UI, then type and submit its first task."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        await asyncio.sleep(0.5)
+        try:
+            text = await pane_text(sess)
+        except Exception:
+            continue
+        if marker_provider(text) != provider:
+            continue
+        if provider == "codex" and detect_prompt(
+                text, provider, sess.session_id.upper()):
+            continue
+        try:
+            await _send_provider_text(sess, prompt, provider)
+        except ValueError:
+            return False
+        print(f"  [spawn] delivered initial prompt to {sess.session_id.upper()}",
+              flush=True)
+        return True
+    print(f"  [spawn] timed out delivering initial prompt to "
+          f"{sess.session_id.upper()}", flush=True)
+    return False
+
+
 @writes("spawn")
 async def api_spawn(request):
     """Open a brand-new agent pane in the iTerm window and hand back its UUID.
@@ -2402,7 +3354,10 @@ async def api_spawn(request):
     """
     await APP.async_refresh()
     body = request.get("_body") or {}
-    provider = (body.get("provider") or DEFAULT_PROVIDER).strip().lower()
+    try:
+        provider, initial_prompt = _spawn_options(body)
+    except (AttributeError, ValueError) as e:
+        return web.json_response({"error": str(e)}, status=400)
     if provider not in PROVIDERS:
         return web.json_response(
             {"error": f"unknown agent {provider!r}"}, status=400)
@@ -2418,6 +3373,7 @@ async def api_spawn(request):
         if not os.path.isdir(chosen):
             return web.json_response({"error": "not a directory"}, status=400)
         workdir = chosen
+        _note_recent_dir(workdir)
     else:
         workdir = tempfile.mkdtemp(prefix="cc-scratch-")
     scratch = workdir
@@ -2483,6 +3439,8 @@ async def api_spawn(request):
     # Fire-and-forget so the spawn returns immediately.
     if provider == DEFAULT_PROVIDER:
         asyncio.create_task(_auto_trust(sess))
+    if initial_prompt:
+        asyncio.create_task(_deliver_initial_prompt(sess, initial_prompt, provider))
     print(f"  [spawn] new {provider} pane {uuid} in {scratch}", flush=True)
     return web.json_response({"uuid": uuid, "dir": scratch, "provider": provider})
 
@@ -2528,6 +3486,86 @@ def installed_agents():
     return [p for p in PROVIDERS if os.path.isabs(agent_bin(p))]
 
 
+RECENTS_FILE = HERE / ".recent_dirs.json"
+RECENTS_MAX = 12
+
+
+def _load_recent_dirs():
+    try:
+        raw = json.loads(RECENTS_FILE.read_text())
+    except Exception:
+        return []
+    if not isinstance(raw, list):
+        return []
+    return [r for r in raw if isinstance(r, dict) and r.get("path")]
+
+
+def _note_recent_dir(path):
+    """Remember a real working dir so the picker can surface it next time."""
+    if not path:
+        return
+    path = os.path.abspath(os.path.expanduser(path))
+    if _is_scratch(path) or not os.path.isdir(path):
+        return
+    rec = {"path": path, "name": os.path.basename(path.rstrip("/")) or path,
+           "last": time.time()}
+    items = [r for r in _load_recent_dirs() if r.get("path") != path]
+    items.insert(0, rec)
+    try:
+        RECENTS_FILE.write_text(json.dumps(items[:RECENTS_MAX]))
+    except OSError:
+        pass
+
+
+def _recent_dirs():
+    """Dirs the picker should offer first — newest `last` wins, existing only.
+
+    Merges the recents file, live fleet cwds, and cached history. When history
+    has never been built we also unquote ~/.grok/sessions/* names so a project
+    you were just in still appears without a full transcript scan.
+    """
+    from urllib.parse import unquote
+    by_path = {}
+
+    def take(path, last, name=None):
+        if not path:
+            return
+        path = os.path.abspath(os.path.expanduser(path))
+        if _is_scratch(path) or not os.path.isdir(path):
+            return
+        last = last or 0
+        prev = by_path.get(path)
+        if prev and prev["last"] >= last:
+            return
+        by_path[path] = {
+            "name": name or os.path.basename(path.rstrip("/")) or path,
+            "path": path, "last": last}
+
+    for r in _load_recent_dirs():
+        take(r.get("path"), r.get("last") or 0, r.get("name"))
+    for rec in read_fleet_files().values():
+        take(rec.get("cwd"), rec.get("mtime") or rec.get("state_since") or 0)
+    hist = _history_result.get("data")
+    if isinstance(hist, list):
+        for e in hist:
+            if isinstance(e, dict):
+                take(e.get("cwd"), e.get("last") or 0)
+    try:
+        names = os.listdir(GROK_SESSIONS)
+    except OSError:
+        names = []
+    for name in names:
+        full = os.path.join(GROK_SESSIONS, name)
+        if not os.path.isdir(full):
+            continue
+        try:
+            mt = os.path.getmtime(full)
+        except OSError:
+            continue
+        take(unquote(name), mt)
+    return sorted(by_path.values(), key=lambda d: d["last"], reverse=True)[:RECENTS_MAX]
+
+
 @guard
 async def api_browse(request):
     """List directories under `path` so the phone can click through the filesystem
@@ -2538,7 +3576,8 @@ async def api_browse(request):
     if not path:
         return web.json_response({"path": "", "parent": None, "dirs": [],
                                   "roots": _browse_roots(),
-                                  "agents": installed_agents()})
+                                  "agents": installed_agents(),
+                                  "recents": _recent_dirs()})
     path = os.path.abspath(os.path.expanduser(path))
     if not os.path.isdir(path):
         return web.json_response({"error": "not a directory"}, status=404)
@@ -2564,7 +3603,8 @@ async def api_browse(request):
         parent = None
     return web.json_response({"path": path, "parent": parent,
                               "roots": _browse_roots(), "dirs": dirs,
-                              "agents": installed_agents()})
+                              "agents": installed_agents(),
+                              "recents": _recent_dirs()})
 
 
 # How each client is asked to shut itself down before the pane is closed.
@@ -2678,6 +3718,19 @@ def detect_mode(text):
     return None
 
 
+GROK_MODES = ("ask", "plan", "auto", "always-approve")
+GROK_MODE_SLASH = {
+    "always-approve": "/always-approve",
+    "auto": "/auto",
+    "plan": "/plan",
+}
+GROK_CONFIG = os.path.expanduser("~/.grok/config.toml")
+GROK_MODELS_CACHE = os.path.expanduser("~/.grok/models_cache.json")
+_GROK_MODELS = {"at": 0, "models": []}
+_GROK_MODEL_LOCK = asyncio.Lock()
+_GROK_EFFORTS = ("low", "medium", "high", "xhigh")
+
+
 @writes("mode")
 async def api_mode(request):
     """Shift-Tab until the requested mode is showing.
@@ -2687,7 +3740,7 @@ async def api_mode(request):
     """
     body = await request.json()
     uuid, want = body.get("uuid", "").upper(), body.get("mode")
-    if want not in MODES:
+    if want not in MODES and want not in GROK_MODES:
         return web.json_response({"error": f"bad mode {want!r}"}, status=400)
     s = (await all_sessions()).get(uuid)
     if not s:
@@ -2697,6 +3750,8 @@ async def api_mode(request):
         return web.json_response(
             {"error": f"pane is running {job!r} and shows no agent UI — refusing"},
             status=403)
+    if provider_of(uuid) == "grok":
+        return await _grok_mode(s, want)
     bad = claude_only(uuid, "mode")
     if bad:
         return bad
@@ -2737,8 +3792,6 @@ async def api_effort(request):
     """
     body = await request.json()
     uuid, level = body.get("uuid", "").upper(), body.get("level")
-    if level not in EFFORTS:
-        return web.json_response({"error": f"bad level {level!r}"}, status=400)
     s = (await all_sessions()).get(uuid)
     if not s:
         return web.json_response({"error": "no such pane"}, status=404)
@@ -2747,9 +3800,32 @@ async def api_effort(request):
         return web.json_response(
             {"error": f"pane is running {job!r} and shows no agent UI — refusing"},
             status=403)
+    if provider_of(uuid) == "grok":
+        if not level:
+            return await _grok_open(s, "/effort", uuid)
+        if not isinstance(level, str) or level not in _GROK_EFFORTS:
+            return web.json_response({"error": f"bad level {level!r}"}, status=400)
+        catalog = {m["id"]: m for m in await _grok_models()}
+        status = detect_grok_status(await pane_text(s))
+        current = _grok_match_model(catalog, status.get("model"))
+        if current and current["efforts"] and level not in current["efforts"]:
+            return web.json_response({"error": "effort is unsupported by this model"}, status=400)
+        return await _grok_slash(s, f"/effort {level}", {"ok": True, "level": level})
     bad = claude_only(uuid, "effort")
+    if provider_of(uuid) == "codex":
+        model = body.get("model")
+        if not level:
+            if model is not None and not isinstance(model, str):
+                return web.json_response({"error": "unsupported Codex model"}, status=400)
+            return await _codex_change(s, model=model or None, ask=True, uuid=uuid)
+        if not isinstance(level, str):
+            return web.json_response({"error": "level is required"}, status=400)
+        return await _codex_change(s, model=model if isinstance(model, str) else None,
+                                   level=level, uuid=uuid)
     if bad:
         return bad
+    if level not in EFFORTS:
+        return web.json_response({"error": f"bad level {level!r}"}, status=400)
     await send_slash(s, f"/effort {level}")
     return web.json_response({"ok": True, "level": level})
 
@@ -2770,6 +3846,13 @@ COMMANDS = {
     "help":      ("/help",      "list commands"),
     "release":   ("/release-notes", "what's new"),
 }
+CODEX_COMMANDS = {
+    "clear":       ("/clear", "wipe context"),
+    "model":       ("/model", "choose model and reasoning effort"),
+    "permissions": ("/permissions", "choose permissions"),
+}
+PROVIDER_COMMANDS = {"claude": COMMANDS, "codex": CODEX_COMMANDS,
+                     "grok": {"clear": ("/clear", "wipe context")}}
 
 
 async def send_slash(s, text):
@@ -2789,25 +3872,539 @@ async def send_slash(s, text):
 async def api_cmd(request):
     body = await request.json()
     uuid, name = body.get("uuid", "").upper(), body.get("cmd")
-    if name not in COMMANDS:
-        return web.json_response({"error": f"command {name!r} not allowed"}, status=400)
     s = (await all_sessions()).get(uuid)
     if not s:
         return web.json_response({"error": "no such pane"}, status=404)
     job = await s.async_get_variable("jobName") or ""
-    if not is_agent_pane(uuid, job, await pane_text(s)):
+    provider = pane_provider(uuid, job, await pane_text(s))
+    if not provider:
         return web.json_response(
             {"error": f"pane is running {job!r} and shows no agent UI — refusing"},
             status=403)
-    await send_slash(s, COMMANDS[name][0])
-    return web.json_response({"ok": True, "cmd": COMMANDS[name][0]})
+    commands = PROVIDER_COMMANDS.get(provider, {})
+    if name not in commands:
+        return web.json_response({"error": f"command {name!r} not allowed"}, status=400)
+    command = commands[name][0]
+    if provider == "codex":
+        # Codex opens the picker with one Enter; a second selects its first row.
+        await s.async_send_text(command)
+        await asyncio.sleep(0.9)
+        await s.async_send_text("\r")
+    else:
+        await send_slash(s, command)
+    return web.json_response({"ok": True, "cmd": command})
 
 
 @guard
 async def api_commands(request):
+    provider = request.query.get("provider", "claude")
+    if provider not in PROVIDER_COMMANDS:
+        return web.json_response({"error": f"bad provider {provider!r}"}, status=400)
     return web.json_response(
         {"commands": [{"id": k, "cmd": v[0], "desc": v[1]}
-                      for k, v in COMMANDS.items()]})
+                      for k, v in PROVIDER_COMMANDS[provider].items()]})
+
+
+_CODEX_MODELS = {"at": 0, "models": []}
+_CODEX_MODEL_LOCK = asyncio.Lock()
+_CODEX_EFFORT_LABELS = {"low": "Low", "medium": "Medium", "high": "High",
+                        "xhigh": "Extra high", "max": "Max", "ultra": "Ultra"}
+
+
+async def _codex_models():
+    async with _CODEX_MODEL_LOCK:
+        if _CODEX_MODELS["models"] and time.monotonic() - _CODEX_MODELS["at"] < 60:
+            return _CODEX_MODELS["models"]
+        binary = agent_bin("codex")
+        # launchd omits package-manager paths. The npm Codex launcher uses
+        # /usr/bin/env node even when Codex itself was resolved absolutely.
+        env = os.environ.copy()
+        env["PATH"] = os.pathsep.join(filter(None, [
+            env.get("PATH", os.defpath), os.path.dirname(binary),
+            "/opt/homebrew/bin", "/usr/local/bin"]))
+        proc = await asyncio.create_subprocess_exec(
+            binary, "debug", "models", env=env,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.communicate()
+            raise RuntimeError("Codex model discovery timed out")
+        if proc.returncode:
+            raise RuntimeError("Codex model discovery failed")
+        data = json.loads(stdout)
+        models = [{"id": m["slug"], "label": m["display_name"],
+                   "efforts": [r["effort"] for r in m["supported_reasoning_levels"]],
+                   "default_effort": m["default_reasoning_level"]}
+                  for m in data["models"] if m.get("visibility") == "list"]
+        if not models:
+            raise RuntimeError("Codex returned no selectable models")
+        _CODEX_MODELS.update(at=time.monotonic(), models=models)
+        return models
+
+
+@guard
+async def api_codex_models(request):
+    try:
+        return web.json_response({"models": await _codex_models()})
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+        return web.json_response({"error": "Codex model discovery unavailable"}, status=503)
+
+
+async def _grok_models():
+    async with _GROK_MODEL_LOCK:
+        if _GROK_MODELS["models"] and time.monotonic() - _GROK_MODELS["at"] < 60:
+            return _GROK_MODELS["models"]
+        models = []
+        try:
+            data = json.load(open(GROK_MODELS_CACHE))
+        except (OSError, ValueError, TypeError):
+            data = {}
+        for key, entry in (data.get("models") or {}).items():
+            info = (entry or {}).get("info") or {}
+            if info.get("hidden"):
+                continue
+            mid = info.get("id") or key
+            efforts = [e.get("id") for e in (info.get("reasoning_efforts") or []) if e.get("id")]
+            default = next((e.get("id") for e in (info.get("reasoning_efforts") or [])
+                            if e.get("default")), None)
+            models.append({
+                "id": mid,
+                "label": info.get("name") or mid,
+                "efforts": efforts or list(_GROK_EFFORTS),
+                "default_effort": default or info.get("reasoning_effort") or "high",
+            })
+        if not models:
+            raise RuntimeError("Grok model discovery unavailable")
+        _GROK_MODELS.update(at=time.monotonic(), models=models)
+        return models
+
+
+@guard
+async def api_grok_models(request):
+    try:
+        return web.json_response({"models": await _grok_models()})
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+        return web.json_response({"error": "Grok model discovery unavailable"}, status=503)
+
+
+def _grok_match_model(catalog, name):
+    if not name or not isinstance(name, str):
+        return None
+    key = name.strip().lower()
+    if key in catalog:
+        return catalog[key]
+    for model in catalog.values():
+        if (model["label"] or "").strip().lower() == key:
+            return model
+    compact = re.sub(r"[^a-z0-9.]+", "", key)
+    for model in catalog.values():
+        ids = (model["id"], model["label"])
+        if any(re.sub(r"[^a-z0-9.]+", "", (x or "").lower()) == compact for x in ids):
+            return model
+    return None
+
+
+def _read_grok_default():
+    try:
+        text = open(GROK_CONFIG).read()
+    except OSError:
+        return _MISSING
+    section, in_models = None, False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            in_models = stripped.strip("[]").strip() == "models"
+            continue
+        if in_models:
+            m = re.match(r'default\s*=\s*"(.*?)"', stripped)
+            if m:
+                return m.group(1)
+    return _MISSING
+
+
+def _restore_grok_default(prev):
+    if prev is _MISSING:
+        return
+    try:
+        text = open(GROK_CONFIG).read()
+    except OSError:
+        return
+    lines, out, in_models, done = text.splitlines(True), [], False, False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            in_models = stripped.strip("[]").strip() == "models"
+        elif in_models and not done:
+            m = re.match(r'(\s*default\s*=\s*")(.*?)(".*)$', line.rstrip("\n"))
+            if m and m.group(2) != prev:
+                line = f'{m.group(1)}{prev}{m.group(3)}\n'
+                done = True
+        out.append(line)
+    if not done:
+        return
+    tmp = GROK_CONFIG + ".tmp"
+    try:
+        with open(tmp, "w") as f:
+            f.write("".join(out))
+        os.replace(tmp, GROK_CONFIG)
+    except OSError as e:
+        print(f"  [model] could not restore Grok default: {type(e).__name__}: {e}",
+              flush=True)
+
+
+async def _keep_grok_default(prev):
+    for _ in range(24):
+        await asyncio.sleep(0.25)
+        if _read_grok_default() != prev:
+            break
+    await asyncio.sleep(0.4)
+    _restore_grok_default(prev)
+
+
+async def _grok_focus(s):
+    """Grok's slash menu only works with the prompt focused. Scrollback focus
+    advertises `Space:prompt` on the shortcuts bar."""
+    text = await pane_text(s)
+    if re.search(r"Space:prompt", text, re.I):
+        await s.async_send_text(" ")
+        await asyncio.sleep(0.25)
+
+
+async def send_grok_slash(s, text):
+    """Type a Grok slash command and submit it with one Enter.
+
+    Grok's autocomplete runs the highlighted command on the first Enter, so a
+    second Enter (what Claude needs) would send an empty follow-up. A fully
+    typed `/model grok-4.6` submits on that first Enter.
+    """
+    await _grok_focus(s)
+    await s.async_send_text("\x15")
+    await asyncio.sleep(0.15)
+    await s.async_send_text(text)
+    await asyncio.sleep(0.6)
+    await s.async_send_text("\r")
+
+
+async def _grok_wait(s, predicate):
+    for _ in range(50):
+        text = await pane_text(s)
+        value = predicate(text)
+        if value:
+            return text, value
+        await asyncio.sleep(0.15)
+    raise RuntimeError("Grok did not reach the expected screen; try again")
+
+
+async def _grok_slash(s, command, payload):
+    if _grok_prompt(await pane_text(s)):
+        return web.json_response({"error": "Grok has an open picker — cancel it first"},
+                                 status=409)
+    await send_grok_slash(s, command)
+    return web.json_response(payload)
+
+
+async def _grok_open(s, command, uuid):
+    initial = await pane_text(s)
+    if _grok_prompt(initial):
+        return web.json_response({"error": "Grok has an open picker — cancel it first"},
+                                 status=409)
+    await _grok_focus(s)
+    await s.async_send_text("\x15")
+    await asyncio.sleep(0.15)
+    await s.async_send_text(command)
+    await asyncio.sleep(0.6)
+    await s.async_send_text("\r")
+    try:
+        text, _ = await _grok_wait(s, _grok_prompt)
+    except RuntimeError:
+        await s.async_send_text("\x1b")
+        return web.json_response(
+            {"error": "Grok did not open the picker; try again"}, status=409)
+    return web.json_response({"ok": True, "prompt": detect_prompt(text, "grok", uuid)})
+
+
+async def _grok_mode(s, want):
+    if want not in GROK_MODES:
+        return web.json_response({"error": f"bad mode {want!r}"}, status=400)
+    if _grok_prompt(await pane_text(s)):
+        return web.json_response({"error": "Grok has an open picker — cancel it first"},
+                                 status=409)
+    seen = []
+    for _ in range(len(GROK_MODES) + 2):
+        cur = detect_grok_status(await pane_text(s)).get("mode") or "ask"
+        seen.append(cur)
+        if cur == want:
+            return web.json_response({"ok": True, "mode": cur, "path": seen})
+        await s.async_send_text("\x1b[Z")
+        await asyncio.sleep(0.7)
+    final = detect_grok_status(await pane_text(s)).get("mode") or "ask"
+    if final == want:
+        return web.json_response({"ok": True, "mode": final, "path": seen})
+    slash = GROK_MODE_SLASH.get(want)
+    if slash:
+        await send_grok_slash(s, slash)
+        await asyncio.sleep(0.5)
+        final = detect_grok_status(await pane_text(s)).get("mode") or "ask"
+        if final == want:
+            return web.json_response({"ok": True, "mode": final, "path": seen + [final]})
+        if want == "ask":
+            # Toggles: turn off whichever elevated mode is showing.
+            for cmd in ("/always-approve", "/auto"):
+                await send_grok_slash(s, cmd)
+                await asyncio.sleep(0.5)
+                final = detect_grok_status(await pane_text(s)).get("mode") or "ask"
+                if final == "ask":
+                    return web.json_response({"ok": True, "mode": final, "path": seen + [final]})
+    return web.json_response(
+        {"error": f"could not reach {want!r}; ended on {final!r}",
+         "mode": final, "path": seen}, status=409)
+
+
+async def _grok_prompt_action(s, uuid, prompt, action, option_index=None):
+    identity = prompt["id"]
+
+    def same(p):
+        return p is not None and p.get("id") == identity
+
+    if action == "cancel":
+        await s.async_send_text("\x1b")
+        for _ in range(20):
+            fresh = detect_prompt(await pane_text(s), "grok", uuid)
+            if not same(fresh):
+                return fresh
+            await asyncio.sleep(0.15)
+        raise RuntimeError("Grok prompt did not cancel")
+    selected = next((o["index"] for o in prompt["options"] if o["selected"]), None)
+    if selected is None:
+        raise RuntimeError("Grok option caret is not visible")
+    target = option_index
+    if target is None:
+        raise RuntimeError("option index is required")
+    for _ in range(len(prompt["options"])):
+        if selected == target:
+            break
+        step = 1 if target > selected else -1
+        await s.async_send_text("\x1b[B" if step > 0 else "\x1b[A")
+        selected += step
+        for _ in range(20):
+            fresh = detect_prompt(await pane_text(s), "grok", uuid)
+            if same(fresh) and any(o["index"] == selected and o["selected"] for o in fresh["options"]):
+                break
+            await asyncio.sleep(0.1)
+        else:
+            raise RuntimeError("Grok option caret did not move")
+    await s.async_send_text("\r")
+    for _ in range(20):
+        fresh = detect_prompt(await pane_text(s), "grok", uuid)
+        if not same(fresh):
+            return fresh
+        await asyncio.sleep(0.15)
+    raise RuntimeError("Grok prompt did not accept the choice")
+
+
+def _codex_title_matches(line, title):
+    line = line.strip()
+    if line == title:
+        return True
+    # "Select Model" must not match "Select Model and Effort".
+    if title in ("Select Model", "Select Model and Effort", "Advanced Reasoning",
+                 "Apply reasoning change"):
+        return False
+    return line.startswith(title + " ") or line.startswith(title + " for")
+
+
+def _codex_picker(text, title):
+    lines = text.splitlines()
+    starts = [i for i, line in enumerate(lines) if _codex_title_matches(line, title)]
+    if not starts:
+        return None
+    run = _last_numbered_run(lines[starts[-1] + 1:])
+    return run
+
+
+def _codex_row_slug(row):
+    return re.split(r"\s{2,}", row[2], maxsplit=1)[0].split()[0]
+
+
+def _codex_wanted_rows(rows, catalog, model):
+    candidates = []
+    for row in rows:
+        slug = _codex_row_slug(row)
+        if slug in catalog and (slug == model if model else "(current)" in row[2]):
+            candidates.append((row, slug))
+    return candidates
+
+
+async def _codex_open_model_list(s, catalog, model):
+    """Drive /model to a list that contains the requested (or current) model.
+
+    Codex 0.154 opens 'Select Model' (auto modes + All models) first. Older
+    builds go straight to 'Select Model and Effort'.
+    """
+    await s.async_send_text("/model")
+    await asyncio.sleep(0.9)
+    await s.async_send_text("\r")
+    text, _ = await _codex_wait(
+        s, lambda t: _codex_picker(t, "Select Model and Effort") or _codex_picker(t, "Select Model"))
+    full = _codex_picker(text, "Select Model and Effort")
+    if full:
+        return text, full
+    rows = _codex_picker(text, "Select Model")
+    if _codex_wanted_rows(rows, catalog, model):
+        return text, rows
+    all_rows = [row for row in rows if re.match(r"All models\b", row[2].strip(), re.I)]
+    if len(all_rows) != 1:
+        return text, rows
+    await s.async_send_text(all_rows[0][1])
+    return await _codex_wait(s, lambda t: _codex_picker(t, "Select Model and Effort"))
+
+
+def _codex_live_tail(text, n=8):
+    lines = [line for line in text.splitlines() if line.strip()]
+    return "\n".join(lines[-n:])
+
+
+def _codex_busy(text):
+    # Only the live footer — older "Working (esc to interrupt)" lines stay in
+    # the visible pane after a run ends and must not block /model. The elapsed
+    # `(12s • esc to interrupt)` shape is what Codex paints while a turn runs;
+    # a question footer also says "esc to interrupt" and must not match.
+    # A placeholder composer *below* a progress line is the idle signal; the
+    # same line holding both (0.153 redraws them together) is still a live turn.
+    lines = [line for line in (text or "").splitlines() if line.strip()][-5:]
+    last_progress = last_placeholder = -1
+    for i, line in enumerate(lines):
+        if _CODEX_PROGRESS_RE.search(line):
+            last_progress = i
+        stripped = line.lstrip()
+        if stripped.startswith("›") and not OPTION_RE.match(line):
+            value = stripped[1:].lstrip()
+            if any(value == p or value.startswith(p) for p in _CODEX_PLACEHOLDERS):
+                last_placeholder = i
+    return last_progress >= 0 and last_progress >= last_placeholder
+
+
+def _codex_live_picker(text):
+    titles = []
+    for line in text.splitlines():
+        t = line.strip()
+        if _CODEX_PICKER_TITLES.match(t):
+            titles.append(t)
+    return any(_codex_picker(text, title) for title in titles)
+
+
+def _codex_idle(text):
+    if detect_prompt(text, "codex") or _codex_live_picker(text) or _codex_busy(text):
+        return False
+    # The empty Codex composer shows a native placeholder. A typed draft is
+    # deliberately not accepted, even if a prior prompt is still in scrollback.
+    visible = any(line.lstrip().startswith("›") and not OPTION_RE.match(line)
+                  for line in text.splitlines())
+    ghost, draft = _codex_input(text)
+    return visible and (ghost or not draft)
+
+
+async def _codex_dismiss_open_ui(s):
+    for _ in range(6):
+        text = await pane_text(s)
+        if not detect_prompt(text, "codex") and not _codex_live_picker(text):
+            return
+        await s.async_send_text("\x1b")
+        await asyncio.sleep(0.15)
+
+
+async def _codex_wait(s, predicate):
+    for _ in range(50):
+        text = await pane_text(s)
+        value = predicate(text)
+        if value:
+            return text, value
+        await asyncio.sleep(0.15)
+    raise RuntimeError("Codex did not reach the expected screen; try again")
+
+
+async def _codex_change(s, model=None, level=None, ask=False, uuid=None):
+    try:
+        catalog = {m["id"]: m for m in await _codex_models()}
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+        return web.json_response({"error": "Codex model discovery unavailable"}, status=503)
+    if model is not None and model not in catalog:
+        if ask:
+            model = None
+        else:
+            return web.json_response({"error": "unsupported Codex model"}, status=400)
+    if not ask:
+        if level is not None and (not isinstance(level, str) or level not in _CODEX_EFFORT_LABELS
+                                 or not any(level in m["efforts"] for m in catalog.values())):
+            return web.json_response({"error": "unsupported Codex reasoning effort"}, status=400)
+        if model is not None and level is not None and level not in catalog[model]["efforts"]:
+            return web.json_response({"error": "effort is unsupported by this model"}, status=400)
+    initial = await pane_text(s)
+    if _codex_busy(initial):
+        return web.json_response({"error": "Codex is working — wait until it finishes"}, status=409)
+    if detect_prompt(initial, "codex") or _codex_live_picker(initial):
+        return web.json_response({"error": "Codex has an open picker — cancel it first"}, status=409)
+    if not _codex_idle(initial):
+        ghost, draft = _codex_input(initial)
+        if not draft or ghost:
+            return web.json_response(
+                {"error": "Codex must be idle with an empty composer and no open picker"}, status=409)
+        await s.async_send_text("\x15")
+        try:
+            initial, _ = await _codex_wait(s, _codex_idle)
+        except RuntimeError:
+            await s.async_send_text("\x03")
+            try:
+                initial, _ = await _codex_wait(s, _codex_idle)
+            except RuntimeError:
+                return web.json_response(
+                    {"error": "Codex must be idle with an empty composer and no open picker"}, status=409)
+    owned = False
+    left_open = False
+    titles = {"Select Model", "Select Model and Effort", "Select Reasoning Level"}
+    try:
+        owned = True
+        _, rows = await _codex_open_model_list(s, catalog, model)
+        candidates = _codex_wanted_rows(rows, catalog, model)
+        if len(candidates) != 1:
+            raise RuntimeError("requested Codex model is not uniquely visible in the picker")
+        row, model = candidates[0]
+        titles.add(f"Select Reasoning Level for {model}")
+        await s.async_send_text(row[1])
+        text, rows = await _codex_wait(s, lambda t: _codex_picker(t, "Select Reasoning Level"))
+        if ask:
+            left_open = True
+            prompt = detect_prompt(text, "codex", uuid)
+            return web.json_response({"ok": True, "model": model, "prompt": prompt})
+        level = level or catalog[model]["default_effort"]
+        if level not in catalog[model]["efforts"] or level not in _CODEX_EFFORT_LABELS:
+            raise RuntimeError("effort is unsupported by the current Codex model")
+        if level in ("max", "ultra"):
+            more = [r for r in rows if r[2].startswith("More reasoning")]
+            if len(more) != 1:
+                raise RuntimeError("advanced reasoning is not visible in the Codex picker")
+            titles.add("Advanced Reasoning")
+            await s.async_send_text(more[0][1])
+            _, rows = await _codex_wait(s, lambda t: _codex_picker(t, "Advanced Reasoning"))
+        label = _CODEX_EFFORT_LABELS[level]
+        matches = [r for r in rows if re.fullmatch(
+            re.escape(label) + r"(?:\s*\([^)]*\))*", re.split(r"\s{2,}", r[2])[0])]
+        if len(matches) != 1:
+            raise RuntimeError("requested reasoning level is not uniquely visible in the Codex picker")
+        before = await pane_text(s)
+        completion = re.compile(r"Model changed to\s+" + re.escape(model) + r"\s+" + re.escape(level) + r"\b")
+        count = max(len(completion.findall(before)), len(completion.findall(initial)))
+        await s.async_send_text(matches[0][1])
+        await _codex_wait(s, lambda t: not detect_prompt(t, "codex") and len(completion.findall(t)) > count)
+        await _codex_dismiss_open_ui(s)
+        return web.json_response({"ok": True, "model": model, "level": level, "prompt": None})
+    except RuntimeError as exc:
+        return web.json_response({"error": str(exc)}, status=409)
+    finally:
+        if owned and not left_open:
+            await _codex_dismiss_open_ui(s)
 
 
 SETTINGS_JSON = os.path.expanduser("~/.claude/settings.json")
@@ -2876,8 +4473,6 @@ async def api_model(request):
     """
     body = await request.json()
     uuid, name = body.get("uuid", "").upper(), body.get("model")
-    if name not in MODELS:
-        return web.json_response({"error": f"bad model {name!r}"}, status=400)
     s = (await all_sessions()).get(uuid)
     if not s:
         return web.json_response({"error": "no such pane"}, status=404)
@@ -2886,9 +4481,29 @@ async def api_model(request):
         return web.json_response(
             {"error": f"pane is running {job!r} and shows no agent UI — refusing"},
             status=403)
+    if provider_of(uuid) == "grok":
+        if not name:
+            return await _grok_open(s, "/model", uuid)
+        if not isinstance(name, str):
+            return web.json_response({"error": "model is required"}, status=400)
+        catalog = {m["id"]: m for m in await _grok_models()}
+        model = _grok_match_model(catalog, name)
+        if not model:
+            return web.json_response({"error": "unsupported Grok model"}, status=400)
+        prev = _read_grok_default()
+        result = await _grok_slash(s, f"/model {model['id']}",
+                                   {"ok": True, "model": model["id"]})
+        asyncio.ensure_future(_keep_grok_default(prev))
+        return result
     bad = claude_only(uuid, "model")
+    if provider_of(uuid) == "codex":
+        if not isinstance(name, str) or not name:
+            return web.json_response({"error": "model is required"}, status=400)
+        return await _codex_change(s, model=name, level=body.get("effort"))
     if bad:
         return bad
+    if name not in MODELS:
+        return web.json_response({"error": f"bad model {name!r}"}, status=400)
     async with _settings_lock:
         prev = _read_default_model()
         await send_slash(s, f"/model {MODELS[name]}")
@@ -2897,14 +4512,150 @@ async def api_model(request):
 
 
 # ── usage / CC Dash data ───────────────────────────────────────────────────
-# Reuses ~/.claude/cc_history.py — the same module cc-dashboard.py reads, so the
-# numbers here and in the TUI come from one source and cannot drift apart.
+# Claude reuses ~/.claude/cc_history.py — the same module cc-dashboard.py reads,
+# so the numbers here and in the TUI cannot drift apart. Codex and Grok have no
+# equivalent module; their journals (~/.codex/sessions rollouts, ~/.grok/sessions
+# usage.json) are scanned the same way the fleet already reads them for ops.
 sys.path.insert(0, os.path.expanduser("~/.claude"))
-_usage_cache = {"at": 0, "data": None}
+_usage_cache = {}                 # provider -> {"at": epoch, "data": dict}
 USAGE_TTL = 120
+GROK_COST_TICKS = 1e10            # grok usage.json: divide costUsdTicks by this
+_CODEX_SID_RE = re.compile(
+    r"rollout-.*-([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\.jsonl$")
+_native_scan_cache = {}           # path -> {"k":[mtime,size], "pack": dict}
 
 
-def _compute_usage():
+def _parse_ts(ts):
+    """ISO timestamp or unix seconds → epoch, else None."""
+    if ts is None or ts == "":
+        return None
+    if isinstance(ts, (int, float)):
+        return float(ts)
+    try:
+        from datetime import datetime
+        return datetime.fromisoformat(str(ts).replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return None
+
+
+def _local_day(ts):
+    from datetime import datetime
+    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
+
+
+def _produced_tokens(inp, cached, cache_write, out):
+    """New work: uncached input + output + cache writes. Cache reads are replay."""
+    return max(0, (inp or 0) - (cached or 0)) + (out or 0) + (cache_write or 0)
+
+
+def _short_native_model(m):
+    if not m:
+        return ""
+    return re.sub(r"-build$", "", str(m))
+
+
+def _paths_key(*paths):
+    mt = sz = 0
+    ok = False
+    for p in paths:
+        try:
+            st = os.stat(p)
+        except OSError:
+            continue
+        ok = True
+        if st.st_mtime > mt:
+            mt = st.st_mtime
+        sz += st.st_size
+    return [mt, sz] if ok else None
+
+
+def _cached_pack(path, key, builder):
+    c = _native_scan_cache.get(path)
+    if c and c["k"] == key:
+        return c["pack"]
+    pack = builder()
+    _native_scan_cache[path] = {"k": key, "pack": pack}
+    return pack
+
+
+def _empty_days():
+    from datetime import date as _date
+    from datetime import timedelta as _td
+    _t = _date.today()
+    return [(_t - _td(days=i)).isoformat() for i in range(29, -1, -1)]
+
+
+def _usage_from_packs(packs, limits=None):
+    """today / daily-30 / all-time from native session packs (Codex or Grok)."""
+    today = time.strftime("%Y-%m-%d")
+    days = _empty_days()
+    acc = {d: {"cost": 0.0, "tokens": 0} for d in days}
+    tot_tokens = tot_cost = sessions = 0
+    active = set()
+    limit_maps = []
+    for pack in packs:
+        if not pack:
+            continue
+        hist = pack.get("hist")
+        if hist:
+            sessions += 1
+            tot_tokens += hist.get("tokens") or 0
+            tot_cost += hist.get("cost") or 0
+        else:
+            tot_tokens += pack.get("tokens") or 0
+            tot_cost += pack.get("cost") or 0
+        if pack.get("limits"):
+            limit_maps.append(pack["limits"])
+        for d, v in (pack.get("days") or {}).items():
+            if isinstance(v, dict):
+                tok, cost = v.get("tokens") or 0, v.get("cost") or 0
+            else:
+                tok, cost = v or 0, 0
+            if tok or cost:
+                active.add(d)
+            if d in acc:
+                acc[d]["tokens"] += tok
+                acc[d]["cost"] += cost
+    daily = [{"d": d, "cost": round(acc[d]["cost"], 2),
+              "tokens": acc[d]["tokens"]} for d in days]
+    if limits is None:
+        limits = fleet_limits({i: {"limits": m} for i, m in enumerate(limit_maps)})
+    return {
+        "today": {"tokens": acc.get(today, {}).get("tokens", 0),
+                  "cost": round(acc.get(today, {}).get("cost", 0.0), 2)},
+        "daily": daily,
+        "all_time": {
+            "tokens": tot_tokens,
+            "cost": round(tot_cost, 2),
+            "sessions": sessions,
+            "active_days": len(active),
+        },
+        "limits": limits,
+    }
+
+
+def _claude_account_limits():
+    """Claude 5h/7d from FLEET_DIR dumps, including panes past the 90s STALE cutoff.
+
+    Billing windows expire in fleet_limits; pane liveness is not the same clock.
+    """
+    files = {}
+    for path in glob.glob(os.path.join(FLEET_DIR, "*.json")):
+        try:
+            d = json.load(open(path))
+        except Exception:
+            continue
+        if d.get("provider") not in (None, "claude"):
+            continue
+        rl = d.get("rate_limits")
+        if not isinstance(rl, dict):
+            continue
+        files[path] = {"limits": rl}
+    return fleet_limits(files)
+
+
+def _compute_usage_claude():
     # Only today. The dashboard is a "what is happening right now" screen — the
     # 30-day chart, per-project spend and all-time totals live in the TUI.
     import cc_history as HIST
@@ -2913,13 +4664,7 @@ def _compute_usage():
     cost = HIST.series(agg, "cost")
     today = time.strftime("%Y-%m-%d")
     tot = agg.get("tot") or {}
-    # last 30 days of cost/tokens for the phone spend chart (oldest → newest, gaps
-    # filled with 0 so the bar chart has one column per calendar day). Same series
-    # the TUI's 30-day graph reads, so the shapes line up.
-    from datetime import date as _date
-    from datetime import timedelta as _td
-    _t = _date.today()
-    days = [( _t - _td(days=i)).isoformat() for i in range(29, -1, -1)]
+    days = _empty_days()
     daily = [{"d": dd, "cost": round(cost.get(dd, 0.0), 2),
               "tokens": tokens.get(dd, 0)} for dd in days]
     return {
@@ -2935,44 +4680,475 @@ def _compute_usage():
             "active_days": len(HIST.active_days(agg))
                            if hasattr(HIST, "active_days") else 0,
         },
+        "limits": _claude_account_limits(),
     }
+
+
+def _codex_rate_limits(rl):
+    """Codex token_count.rate_limits → five_hour/seven_day/monthly by window."""
+    if not isinstance(rl, dict):
+        return {}
+    now = time.time()
+    out = {}
+    windows = {300: "five_hour", 10080: "seven_day", 43200: "monthly"}
+    for src, fallback in (("primary", "five_hour"), ("secondary", "seven_day")):
+        w = rl.get(src)
+        if not isinstance(w, dict):
+            continue
+        pct = w.get("used_percent")
+        if pct is None:
+            pct = w.get("used_percentage")
+        if pct is None:
+            continue
+        resets = w.get("resets_at") or 0
+        if resets and resets <= now:
+            continue
+        wm = w.get("window_minutes")
+        dst = fallback if wm is None else windows.get(wm)
+        if not dst:
+            continue
+        out[dst] = {"used_percentage": pct, "resets_at": resets}
+    return out
+
+
+def _scan_codex_file(path):
+    """One Codex rollout → history card + per-day produced tokens + latest limits.
+
+    token_usage_record.usage is per-response (input includes cached reads).
+    Daily/all-time tokens count new work only, matching Claude's in+out+cc.
+    """
+    days = {}
+    itok = otok = cached = cwrite = 0
+    cwd = model = sid = None
+    first = last = None
+    title = first_title = ""
+    prompts = 0
+    blurb = []; blurb_len = 0
+    limits = {}
+    try:
+        fh = open(path, errors="ignore")
+    except OSError:
+        return None
+    with fh:
+        for line in fh:
+            if not line or not any(s in line for s in (
+                    "session_meta", "token_usage_record", "token_count",
+                    '"role":"user"', '"role": "user"', "turn_context")):
+                continue
+            try:
+                o = json.loads(line)
+            except Exception:
+                continue
+            ts = _parse_ts(o.get("timestamp"))
+            if ts:
+                if first is None or ts < first:
+                    first = ts
+                if last is None or ts > last:
+                    last = ts
+            typ = o.get("type")
+            p = o.get("payload") if isinstance(o.get("payload"), dict) else {}
+            if typ == "session_meta":
+                sid = p.get("session_id") or p.get("id") or sid
+                cwd = p.get("cwd") or cwd
+                continue
+            if typ == "turn_context":
+                model = p.get("model") or model
+                cwd = p.get("cwd") or cwd
+                continue
+            if typ == "token_usage_record" or (typ == "event_msg" and
+                                                p.get("type") == "token_count"):
+                if typ == "token_usage_record":
+                    u = p.get("usage") if isinstance(p.get("usage"), dict) else {}
+                else:
+                    info = p.get("info") if isinstance(p.get("info"), dict) else {}
+                    u = info.get("last_token_usage") if isinstance(
+                        info.get("last_token_usage"), dict) else {}
+                i = u.get("input_tokens") or 0
+                c = u.get("cached_input_tokens") or 0
+                w = u.get("cache_write_input_tokens") or 0
+                ot = u.get("output_tokens") or 0
+                itok += i; cached += c; cwrite += w; otok += ot
+                produced = _produced_tokens(i, c, w, ot)
+                if ts:
+                    slot = days.setdefault(_local_day(ts),
+                                           {"tokens": 0, "cost": 0.0})
+                    slot["tokens"] += produced
+                    slot["cost"] += _codex_cost(model, i, c, w, ot)
+                if typ == "event_msg":
+                    limits = _codex_rate_limits(p.get("rate_limits"))
+                continue
+            if typ == "event_msg" and p.get("type") == "token_count":
+                limits = _codex_rate_limits(p.get("rate_limits"))
+                continue
+            if not (typ == "response_item" and p.get("type") == "message"
+                    and p.get("role") == "user"):
+                continue
+            txt = " ".join(x.get("text", "") for x in (p.get("content") or [])
+                           if isinstance(x, dict) and x.get("type") == "input_text")
+            clean = human_prompt(txt)
+            if not clean:
+                continue
+            prompts += 1
+            clean = clean.replace("\n", " ")
+            title = clean[:120]
+            if not first_title:
+                first_title = title
+            if blurb_len < 1600:
+                take = clean[:300]
+                blurb.append(take); blurb_len += len(take)
+    if last is None:
+        return None
+    if not sid:
+        m = _CODEX_SID_RE.search(os.path.basename(path))
+        sid = m.group(1) if m else os.path.basename(path)[:-6]
+    tokens = _produced_tokens(itok, cached, cwrite, otok)
+    cost = _codex_cost(model, itok, cached, cwrite, otok)
+    ops = codex_ops(path)
+    return {
+        "hist": {
+            "session_id": sid,
+            "title": title or "(no prompt)",
+            "cwd": cwd or "",
+            "project": os.path.basename((cwd or "").rstrip("/")) if cwd else "",
+            "model": _short_native_model(model),
+            "prompts": prompts,
+            "tokens": tokens,
+            "cost": round(cost, 2),
+            "files": len(ops["files"]),
+            "lines_add": ops["add"],
+            "lines_del": ops["del"],
+            "last": last, "first": first,
+            "search": " ".join(blurb)[:1600],
+            "provider": "codex",
+        },
+        "days": days,
+        "limits": limits,
+        "tokens": tokens,
+        "cost": cost,
+    }
+
+
+def _codex_pack(path):
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return _cached_pack(path, [st.st_mtime, st.st_size],
+                        lambda: _scan_codex_file(path))
+
+
+def _scan_grok_session(sdir):
+    """One Grok session dir → history card + per-day tokens/cost from usage.json.
+
+    costUsdTicks is 10^10 ticks per USD. Turns carry endedAt, so the 30-day
+    chart is turn-bucketed; all-time totals prefer the session roll-up.
+    """
+    summary_path = os.path.join(sdir, "summary.json")
+    usage_path = os.path.join(sdir, "usage.json")
+    chat_path = os.path.join(sdir, "chat_history.jsonl")
+    summary = {}
+    try:
+        if os.path.exists(summary_path):
+            summary = json.loads(pathlib.Path(summary_path).read_text())
+    except Exception:
+        summary = {}
+    if not isinstance(summary, dict):
+        summary = {}
+    info = summary.get("info") if isinstance(summary.get("info"), dict) else {}
+    sid = info.get("id") or os.path.basename(sdir)
+    cwd = info.get("cwd") or ""
+    model = summary.get("current_model_id") or ""
+    title = (summary.get("generated_title") or summary.get("session_summary")
+             or "").strip()
+    first = _parse_ts(summary.get("created_at"))
+    last = _parse_ts(summary.get("last_active_at") or summary.get("updated_at"))
+
+    usage = {}
+    try:
+        if os.path.exists(usage_path):
+            usage = json.load(open(usage_path))
+    except Exception:
+        usage = {}
+    if not isinstance(usage, dict):
+        usage = {}
+    sess = usage.get("session") if isinstance(usage.get("session"), dict) else {}
+    cost = (sess.get("costUsdTicks") or 0) / GROK_COST_TICKS
+    tokens = _produced_tokens(sess.get("inputTokens") or 0,
+                              sess.get("cachedReadTokens") or 0,
+                              sess.get("cacheCreationTokens") or 0,
+                              sess.get("outputTokens") or 0)
+    days = {}
+    for t in usage.get("turns") or []:
+        if not isinstance(t, dict):
+            continue
+        ts = _parse_ts(t.get("endedAt"))
+        if not ts:
+            continue
+        if first is None or ts < first:
+            first = ts
+        if last is None or ts > last:
+            last = ts
+        slot = days.setdefault(_local_day(ts), {"tokens": 0, "cost": 0.0})
+        slot["tokens"] += _produced_tokens(
+            t.get("inputTokens") or 0, t.get("cachedReadTokens") or 0,
+            t.get("cacheCreationTokens") or 0, t.get("outputTokens") or 0)
+        slot["cost"] += (t.get("costUsdTicks") or 0) / GROK_COST_TICKS
+    if not days and (tokens or cost) and last:
+        days[_local_day(last)] = {"tokens": tokens, "cost": cost}
+
+    prompts = 0
+    blurb = []; blurb_len = 0
+    last_prompt = ""
+    try:
+        with open(chat_path, errors="ignore") as fh:
+            for line in fh:
+                if '"type":"user"' not in line and '"type": "user"' not in line:
+                    continue
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                if o.get("type") != "user":
+                    continue
+                txt = " ".join(x.get("text", "") for x in (o.get("content") or [])
+                               if isinstance(x, dict) and x.get("type") == "text")
+                clean = human_prompt(txt)
+                if not clean:
+                    continue
+                prompts += 1
+                clean = clean.replace("\n", " ")
+                last_prompt = clean[:120]
+                if blurb_len < 1600:
+                    take = clean[:300]
+                    blurb.append(take); blurb_len += len(take)
+    except OSError:
+        pass
+    if not title:
+        title = last_prompt
+    if last is None:
+        return None
+    ops = grok_ops(chat_path)
+    search = " ".join([
+        title,
+        summary.get("session_summary") or "",
+        summary.get("last_turn_summary") or "",
+        *blurb,
+    ])[:1600]
+    return {
+        "hist": {
+            "session_id": sid,
+            "title": (title or "(no prompt)")[:120],
+            "cwd": cwd,
+            "project": os.path.basename(cwd.rstrip("/")) if cwd else "",
+            "model": _short_native_model(model),
+            "prompts": prompts,
+            "tokens": tokens,
+            "cost": round(cost, 2),
+            "files": len(ops["files"]),
+            "lines_add": ops["add"],
+            "lines_del": ops["del"],
+            "last": last, "first": first,
+            "search": search,
+            "provider": "grok",
+        },
+        "days": days,
+        "limits": {},
+        "tokens": tokens,
+        "cost": cost,
+    }
+
+
+def _grok_pack(sdir):
+    key = _paths_key(os.path.join(sdir, "summary.json"),
+                     os.path.join(sdir, "usage.json"),
+                     os.path.join(sdir, "chat_history.jsonl"))
+    if key is None:
+        return None
+    return _cached_pack(sdir, key, lambda: _scan_grok_session(sdir))
+
+
+def _iter_codex_packs():
+    files = glob.glob(os.path.join(CODEX_SESSIONS, "*", "*", "*", "*.jsonl"))
+    live = set(files)
+    packs = []
+    for p in files:
+        pack = _codex_pack(p)
+        if pack:
+            packs.append(pack)
+    return packs, live
+
+
+def _iter_grok_packs():
+    dirs = [d for d in glob.glob(os.path.join(GROK_SESSIONS, "*", "*"))
+            if os.path.isdir(d)]
+    live = set(dirs)
+    packs = []
+    for d in dirs:
+        pack = _grok_pack(d)
+        if pack:
+            packs.append(pack)
+    return packs, live
+
+
+def _compute_usage_codex():
+    packs, live = _iter_codex_packs()
+    for gone in [p for p in _native_scan_cache
+                 if p.startswith(CODEX_SESSIONS) and p not in live]:
+        _native_scan_cache.pop(gone, None)
+    return _usage_from_packs(packs)
+
+
+def _grok_billing_limits():
+    """Account weekly (or monthly) credit fill, from Grok's own billing fetch.
+
+    Grok logs `billing: fetched credits config` on the same payload /usage shows:
+    creditUsagePercent + currentPeriod.{type,start,end}. SuperGrok is a shared
+    weekly pool — there is no 5-hour window. Tail the log rather than calling
+    grok.com so we never handle the auth token.
+    """
+    try:
+        with open(GROK_LOG, "rb") as fh:
+            fh.seek(0, 2)
+            fh.seek(max(0, fh.tell() - 1_000_000))
+            chunk = fh.read().decode("utf-8", "ignore")
+    except OSError:
+        return {}
+    last = None
+    for line in chunk.splitlines():
+        if "billing: fetched credits config" not in line:
+            continue
+        try:
+            last = json.loads(line)
+        except Exception:
+            continue
+    if not last:
+        return {}
+    cfg = (last.get("ctx") or {}).get("config") or {}
+    pct = cfg.get("creditUsagePercent")
+    if pct is None:
+        return {}
+    period = cfg.get("currentPeriod") if isinstance(cfg.get("currentPeriod"), dict) else {}
+    kind = (period.get("type") or "USAGE_PERIOD_TYPE_WEEKLY").replace(
+        "USAGE_PERIOD_TYPE_", "").lower()
+    resets = _parse_ts(period.get("end") or cfg.get("billingPeriodEnd"))
+    window = {"used_percentage": pct, "resets_at": resets}
+    out = {kind: window}
+    if kind == "weekly":
+        out["seven_day"] = window
+    elif kind == "monthly":
+        out["monthly"] = window
+    return out
+
+
+def _grok_session_limits():
+    """Hottest recently-active Grok session's context-window fill.
+
+    signals.json.contextWindowUsage is the same percentage Grok's /usage
+    'Context usage' tab shows. Stale files (older than STALE_GENERIC) are
+    ignored so a finished chat does not keep the bar pegged.
+    """
+    best = None
+    now = time.time()
+    for d in glob.glob(os.path.join(GROK_SESSIONS, "*", "*")):
+        sigp = os.path.join(d, "signals.json")
+        try:
+            if now - os.path.getmtime(sigp) > STALE_GENERIC:
+                continue
+            sig = json.load(open(sigp))
+        except (OSError, ValueError, TypeError):
+            continue
+        pct = sig.get("contextWindowUsage")
+        if pct is None:
+            continue
+        if best is None or pct > best:
+            best = pct
+    return {"session": {"used_percentage": best}} if best is not None else {}
+
+
+def _compute_usage_grok():
+    packs, live = _iter_grok_packs()
+    for gone in [p for p in _native_scan_cache
+                 if p.startswith(GROK_SESSIONS) and p not in live]:
+        _native_scan_cache.pop(gone, None)
+    limits = {}
+    limits.update(_grok_session_limits())
+    limits.update(_grok_billing_limits())
+    return _usage_from_packs(packs, limits=limits)
+
+
+def _compute_usage(provider=DEFAULT_PROVIDER):
+    if provider == "codex":
+        return _compute_usage_codex()
+    if provider == "grok":
+        return _compute_usage_grok()
+    return _compute_usage_claude()
 
 
 @guard
 async def api_usage(request):
+    provider = (request.query.get("provider") or DEFAULT_PROVIDER).strip().lower()
+    if provider not in PROVIDERS:
+        return web.json_response(
+            {"error": f"unknown provider {provider!r}"}, status=400)
     now = time.time()
-    if _usage_cache["data"] and now - _usage_cache["at"] < USAGE_TTL:
-        data = _usage_cache["data"]
+    cache = _usage_cache.get(provider) or {}
+    if cache.get("data") and now - cache.get("at", 0) < USAGE_TTL:
+        data = cache["data"]
+        computed_at = cache["at"]
     else:
         try:
-            data = await asyncio.to_thread(_compute_usage)
-            _usage_cache.update(at=now, data=data)
+            data = await asyncio.to_thread(_compute_usage, provider)
+            _usage_cache[provider] = {"at": now, "data": data}
+            computed_at = now
         except Exception as e:
-            print(f"  [usage] failed: {type(e).__name__}: {e}", flush=True)
-            return web.json_response({"error": f"{type(e).__name__}: {e}"}, status=500)
+            print(f"  [usage] failed ({provider}): {type(e).__name__}: {e}",
+                  flush=True)
+            return web.json_response({"error": f"{type(e).__name__}: {e}"},
+                                     status=500)
 
-    rows, limits = await build_fleet()
+    try:
+        rows, fleet_lim = await build_fleet()
+    except Exception as e:
+        print(f"  [usage] fleet ({provider}): {type(e).__name__}: {e}",
+              flush=True)
+        rows, fleet_lim = [], {}
+    mine = [r for r in rows
+            if (r.get("provider") or DEFAULT_PROVIDER) == provider]
+    # Claude's 5h/7d come from the live statusline dumps. Codex's come from the
+    # journals. Grok's weekly credits come from its billing log + session
+    # context from signals.json (already on data["limits"]).
+    if provider == DEFAULT_PROVIDER:
+        limits = fleet_lim or data.get("limits") or {}
+    else:
+        limits = data.get("limits") or {}
+    payload = {k: v for k, v in data.items() if k != "limits"}
     return web.json_response({
-        **data,
+        **payload,
+        "provider": provider,
         "limits": limits,
-        "fleet": {"panes": len(rows),
-                  "working": sum(1 for r in rows if r["state"] == "working"),
-                  "live_cost": round(sum(r.get("cost") or 0 for r in rows), 2)},
-        "age": int(now - _usage_cache["at"]),
+        "fleet": {"panes": len(mine),
+                  "working": sum(1 for r in mine if r["state"] == "working"),
+                  "live_cost": round(sum(r.get("cost") or 0 for r in mine), 2)},
+        "age": int(now - computed_at),
         # Absolute epoch the data was computed at, so the client can tick the
         # freshness label off its own clock (same pattern as the fleet timers).
-        "computed_at": _usage_cache["at"],
+        "computed_at": computed_at,
     })
 
 
 # ── history: every agent that has come through the fleet ────────────────────
-# Reads the top-level session transcripts (projects/<proj>/<session>.jsonl —
-# subagent/workflow files live in subdirs and are skipped) and lists them newest
-# first: title (latest prompt), project, model, when, prompt count, tokens, cost.
-# Tapping one resumes it via `claude --resume <session_id>` (see api_resume).
+# Claude: top-level ~/.claude/projects/<proj>/<session>.jsonl (subagent files
+# live in subdirs and are skipped). Codex: ~/.codex/sessions rollouts. Grok:
+# ~/.grok/sessions/<cwd>/<id>/. Mixed into one newest-first list; resume boots
+# the matching CLI in that session's working dir (see api_resume).
 _PROJECTS_DIR = os.path.expanduser("~/.claude/projects")
 _hist_cache = {}      # path -> {"k":[mtime,size], "e":entry}
 _UUID_RE = re.compile(r"^[0-9a-fA-F-]{8,}$")
+RESUME_ARGS = {
+    "claude": "--resume {sid}",
+    "codex":  "resume {sid}",
+    "grok":   "--resume {sid}",
+}
 
 
 def _scan_history_file(path):
@@ -3035,7 +5211,7 @@ def _scan_history_file(path):
     if last is None:
         return None
     # Skip our own headless summariser runs (claude -p labeler) — not fleet agents.
-    if first_title.startswith("You are labeling a Claude Code coding session"):
+    if first_title.startswith("You are labeling a") and "coding session" in first_title:
         return None
     cost = HIST.model_cost(model or "unknown", itok, otok, cctok, crtok) if model else 0.0
     return {
@@ -3051,32 +5227,68 @@ def _scan_history_file(path):
         # every user prompt (bounded), original case — lets search hit any prompt
         # in the session (not just the title) and show a highlighted snippet
         "search": " ".join(blurb)[:1600],
+        "provider": "claude",
     }
 
 
-def _build_history(limit=60):
-    files = glob.glob(os.path.join(_PROJECTS_DIR, "*", "*.jsonl"))  # top-level only
-    out = []
-    for p in files:
+def _claude_hist_cached(path):
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    k = [st.st_mtime, st.st_size]
+    c = _hist_cache.get(path)
+    if c and c["k"] == k:
+        return c["e"]
+    e = _scan_history_file(path)
+    _hist_cache[path] = {"k": k, "e": e}
+    return e
+
+
+def _grok_child_ids(dirs):
+    """Session ids listed under each Grok session's subagents/ folder."""
+    ids = set()
+    for d in dirs:
         try:
-            st = os.stat(p)
+            names = os.listdir(os.path.join(d, "subagents"))
         except OSError:
             continue
-        k = [st.st_mtime, st.st_size]
-        c = _hist_cache.get(p)
-        if c and c["k"] == k:
-            e = c["e"]
-        else:
-            e = _scan_history_file(p)
-            _hist_cache[p] = {"k": k, "e": e}
+        ids.update(n for n in names if n and not n.startswith("."))
+    return ids
+
+
+def _build_history(limit=60):
+    claude_files = glob.glob(os.path.join(_PROJECTS_DIR, "*", "*.jsonl"))  # top-level only
+    out = []
+    live = set(claude_files)
+    for p in claude_files:
+        e = _claude_hist_cached(p)
         if e:
             out.append(e)
-    # drop cache entries for transcripts Claude has pruned
-    live = set(files)
+    for pack in _iter_codex_packs()[0]:
+        e = pack.get("hist") if pack else None
+        if e and e.get("prompts"):
+            out.append(e)
+    grok_packs, grok_dirs = _iter_grok_packs()
+    grok_children = _grok_child_ids(grok_dirs)
+    for pack in grok_packs:
+        e = pack.get("hist") if pack else None
+        if not e or not e.get("prompts"):
+            continue
+        if e.get("session_id") in grok_children:
+            continue
+        out.append(e)
     for gone in [p for p in _hist_cache if p not in live]:
         _hist_cache.pop(gone, None)
     out.sort(key=lambda e: e["last"] or 0, reverse=True)
-    return out[:limit]
+    kept, n = [], {}
+    for e in out:
+        p = e.get("provider") or DEFAULT_PROVIDER
+        if n.get(p, 0) >= limit:
+            continue
+        n[p] = n.get(p, 0) + 1
+        kept.append(e)
+    return kept
 
 
 # Stale-while-revalidate: the very first build reads every transcript (slow once),
@@ -3115,35 +5327,62 @@ async def api_history(request):
     return web.json_response({"history": r["data"]})
 
 
-def _cwd_for_session(session_id):
-    """Look up a session's working dir from its transcript — never trust a
-    client-supplied path. Returns None if no such top-level transcript exists."""
+def resume_cli_args(provider, session_id):
+    """CLI args that reopen a session in its own client."""
+    tmpl = RESUME_ARGS.get(provider) or RESUME_ARGS[DEFAULT_PROVIDER]
+    return tmpl.format(sid=shlex.quote(session_id))
+
+
+def _history_record(session_id, provider=None):
+    """Look up a history row by id (and provider, when given). Never trust a
+    client-supplied path — cwd and provider both come from the transcript."""
     if not _UUID_RE.match(session_id or ""):
         return None
     want = session_id.upper()
+    want_p = (provider or "").strip().lower() or None
     for rows in (_history_result.get("data") or [], _build_history(limit=10000)):
         for e in rows:
-            if e["session_id"].upper() == want:
-                return e["cwd"] or None
+            if e["session_id"].upper() != want:
+                continue
+            if want_p and (e.get("provider") or DEFAULT_PROVIDER) != want_p:
+                continue
+            return e
     return None
+
+
+def _cwd_for_session(session_id):
+    """Look up a session's working dir from its transcript — never trust a
+    client-supplied path. Returns None if no such top-level transcript exists."""
+    rec = _history_record(session_id)
+    return (rec.get("cwd") or None) if rec else None
 
 
 @writes("resume")
 async def api_resume(request):
-    """Resume a past session in a fresh iTerm pane: `claude --resume <id>` run in
-    that session's own working dir (looked up server-side from the transcript)."""
+    """Resume a past session in a fresh iTerm pane, in that session's own
+    working dir, running the CLI that originally owned it."""
     body = request.get("_body") or {}
     session_id = (body.get("session_id") or "").strip()
-    cwd = await asyncio.to_thread(_cwd_for_session, session_id)
-    if not cwd:
+    provider = (body.get("provider") or "").strip().lower()
+    rec = await asyncio.to_thread(_history_record, session_id, provider or None)
+    if not rec:
         return web.json_response({"error": "no such session"}, status=404)
-    if not os.path.isdir(cwd):
+    cwd = rec.get("cwd") or ""
+    provider = rec.get("provider") or DEFAULT_PROVIDER
+    if not cwd or not os.path.isdir(cwd):
         return web.json_response(
-            {"error": f"working dir is gone: {cwd}"}, status=409)
+            {"error": f"working dir is gone: {cwd or '(unknown)'}"}, status=409)
+    if provider not in PROVIDERS:
+        return web.json_response(
+            {"error": f"unknown agent {provider!r}"}, status=400)
+    if not os.path.isabs(agent_bin(provider)):
+        return web.json_response(
+            {"error": f"{provider} is not installed on this host"}, status=409)
     await APP.async_refresh()
-    trust_dir(cwd)
+    if provider == DEFAULT_PROVIDER:
+        trust_dir(cwd)
     cmd, launch_dir = _pane_launcher(
-        cwd, args=f"--resume {shlex.quote(session_id)}")
+        cwd, args=resume_cli_args(provider, session_id), provider=provider)
     try:
         tab = fleet_tab(APP)
         if tab is None:
@@ -3158,11 +5397,12 @@ async def api_resume(request):
         return web.json_response(
             {"error": f"could not open pane: {type(e).__name__}: {e}"}, status=500)
     uuid = sess.session_id.upper()
-    KNOWN_AGENTS[uuid] = "claude"
+    KNOWN_AGENTS[uuid] = provider
     await normalize_pane(sess)             # land at the canonical width from birth
     asyncio.create_task(_auto_trust(sess))
-    print(f"  [resume] {session_id} → pane {uuid} in {cwd}", flush=True)
-    return web.json_response({"uuid": uuid, "session_id": session_id})
+    print(f"  [resume] {provider} {session_id} → pane {uuid} in {cwd}", flush=True)
+    return web.json_response(
+        {"uuid": uuid, "session_id": session_id, "provider": provider})
 
 
 # ── web push notifications ──────────────────────────────────────────────────
@@ -3370,18 +5610,19 @@ async def serve_sw(request):
     return resp
 
 
-# ── watching a pane makes it full height ───────────────────────────────────
-# A pane in the fleet grid is ~17 rows tall, and 17 rows is the whole
-# conversation on a client with no scrollback: Grok redraws one alt-screen, so
-# anything off its grid is simply not in the phone view. Rows cannot be grown by
-# fiat — 12 tiled panes cannot each be 45 rows in one window — so while a phone
-# is actually watching a pane, maximize it inside its tab. The agent redraws at
-# the window's full height (~49 rows) and the tab goes back the moment the phone
-# leaves.
+# ── watching a pane ────────────────────────────────────────────────────────
+# grow_pane only counts viewers. Nobody is maximized: Grok /minimal reprints
+# on resize the same way Claude and Codex do. ungrow_pane still restores a
+# leftover maximize after _RESTORE_GRACE so a reconnect does not flash the grid.
 _GROWN = None      # (uuid, prior active session id, window id) or None
 _GROW_LOCK = asyncio.Lock()   # one viewer reshapes the layout at a time
 _WATCHERS = {}                # uuid -> open pane websockets watching it
 _UNGROW_TRIES = 0             # gentle restores that found the wrong key window
+_RESTORE_GRACE = 1.0          # seconds. Phone reconnect is 700ms; grace prevents maximize-flash on reconnect.
+_RESTORE_AFTER = {}           # uuid -> monotonic deadline while grace is running
+_GROW_FOCUS_TRIES = 0         # cap window-activate retries so janitor cannot steal focus forever
+_GROW_FOCUS_RETRY_AT = 0.0    # monotonic time when a fresh activate burst is allowed
+_GROW_TRIED = set()           # uuids we already issued a maximize for this watch session
 
 
 def _maximize_id():
@@ -3413,17 +5654,33 @@ async def _maximized():
 
 
 async def _toggle_maximize():
+    print("  [grow] toggle Maximize Active Pane", flush=True)
     await iterm2.MainMenu.async_select_menu_item(CONN, _maximize_id())
 
 
-async def _grow(uuid):
-    """Maximize a watched pane in its tab. Caller holds _GROW_LOCK. Best effort:
-    the menu command acts on the key window, so if the pane is not in it we leave
-    the layout alone rather than maximize somebody else's pane."""
-    global _GROWN
+def _tab_is_maximized(tab):
+    """True when iTerm has buried tab-mates behind one visible pane."""
+    if tab is None:
+        return False
+    mini = getattr(tab, "minimized_sessions", None) or []
+    vis = getattr(tab, "sessions", None) or []
+    return len(mini) > 0 and len(vis) == 1
+
+
+async def _grow(uuid, steal=True):
+    """Maximize a watched Grok pane in its tab. Caller holds _GROW_LOCK.
+
+    steal=True (a newly opened chat) may toggle once. steal=False (janitor)
+    only adopts an already-maximized layout — it never hits the menu. Re-reading
+    the menu's checked flag every POLL and toggling when it disagreed is what
+    sent iTerm in and out of the maximized pane (looks like fullscreen flicker)."""
+    global _GROWN, _GROW_FOCUS_TRIES, _GROW_FOCUS_RETRY_AT
+    uuid = (uuid or "").upper()
     if _GROWN and _GROWN[0] == uuid:
         return
     if _GROWN:
+        if not steal:
+            return
         await _ungrow()
         if _GROWN:            # the last one is still maximized — never stack a
             return            # second, or nothing can be put back
@@ -3432,12 +5689,38 @@ async def _grow(uuid):
         return
     try:
         prior = t.active_session_id
+        if _tab_is_maximized(t) and t.sessions[0].session_id.upper() == uuid:
+            _GROWN = (uuid, prior, w.window_id)
+            _GROW_FOCUS_TRIES = 0
+            return
+        if not steal:
+            return
         await sess.async_activate(select_tab=True, order_window_front=False)
         if not _is_key(w):
+            now = time.monotonic()
+            if _GROW_FOCUS_TRIES >= 3 and now < _GROW_FOCUS_RETRY_AT:
+                return
+            if _GROW_FOCUS_TRIES >= 3:
+                _GROW_FOCUS_TRIES = 0
+            await w.async_activate()
+            if APP is not None:
+                try:
+                    await APP.async_refresh()
+                except Exception:
+                    pass
+            if not _is_key(w):
+                _GROW_FOCUS_TRIES += 1
+                if _GROW_FOCUS_TRIES >= 3:
+                    _GROW_FOCUS_RETRY_AT = now + 5.0
+                return
+        if _tab_is_maximized(t) and t.sessions[0].session_id.upper() == uuid:
+            _GROWN = (uuid, prior, w.window_id)
+            _GROW_FOCUS_TRIES = 0
             return
         if not await _maximized():
             await _toggle_maximize()
         _GROWN = (uuid, prior, w.window_id)
+        _GROW_FOCUS_TRIES = 0
     except Exception as e:
         print(f"  [grow] {type(e).__name__}: {e}", flush=True)
         traceback.print_exc()
@@ -3448,9 +5731,7 @@ async def _ungrow():
 
     _GROWN is only cleared once the pane really is un-maximized: while it stands,
     the tab-mates are invisible to iTerm's API, so a restore that quietly failed
-    would leave every other agent unreachable from the yard. _grow_janitor comes
-    back every POLL, and after a few polite tries we raise the window ourselves
-    rather than stay stuck."""
+    would leave every other agent unreachable from the yard."""
     global _GROWN, _UNGROW_TRIES
     if not _GROWN:
         return
@@ -3460,18 +5741,30 @@ async def _ungrow():
         _GROWN, _UNGROW_TRIES = None, 0
         return
     try:
+        if not _tab_is_maximized(t):
+            _GROWN, _UNGROW_TRIES = None, 0
+            return
         await sess.async_activate(select_tab=True, order_window_front=False)
         if not _is_key(w):
             # Toggling now would maximize whatever the Mac is focused on instead.
-            _UNGROW_TRIES += 1
-            if _UNGROW_TRIES < 4:
-                return
-            await w.async_activate()          # stuck: take the front and finish
+            await w.async_activate()
+            if APP is not None:
+                try:
+                    await APP.async_refresh()
+                except Exception:
+                    pass
             if not _is_key(w):
+                _UNGROW_TRIES += 1
                 return
-        if await _maximized():
+        if _tab_is_maximized(t) or await _maximized():
             await _toggle_maximize()
-            if await _maximized():            # toggle did not take; retry later
+            if APP is not None:
+                try:
+                    await APP.async_refresh()
+                except Exception:
+                    pass
+            w, t, sess = _locate(uuid)
+            if t is not None and _tab_is_maximized(t):
                 _UNGROW_TRIES += 1
                 return
         _GROWN, _UNGROW_TRIES = None, 0
@@ -3485,32 +5778,38 @@ async def _ungrow():
 
 
 async def grow_pane(uuid):
-    """Register a viewer. Deliberately does NOT maximize the pane any more.
-
-    It used to (see _grow): a watched pane took the window's full height so the
-    live screen held more rows. But maximizing changes the pane's WIDTH, and
-    Claude Code reprints its entire transcript on a width change — so every
-    open doubled the scrollback on the Mac and on the phone (history went
-    601 → 1478 rows for one open, every line twice), the live rows all
-    rewrote under the reader's finger, and the tab-mates vanished from the
-    API meanwhile. Scrollback is streamed now (pane_history since=), so the
-    phone never needed the taller screen. _grow stays for the janitor's
-    restore path only.
-    """
+    """Register a viewer. Never maximize — Grok /minimal reprints on resize
+    the same way Claude and Codex do."""
+    uuid = (uuid or "").upper()
+    _RESTORE_AFTER.pop(uuid, None)
     _WATCHERS[uuid] = _WATCHERS.get(uuid, 0) + 1
 
 
 async def ungrow_pane(uuid):
     """Release one watcher. Only the pane's last viewer puts the tab back — an
-    older socket closing must not undo the pane a newer one just opened."""
+    older socket closing must not undo the pane a newer one just opened.
+    Restore waits _RESTORE_GRACE so a phone reconnect does not flash the grid."""
+    uuid = (uuid or "").upper()
     left = _WATCHERS.get(uuid, 1) - 1
     if left > 0:
         _WATCHERS[uuid] = left
         return
     _WATCHERS.pop(uuid, None)
-    async with _GROW_LOCK:
-        if _GROWN and _GROWN[0] == uuid:
-            await _ungrow()
+    _GROW_TRIED.discard(uuid)
+    _RESTORE_AFTER[uuid] = time.monotonic() + _RESTORE_GRACE
+    try:
+        if _RESTORE_GRACE:
+            await asyncio.sleep(_RESTORE_GRACE)
+        async with _GROW_LOCK:
+            if _WATCHERS.get(uuid, 0) == 0 and _GROWN and _GROWN[0] == uuid:
+                await _ungrow()
+    finally:
+        _RESTORE_AFTER.pop(uuid, None)
+
+
+async def _maybe_grow(uuid, provider=None):
+    """No-op. Nobody is maximized for a phone watcher."""
+    return
 
 
 def _orphan_maximize():
@@ -3528,27 +5827,38 @@ def _orphan_maximize():
     return None
 
 
-async def _grow_janitor():
-    """A maximized pane hides its tab-mates for everyone and makes Claude Code
-    reprint its transcript on the way in and out, so sweep any maximize back —
-    a restore that failed on the first try, and one this process never made
-    (⇧⌘⏎ on the Mac, see _orphan_maximize). Nothing here maximizes any more
-    (grow_pane), so a watcher is no reason to leave one standing."""
+async def _grow_tick():
+    """One janitor pass. Holds _GROW_LOCK for the whole sweep.
+
+    Never grow a watched Grok pane. Restore leftover `_GROWN` once unwatched
+    (respect grace). Adopt and restore any orphan maximize.
+    """
     global _GROWN
+    async with _GROW_LOCK:
+        if _GROWN:
+            uuid = _GROWN[0]
+            deadline = _RESTORE_AFTER.get(uuid)
+            if deadline is not None and time.monotonic() < deadline:
+                return
+            await _ungrow()
+            return
+        orphan = _orphan_maximize()
+        if orphan:
+            if not _GROWN:
+                _GROWN = (orphan[0], None, orphan[1])
+                print(f"  [grow] adopting stray maximize on "
+                      f"{orphan[0][:8]}", flush=True)
+                await _ungrow()
+
+
+async def _grow_janitor():
+    """Restore leftover maximizes; never grow a watched pane."""
     while True:
         await asyncio.sleep(POLL)
-        if _GROWN:
-            async with _GROW_LOCK:
-                await _ungrow()
-        else:
-            orphan = _orphan_maximize()
-            if orphan:
-                async with _GROW_LOCK:
-                    if not _GROWN:
-                        _GROWN = (orphan[0], None, orphan[1])
-                        print(f"  [grow] adopting stray maximize on "
-                              f"{orphan[0][:8]}", flush=True)
-                        await _ungrow()
+        try:
+            await _grow_tick()
+        except Exception:
+            traceback.print_exc()
 
 
 async def ws_pane(request):
@@ -3560,7 +5870,7 @@ async def ws_pane(request):
     last = None
     hist_end = None                # absolute line after the scrollback we sent
     missing = 0                    # consecutive polls the pane was not listed
-    await grow_pane(uuid)          # count the viewer (no layout change)
+    await grow_pane(uuid)          # count the viewer
     try:
         while not ws.closed:
             s = (await all_sessions()).get(uuid)
@@ -3576,11 +5886,13 @@ async def ws_pane(request):
                 await ws.send_json({"gone": True})
                 break
             missing = 0
+            job = await s.async_get_variable("jobName") or ""
             if hist_end is None:
                 # scrollback is expensive and rarely changes at the top; ship
                 # the tail once so the client can render the conversation …
                 hist, hist_end = await pane_history(s)
-                await ws.send_json({"history": hist, "cols": await pane_cols(s)})
+                payload = {"history": hist, "cols": await pane_cols(s)}
+                await ws.send_json(payload)
             else:
                 # … then only the rows that have since scrolled off the screen
                 more, hist_end = await pane_history(s, since=hist_end)
@@ -3589,9 +5901,11 @@ async def ws_pane(request):
             txt = await pane_text(s)
             if txt != last:                      # only push on change
                 last = txt
-                await ws.send_json({"text": txt, "cols": await pane_cols(s),
-                                    "prompt": detect_prompt(txt),
-                                    "suggest": detect_input(txt)})
+                provider = pane_provider(uuid, job, txt)
+                payload = {"text": txt, "cols": await pane_cols(s),
+                           "prompt": detect_prompt(txt, provider, uuid),
+                           "suggest": detect_input(txt, provider)}
+                await ws.send_json(payload)
             await asyncio.sleep(POLL)
     except (asyncio.CancelledError, ConnectionResetError):
         pass
@@ -4011,6 +6325,7 @@ def tailnet_macs():
                     "host": host, "url": url, "os": node.get("OS") or "",
                     "online": True if is_self else bool(node.get("Online")),
                     "wakeable": (not is_self) and host in wake_targets(),
+                    "sleepable": is_self and host in wake_targets(),
                     "self": is_self})
 
     add(st.get("Self") or {}, True)
@@ -4673,6 +6988,7 @@ async def main(connection):
     app.router.add_get("/api/fleet", api_fleet)
     app.router.add_get("/api/summary", api_summary)
     app.router.add_post("/api/key", api_key)
+    app.router.add_post("/api/prompt", api_prompt)
     app.router.add_post("/api/select", api_select)
     app.router.add_post("/api/send", api_send)
     app.router.add_post("/api/whisper", api_whisper)
@@ -4687,6 +7003,8 @@ async def main(connection):
     app.router.add_post("/api/model", api_model)
     app.router.add_post("/api/cmd", api_cmd)
     app.router.add_get("/api/commands", api_commands)
+    app.router.add_get("/api/codex/models", api_codex_models)
+    app.router.add_get("/api/grok/models", api_grok_models)
     app.router.add_get("/api/usage", api_usage)
     app.router.add_get("/api/devices", api_devices)
     app.router.add_post("/api/wake", api_wake)

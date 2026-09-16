@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#22262d">
+<meta name="theme-color" content="#14171b">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/icons/icon-180.png">
 <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
@@ -18,6 +18,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet"
   href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&display=swap">
+<link rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20,300..700,0,-25&amp;icon_names=attach_file,delete_sweep,history,home,mic,notifications,photo_camera,settings,stop,tune&amp;display=block">
 <title>The Yard — CC Dispatch</title>
 <style>
   :root{
@@ -34,6 +36,12 @@
     --r:6px; --r2:8px; --r3:14px;
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  .material-symbols-rounded{font-family:"Material Symbols Rounded";font-weight:normal;
+    font-style:normal;line-height:1;letter-spacing:normal;text-transform:none;
+    display:inline-block;white-space:nowrap;word-wrap:normal;direction:ltr;
+    -webkit-font-feature-settings:"liga";font-feature-settings:"liga";
+    -webkit-font-smoothing:antialiased;
+    font-variation-settings:"FILL" 0,"wght" 300,"GRAD" -25,"opsz" 20}
   /* Chrome Android "font boosting" silently inflates text in wide blocks and
      Accessibility > text scaling multiplies every px. Either one blows a
      white-space:pre pane past the viewport no matter what size we compute. */
@@ -46,13 +54,20 @@
   .screen{display:none;flex-direction:column;flex:1;min-height:0}
   .screen.on{display:flex}
 
+  /* Keep the compact chrome visible on every dashboard screen. */
+  .compact-nav .screen > header > .meta{display:none}
+  .compact-nav #s-fleet,.compact-nav #s-history,.compact-nav #s-usage,.compact-nav #s-sys{touch-action:pan-y;overscroll-behavior-x:none}
+
   /* One height for every header, yard included: the tallest thing any of them
      carries (the chat header's two stacked lines) sets it, and min-height holds
      the text-only headers to the same line so the band doesn't jump between
      tabs. Vertical padding is a floor, not the height. */
   header{display:flex;align-items:center;gap:10px;padding:8px 14px;
     min-height:48px;box-sizing:border-box;
-    border-bottom:1px solid var(--line);background:var(--panel2);flex:none}
+    border-bottom:0;background:var(--bg);flex:none}
+  #s-session > header{position:relative;z-index:3;background:var(--bg);border-bottom:0;
+    backdrop-filter:blur(24px);
+    -webkit-backdrop-filter:blur(24px)}
   header .title{font:700 13px var(--ui);letter-spacing:.1em;flex:1;min-width:0;
     text-transform:uppercase;color:var(--fg);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -97,7 +112,8 @@
      colour comes from the same batColor the hero ring uses. */
   .devrow .devbat{flex:none;font:600 11px var(--mono);letter-spacing:.02em;
     display:flex;align-items:center;gap:3px}
-  .devrow .devbat .bolt{font-size:9px;line-height:1}
+  .devrow .devbat.ac::before{content:'';width:5px;height:5px;border-radius:50%;
+    background:currentColor}
   .devrow .host{display:block;font:400 10px var(--mono);color:var(--dimmer)}
   /* An asleep peer we know how to wake gets a button rather than a dead row —
      tapping the row itself would only navigate to a host that isn't answering. */
@@ -151,14 +167,14 @@
   header .reap{flex:none;background:none;border:1px solid var(--line);
     border-radius:6px;color:var(--dim);font:11px var(--mono);height:30px;
     padding:0 8px;cursor:pointer;display:flex;align-items:center;gap:5px}
-  header .reap svg{width:14px;height:14px}
+  header .reap .material-symbols-rounded{font-size:17px}
   header .reap:active{transform:scale(.94)}
   header .reap.hot{color:var(--red);border-color:rgba(255,107,97,.5)}
   header .reap:disabled{opacity:.4;cursor:default}
   header .bell{flex:none;background:none;border:1px solid var(--line);
     border-radius:6px;color:var(--dim);width:30px;height:30px;cursor:pointer;
     padding:0;display:flex;align-items:center;justify-content:center}
-  header .bell svg{width:16px;height:16px}
+  header .bell .material-symbols-rounded{font-size:19px}
   header .bell:active{transform:scale(.92)}
   header .bell.on{color:var(--blue);border-color:var(--blue)}
   header .bell.busy{opacity:.5}
@@ -216,12 +232,24 @@
     overscroll-behavior:contain;
     margin:0;padding:12px 10px;font-family:var(--mono);background:var(--bg);
     color:var(--fg);-webkit-text-size-adjust:100%;text-size-adjust:100%;
-    font-size:11px;line-height:1.42;white-space:pre;overflow-wrap:normal}
+    font-size:11px;line-height:1.42;white-space:pre;overflow-wrap:normal;
+    -webkit-mask-image:linear-gradient(to bottom,rgba(0,0,0,.08) 0,rgba(0,0,0,.42) 38px,#000 104px);
+    mask-image:linear-gradient(to bottom,rgba(0,0,0,.08) 0,rgba(0,0,0,.42) 38px,#000 104px)}
   .pane.wrap{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px}
+  .pane.wrap .ln.hang{padding-inline-start:calc(var(--logical-indent) + var(--marker-indent));
+    text-indent:calc(0ch - var(--logical-indent) - var(--marker-indent))}
   /* one terminal row per line, diffed individually (see paint()). min-height keeps
      blank rows at full line height; white-space/overflow inherit fit vs wrap mode. */
   .pane .ln{display:block;margin:0;white-space:inherit;overflow-wrap:inherit;
     min-height:1.42em}
+  .pane .codex-divider,.pane .fitline{display:block;width:100%;max-width:100%;
+    overflow:hidden;white-space:nowrap;overflow-wrap:normal}
+  .pane.theme-claude{--chat-add:#3ddc5c;--chat-del:#ff6b61;--chat-code:#66a9ff;--chat-inline:#bd8dff}
+  .pane.theme-codex{--chat-add:#55e878;--chat-del:#ff7068;--chat-code:#72b6ff;--chat-inline:#d39bff}
+  .pane.theme-grok{--chat-add:#57e3d3;--chat-del:#ffad66;--chat-code:#8db7ff;--chat-inline:#f09aff}
+  .pane .c-add{color:var(--chat-add);background:color-mix(in srgb,var(--chat-add) 10%,transparent)}
+  .pane .c-del{color:var(--chat-del);background:color-mix(in srgb,var(--chat-del) 10%,transparent)}
+  .pane .c-code{color:var(--chat-code)} .pane .c-inline{color:var(--chat-inline);font-weight:600}
 
   /* Header toggle that reveals the control row. Collapsed by default — the
      terminal is what you came for; the controls are a deliberate second tap. */
@@ -233,13 +261,18 @@
   /* The summary and controls buttons sit side by side at the right edge — one
      square, one border, one icon size between them, so they read as a pair. */
   .hdracts{flex:none;display:flex;align-items:center;gap:6px}
-  /* Context gauge: a 3px rule pinned under the chat header, always present so
-     the number never has to be. Width is context used; it crosses to amber at
-     60% and red at 85% — the same thresholds as the yard rings, so the colour
-     means the same thing everywhere. */
-  .ctxrule{flex:none;height:3px;background:var(--line);overflow:hidden}
+  /* Context gauge: an inset status track inside the composer card. It shares
+     the card's border with the input, while the small inset keeps it reading
+     as a designed indicator rather than a second divider. */
+  .ctxrow{display:flex;align-items:center;gap:8px;margin:0 4px 6px}
+  .ctxrule{flex:1;min-width:0;height:5px;width:auto;margin:0;border-radius:999px;
+    background:var(--panel3);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--line2) 70%,transparent);
+    overflow:hidden}
   .ctxrule i{display:block;height:100%;width:0;background:var(--c-blue);
-    transition:width .35s ease, background-color .35s ease}
+    border-radius:inherit;transition:width .35s ease, background-color .35s ease}
+  .clearctx{flex:none;padding:4px 8px;border:0;background:transparent;color:var(--dimmer);
+    font:700 10px/1 var(--ui);letter-spacing:.08em;text-transform:uppercase;cursor:pointer}
+  .clearctx:disabled{opacity:.4;cursor:default}
   .hdrbtn.ico{width:32px;height:32px;padding:0;
     display:flex;align-items:center;justify-content:center}
   .hdrbtn.ico svg{width:17px;height:17px;display:block}
@@ -318,6 +351,8 @@
   .dp-ico.drive{color:var(--violet)}
   .dp-chev{width:16px;height:16px;flex:none;color:var(--dimmer)}
   .dp-empty{font:12px var(--ui);color:var(--dim);text-align:center;padding:16px 0}
+  .dp-lab{font:600 10px var(--ui);letter-spacing:.08em;text-transform:uppercase;
+    color:var(--dim);padding:10px 4px 3px}
   /* zero the sheet's own bottom padding while the picker is up so the bar can
      sit flush against the very bottom of the screen */
   #sheet.dp{padding-bottom:0}
@@ -370,6 +405,22 @@
     margin:0 4px 8px;display:block}
   .actionbar .opts{display:flex;flex-direction:column;gap:6px}
   .actionbar .opts.row{flex-direction:row}
+  .actionbar.codex-card{max-height:65dvh;overflow-y:auto;touch-action:pan-y;
+    background:var(--bg)}
+  .codex-card .q,.codex-card .prompt-context{white-space:pre-wrap;overflow-wrap:anywhere}
+  .codex-card .prompt-context{font:12px/1.45 var(--mono);color:var(--dim);margin:8px 4px}
+  .codex-card .prompt-count,.codex-card .prompt-status{font:12px/1.4 var(--ui);margin:8px 4px;color:var(--dim)}
+  .codex-card .prompt-status:empty{display:none;margin:0}
+  .codex-card .prompt-status.error{color:var(--red)}
+  .codex-card .prompt-input{display:block;margin:10px 0;font:13px var(--ui);color:var(--dim)}
+  .codex-card textarea{display:block;box-sizing:border-box;width:100%;min-height:88px;margin-top:6px;
+    padding:10px;border:1px solid var(--line2);border-radius:var(--r3);background:var(--panel);
+    color:var(--fg);font:16px/1.4 var(--ui);resize:vertical;touch-action:pan-y}
+  .codex-card textarea:focus{outline:2px solid var(--blue);outline-offset:1px}
+  .codex-card input[type=radio]{accent-color:var(--blue);flex:none}
+  .codex-card .prompt-buttons{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .codex-card button:disabled,.codex-card input:disabled{opacity:.55;cursor:default}
+
   /* Options float over the transcript on the same card surface as the composer
      box below them — panel + hairline + a soft drop shadow, no bar behind. */
   .act{display:flex;align-items:center;gap:10px;width:100%;text-align:left;
@@ -401,6 +452,12 @@
     background:var(--panel);border:1px solid var(--line2);border-radius:var(--r3);
     padding:9px 9px 8px;transition:border-color .15s}
   .cbox:focus-within{border-color:var(--blue)}
+  /* The visible viewport can shrink behind mobile browser chrome. Body already
+     owns the safe-area inset, so this is only a small deliberate visual lift. */
+  @media (max-width:700px){
+    #s-session{height:100%;min-height:0}
+    .composer{padding-bottom:17px}
+  }
   /* line-height is a whole px on purpose: a fractional one makes scrollHeight
      round DOWN, so the box ends a hair short of its own text and the browser
      scrolls it to the caret — the jump you see when you stop typing. */
@@ -408,15 +465,20 @@
     background:transparent;color:var(--fg);border:none;border-radius:0;
     padding:3px 5px;font:15px/22px var(--ui);outline:none;overflow-y:hidden}
   .composer textarea::placeholder{color:var(--dimmer)}
-  /* the persistent bottom line — attach on the left, mic + send on the right */
+  /* the persistent bottom line — attach on the left, send on the right */
   .cbar{display:flex;align-items:center;gap:4px}
   .cbar .gap{flex:1}
-  /* mic + send share one footprint and center an SVG icon, so the row reads as a
-     matched set. Ghost buttons inside the box; only send carries the accent. */
+  /* Controls share a compact footprint and center their icons. Ghost buttons
+     stay inside the box; only send carries the accent. */
   .mic,.send{flex:none;width:34px;height:34px;border-radius:999px;cursor:pointer;
     display:flex;align-items:center;justify-content:center;padding:0;
     -webkit-tap-highlight-color:transparent}
-  .mic svg,.send svg{width:19px;height:19px;display:block}
+  .mic .material-symbols-rounded{font-size:20px}
+  #attachbtn .material-symbols-rounded,#camerabtn .material-symbols-rounded{
+    font-size:21px;font-variation-settings:"FILL" 0,"wght" 700,"GRAD" -25,"opsz" 21}
+  #micbtn{display:none}
+  .send svg{width:20px;height:20px;display:block}
+  #sendbtn{width:40px;height:40px}
   .send{border:none;background:var(--blue);color:#06172e}
   .send:disabled{background:var(--line);color:var(--dimmer)}
   .mic{border:none;background:transparent;color:var(--dim)}
@@ -583,6 +645,7 @@
   .critter.p-grok  .clawd{--skin:#7f8a9c;--skin-dark:#59626f}
   .clawd .body{fill:var(--skin)}.clawd .shade{fill:var(--skin-dark)}
   .clawd .eye{fill:var(--bg);transition:all .12s}
+  .clawd .band{transition:fill .3s}
   .clawd .limb{fill:var(--skin);transform-box:fill-box;transform-origin:center;
     transition:transform .18s ease}
   .stage.walk .clawd{animation:cbob .68s ease-in-out infinite}
@@ -652,10 +715,9 @@
   @media (prefers-reduced-motion:reduce){
     .stage,.clawd,.limb,.glow{animation:none!important}}
 
-  /* ── game layer: identity band, pet reaction, idle life ──
-     A forehead band tinted by a hash of the pane name gives every clawd a stable
-     colour you learn to recognise. The pet is pure joy. */
-  .clawd .band{transition:fill .3s}
+  /* ── game layer: crew colours, pet reaction, idle life ──
+     Pets share a stable crew colour you learn to recognise.
+     The pet is pure joy. */
   .clawd{transition:transform .35s ease}
   .ctag .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:92px}
   /* idle clawd settles — a small squat that reads as sitting down */
@@ -679,7 +741,7 @@
 
   /* ── subagent pets ──────────────────────────────────
      A spawned subagent (a Task tool call in flight) becomes a tiny Claude-bot pet
-     that orbits its parent clawd's feet, tinted the crew's band colour. The pets
+     that orbits its parent clawd's feet, tinted the crew colour. The pets
      are children of the critter element, so the parent's own transform carries
      them for free — no extra work in the rAF loop. All motion is pure CSS. The
      .pups layer is squashed on Y so the orbit reads as an ellipse on the ground. */
@@ -717,22 +779,18 @@
      #1a1d23 — all six checks PASS. Status hues are the fixed reserved palette. */
   :root{ --c-blue:#3987e5; --c-orange:#d95926;
          --st-good:#0ca30c; --st-warn:#fab219; --st-serious:#ec835a; --st-crit:#d03b3b; }
-  /* Persistent global-status strip: a thin row above the bottom nav, present on
-     every screen that shows the nav. Holds pane count + usage — moved out of the
-     header so the header stays brand + controls. */
-  .statusbar{display:flex;align-items:center;justify-content:space-between;gap:12px;
-    flex:none;padding:5px 14px;background:var(--panel2);border-bottom:1px solid var(--line);
-    font:11px var(--mono);color:var(--dim)}
-  .statusbar .sb-lim{display:flex;align-items:center;gap:6px;flex:none}
-  .tabbar{display:flex;flex:none;border-top:1px solid var(--line2);background:var(--panel2)}
+  .tabbar{display:flex;flex:none;border-top:1px solid var(--line);background:var(--bg);padding-bottom:env(safe-area-inset-bottom)}
   .tabbar button{flex:1;background:none;border:none;cursor:pointer;
-    padding:13px 0 calc(13px + env(safe-area-inset-bottom));
-    font:700 11px var(--ui);letter-spacing:.12em;text-transform:uppercase;
-    color:var(--dim);border-top:2px solid transparent;margin-top:-1px}
-  .tabbar button.cur{color:var(--blue);border-top-color:var(--blue)}
+    display:flex;align-items:center;justify-content:center;
+    min-height:52px;padding:11px 0 10px;color:var(--dim)}
+  .tabbar button .material-symbols-rounded{font-size:21px;
+    font-variation-settings:"FILL" 0,"wght" 600,"GRAD" -25,"opsz" 21}
+  .tabbar button .tab-label{font:600 10px var(--ui);line-height:1;text-transform:uppercase;
+    letter-spacing:.06em;margin-left:5px}
+  .tabbar button.cur{color:var(--blue)}
   .tabbar button{position:relative}
   .tabdot{display:none;position:absolute;top:9px;margin-left:5px;width:7px;height:7px;
-    border-radius:50%;background:var(--red);box-shadow:0 0 0 2px var(--panel2)}
+    border-radius:50%;background:var(--red);box-shadow:0 0 0 2px var(--bg)}
   .tabdot.on{display:inline-block;animation:pulse 1.3s infinite}
 
   /* ── auth / integrations ─────────────────────────────── */
@@ -787,6 +845,14 @@
      list-type sections (Diagnostics, Settings) via .sys-sec.rule. */
   .sys-sec{margin-bottom:28px}
   .sys-sec.rule{border-top:1px solid var(--line);padding-top:20px}
+  .sys-disclosure-toggle{display:flex;align-items:center;justify-content:space-between;
+    width:100%;padding:0;margin:0;border:0;background:none;color:inherit;text-align:left;
+    cursor:pointer}
+  .sys-disclosure-toggle .sys-h{margin:0}
+  .sys-disclosure-toggle::after{content:'+';color:var(--dimmer);font:20px/1 var(--mono)}
+  .sys-disclosure-toggle[aria-expanded="true"]::after{content:'−'}
+  .sys-disclosure-body{margin-top:12px}
+  .sys-subsec + .sys-subsec{border-top:1px solid var(--line);margin-top:20px;padding-top:20px}
   .sys-h{font:700 10px var(--ui);letter-spacing:.13em;text-transform:uppercase;
     color:var(--dim);margin-bottom:12px}
   .sys-row{display:flex;align-items:center;justify-content:space-between;gap:10px;
@@ -816,18 +882,20 @@
   .sys-btn:active{background:var(--panel2)}
   .sys-btn.danger{color:var(--red);border-color:rgba(255,107,97,.4)}
 
-  /* The four metrics this page is actually about — charge, temperature, CPU,
-     storage — share one idiom: a 2×2 grid of identical cells, each a ring
-     (a --line track, one filled stroke in a status hue) beside its number,
-     with a single caption line underneath. Same mark for all four so a
-     level, a position on a scale and two plain percentages read alike. */
-  .sys-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:28px}
-  /* the four gauges are boxed, and every box is the same shape: header, then
-     ring + number on one row, then exactly one caption line — nothing may wrap
-     or overflow, so the number shrinks on narrow phones and the caption clips */
-  .sys-cell{min-width:0;padding:12px 14px 13px;background:var(--panel);
-    border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+  /* The four primary metrics share one flat 2×2 field. Hairlines separate
+     related values without turning each metric into its own card. */
+  .sys-grid{display:grid;grid-template-columns:1fr 1fr;gap:0;margin-bottom:28px}
+  .sys-cell{min-width:0;padding:16px 14px;background:none;border:0;
+    border-radius:0;overflow:hidden}
+  .sys-cell:nth-child(odd){border-right:1px solid var(--line)}
+  .sys-cell:nth-child(-n+2){border-bottom:1px solid var(--line)}
   .sys-cell .sys-h{margin-bottom:10px}
+  .sys-cell-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .sys-fix{width:24px;height:24px;margin:-5px -7px 5px 0;padding:4px;border:0;
+    border-radius:50%;background:transparent;color:var(--dimmer);cursor:pointer}
+  .sys-fix svg{display:block;width:16px;height:16px}
+  .sys-fix:active{background:var(--panel3);color:var(--fg)}
+  .sys-fix:disabled{opacity:.3;cursor:default}
   .sys-hero{display:flex;align-items:center;gap:12px;min-width:0;height:52px}
   .sk-cell .sk-line{margin:0}
   .sk-cell > .sk-line:first-child{height:10px;margin-bottom:10px}
@@ -839,7 +907,7 @@
   .sys-hero .sys-viz{flex:none;display:block}
   .sys-big{font:700 clamp(22px, 7.4vw, 30px)/1 var(--mono);color:var(--fg);
     white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis}
-  .sys-big s{font:600 13px var(--mono);color:var(--dim);text-decoration:none;margin-left:1px}
+  .sys-big .sys-unit{font:600 .52em var(--mono);color:var(--dim);margin-left:2px}
   /* one caption line, dim label text with mono values, ellipsised rather
      than wrapped so every cell stays the same height */
   .sys-cap{font:12px var(--ui);color:var(--dim);margin-top:8px;
@@ -856,13 +924,11 @@
   #usage-body,#hist-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;
     -webkit-overflow-scrolling:touch;background:var(--bg);
     padding-bottom:calc(env(safe-area-inset-bottom) + 16px)}
-  /* History search + sort. The icon used to float loose beside the field and
-     the sort was a pill that cycled through modes you could not see — two
-     idioms this app uses nowhere else. Now: ONE box holds icon, field and
-     clear (the composer's rule), and the sort is a small segmented control
-     that shows all three modes, echoing the tab bar underneath it. */
+  /* History search. The icon used to float loose beside the field — an
+     idiom this app uses nowhere else. Now: ONE box holds icon, field and
+     clear (the composer's rule). */
   .hsearch{flex:none;display:flex;flex-direction:column;gap:8px;padding:9px 12px 10px}
-  .hqbox{display:flex;align-items:center;gap:9px;background:var(--panel);
+  .hqbox{display:flex;align-items:center;gap:9px;height:40px;background:var(--panel);
     border:1px solid var(--line2);border-radius:var(--r3);padding:0 11px;
     transition:border-color .15s}
   .hqbox:focus-within{border-color:var(--blue)}
@@ -877,16 +943,34 @@
   .hqclear{flex:none;background:none;border:none;color:var(--dim);
     font:13px/1 var(--ui);cursor:pointer;padding:5px 2px}
   .hqclear:active{color:var(--fg)}
-  /* every mode visible, current one lit — same micro-label type as the section
-     headings and the tab bar */
-  .hsorts{display:flex;gap:2px;background:var(--panel);border:1px solid var(--line2);
-    border-radius:var(--r);padding:2px}
-  .hs{flex:1;background:none;border:none;border-radius:4px;color:var(--dim);
+  .hs{flex:1;background:none;border:none;border-radius:10px;color:var(--dim);
     font:700 10px var(--ui);letter-spacing:.12em;text-transform:uppercase;
     padding:7px 0;cursor:pointer;-webkit-tap-highlight-color:transparent}
   .hs:active{color:var(--fg)}
   /* blue marks the live choice here exactly as it does in the tab bar below */
   .hs.on{background:var(--panel3);color:var(--blue)}
+  /* Usage source tabs — segmented control sitting under the status bar so
+     the meters/charts below swap in place. Horizontal swipe on this screen
+     cycles Grok → Claude → Codex the same way tapping these does. */
+  .usorts{flex:none;display:flex;gap:3px;height:40px;background:var(--panel);
+    border:1px solid var(--line2);border-radius:var(--r3);padding:3px;margin:9px 12px 10px}
+  #s-usage{touch-action:pan-y}
+  #s-usage .tabbar{touch-action:manipulation}
+  #s-usage.swiping{user-select:none}
+  #s-usage.swiping #usage-body{transition:none}
+  #usage-body{transition:transform .18s ease}
+  @media(prefers-reduced-motion:reduce){
+    #usage-body{transition:none}
+  }
+  .hrow .hmeta .hm-prov{flex:none;font:700 9px var(--ui);letter-spacing:.08em;
+    text-transform:uppercase;color:var(--dim)}
+  .hrow .hmeta .hm-prov.p-claude{color:var(--c-orange)}
+  .hrow .hmeta .hm-prov.p-codex{color:var(--fg2)}
+  .hrow .hmeta .hm-prov.p-grok{color:var(--cyan)}
+  .hrow .hmeta .hm-brand{display:inline-flex;align-items:center;justify-content:center;
+    width:19px;height:19px;flex:none;border-radius:50%;background:#fff;overflow:hidden}
+  .hrow .hmeta .hm-brand img{width:14px;height:14px;object-fit:contain}
+  .hrow .hmeta .hm-brand-fallback{font:700 9px var(--ui);color:#222}
   /* ── history ─────────────────────────────────────────────────────────
      Grouped by working directory. A COLLAPSED group is identity + recency +
      spend on one line and activity on the next — no session-preview text,
@@ -1085,7 +1169,7 @@
   #lock.quiet p,#lock.quiet .warn{display:none}
 </style>
 </head>
-<body>
+<body class="compact-nav">
 
 <div class="screen on" id="s-fleet">
   <header>
@@ -1093,33 +1177,23 @@
       <span class="wm"><b>THE</b> YARD</span></div>
     <button class="reap" id="reap" onclick="askReap()" disabled
             aria-label="end old sessions" title="end sessions over 3h old">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>
+      <span class="material-symbols-rounded" aria-hidden="true">delete_sweep</span>
       <span id="reapn">0</span>
     </button>
     <button class="bell" id="bell" onclick="toggleNotify()" aria-label="notifications" title="notifications">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
-        <path d="M13.7 21a2 2 0 0 1-3.4 0"/>
-      </svg>
+      <span class="material-symbols-rounded" aria-hidden="true">notifications</span>
     </button>
   </header>
-  <div class="statusbar">
-    <span class="sb-panes">—</span>
-    <span class="sb-lim"><span class="bar"><i class="sb-lim-fill" style="width:0%"></i></span><span class="sb-lim-t">—</span></span>
-  </div>
   <div id="yard">
     <div id="yard-status" class="quiet"><span class="dots"><i></i><i></i><i></i></span></div>
     <div class="trash" id="trash" aria-hidden="true">✕</div>
     <button class="fab" id="fab" onclick="spawnSession()" title="new session">+</button>
   </div>
   <div class="tabbar">
-    <button class="cur" onclick="showFleet()">yard</button>
-    <button onclick="showHistory()">history</button>
-    <button onclick="showUsage()">usage</button>
-    <button onclick="showSys()">system</button>
+    <button class="cur" onclick="showFleet()" aria-label="yard"><span class="material-symbols-rounded" aria-hidden="true">home</span><span class="tab-label">yard</span></button>
+    <button onclick="showHistory()" aria-label="history"><span class="material-symbols-rounded" aria-hidden="true">history</span><span class="tab-label">history</span></button>
+    <button onclick="showUsage()" aria-label="usage"><span class="material-symbols-rounded" aria-hidden="true">tune</span><span class="tab-label">usage</span></button>
+    <button onclick="showSys()" aria-label="system"><span class="material-symbols-rounded" aria-hidden="true">settings</span><span class="tab-label">system</span></button>
   </div>
 </div>
 
@@ -1129,16 +1203,17 @@
       <span class="wm">NOW</span></div>
     <div class="meta" id="usage-age"></div>
   </header>
-  <div class="statusbar">
-    <span class="sb-panes">—</span>
-    <span class="sb-lim"><span class="bar"><i class="sb-lim-fill" style="width:0%"></i></span><span class="sb-lim-t">—</span></span>
+  <div class="usorts" id="usage-tabs" role="tablist" aria-label="usage source">
+    <button class="hs" data-p="grok" onclick="setUsageProvider('grok')">Grok usage</button>
+    <button class="hs" data-p="claude" onclick="setUsageProvider('claude')">Claude usage</button>
+    <button class="hs" data-p="codex" onclick="setUsageProvider('codex')">Codex usage</button>
   </div>
   <div id="usage-body"><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div></div>
   <div class="tabbar">
-    <button onclick="showFleet()">yard</button>
-    <button onclick="showHistory()">history</button>
-    <button class="cur" onclick="showUsage()">usage</button>
-    <button onclick="showSys()">system</button>
+    <button onclick="showFleet()" aria-label="yard"><span class="material-symbols-rounded" aria-hidden="true">home</span><span class="tab-label">yard</span></button>
+    <button onclick="showHistory()" aria-label="history"><span class="material-symbols-rounded" aria-hidden="true">history</span><span class="tab-label">history</span></button>
+    <button class="cur" onclick="showUsage()" aria-label="usage"><span class="material-symbols-rounded" aria-hidden="true">tune</span><span class="tab-label">usage</span></button>
+    <button onclick="showSys()" aria-label="system"><span class="material-symbols-rounded" aria-hidden="true">settings</span><span class="tab-label">system</span></button>
   </div>
 </div>
 
@@ -1148,10 +1223,6 @@
       <span class="wm">PAST</span></div>
     <div class="meta" id="hist-meta"></div>
   </header>
-  <div class="statusbar">
-    <span class="sb-panes">—</span>
-    <span class="sb-lim"><span class="bar"><i class="sb-lim-fill" style="width:0%"></i></span><span class="sb-lim-t">—</span></span>
-  </div>
   <div class="hsearch">
     <div class="hqbox">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -1164,18 +1235,13 @@
       <button id="histqclear" class="hqclear" onclick="clearHistSearch()" hidden
         aria-label="clear search">✕</button>
     </div>
-    <div class="hsorts" id="histsort" role="group" aria-label="sort">
-      <button class="hs" onclick="setHistSort('recent')">recent</button>
-      <button class="hs" onclick="setHistSort('cost')">cost</button>
-      <button class="hs" onclick="setHistSort('busy')">busy</button>
-    </div>
   </div>
   <div id="hist-body"><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div></div>
   <div class="tabbar">
-    <button onclick="showFleet()">yard</button>
-    <button class="cur" onclick="showHistory()">history</button>
-    <button onclick="showUsage()">usage</button>
-    <button onclick="showSys()">system</button>
+    <button onclick="showFleet()" aria-label="yard"><span class="material-symbols-rounded" aria-hidden="true">home</span><span class="tab-label">yard</span></button>
+    <button class="cur" onclick="showHistory()" aria-label="history"><span class="material-symbols-rounded" aria-hidden="true">history</span><span class="tab-label">history</span></button>
+    <button onclick="showUsage()" aria-label="usage"><span class="material-symbols-rounded" aria-hidden="true">tune</span><span class="tab-label">usage</span></button>
+    <button onclick="showSys()" aria-label="system"><span class="material-symbols-rounded" aria-hidden="true">settings</span><span class="tab-label">system</span></button>
   </div>
 </div>
 
@@ -1185,10 +1251,6 @@
       <span class="wm">AUTH</span></div>
     <div class="meta" id="auth-meta"></div>
   </header>
-  <div class="statusbar">
-    <span class="sb-panes">—</span>
-    <span class="sb-lim"><span class="bar"><i class="sb-lim-fill" style="width:0%"></i></span><span class="sb-lim-t">—</span></span>
-  </div>
   <div id="auth-body">
     <section id="auth-requests" hidden>
       <div class="auth-h">Pending requests</div>
@@ -1205,10 +1267,10 @@
     </section>
   </div>
   <div class="tabbar">
-    <button onclick="showFleet()">yard</button>
-    <button onclick="showHistory()">history</button>
-    <button onclick="showUsage()">usage</button>
-    <button onclick="showSys()">system</button>
+    <button onclick="showFleet()" aria-label="yard"><span class="material-symbols-rounded" aria-hidden="true">home</span><span class="tab-label">yard</span></button>
+    <button onclick="showHistory()" aria-label="history"><span class="material-symbols-rounded" aria-hidden="true">history</span><span class="tab-label">history</span></button>
+    <button onclick="showUsage()" aria-label="usage"><span class="material-symbols-rounded" aria-hidden="true">tune</span><span class="tab-label">usage</span></button>
+    <button onclick="showSys()" aria-label="system"><span class="material-symbols-rounded" aria-hidden="true">settings</span><span class="tab-label">system</span></button>
   </div>
 </div>
 
@@ -1218,16 +1280,12 @@
       <span class="wm">SYSTEM</span></div>
     <div class="meta" id="sys-age"></div>
   </header>
-  <div class="statusbar">
-    <span class="sb-panes">—</span>
-    <span class="sb-lim"><span class="bar"><i class="sb-lim-fill" style="width:0%"></i></span><span class="sb-lim-t">—</span></span>
-  </div>
   <div id="sys-body"></div>
   <div class="tabbar">
-    <button onclick="showFleet()">yard</button>
-    <button onclick="showHistory()">history</button>
-    <button onclick="showUsage()">usage</button>
-    <button class="cur" onclick="showSys()">system</button>
+    <button onclick="showFleet()" aria-label="yard"><span class="material-symbols-rounded" aria-hidden="true">home</span><span class="tab-label">yard</span></button>
+    <button onclick="showHistory()" aria-label="history"><span class="material-symbols-rounded" aria-hidden="true">history</span><span class="tab-label">history</span></button>
+    <button onclick="showUsage()" aria-label="usage"><span class="material-symbols-rounded" aria-hidden="true">tune</span><span class="tab-label">usage</span></button>
+    <button class="cur" onclick="showSys()" aria-label="system"><span class="material-symbols-rounded" aria-hidden="true">settings</span><span class="tab-label">system</span></button>
   </div>
 </div>
 
@@ -1255,8 +1313,6 @@
     </button>
     </div>
   </header>
-  <div class="ctxrule" id="ctxrule" role="progressbar" aria-label="context used"
-       aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>
   <div class="sessinfo" id="sessinfo" hidden>
     <div class="ss-row">
       <div class="ss-head">
@@ -1284,14 +1340,14 @@
   </div>
   <div class="chipsdock">
   <div class="chips" id="chips">
-    <button id="chip-mode" onclick="openSheet('mode')" aria-label="permission mode">
+    <button id="chip-mode" onclick="openModeOrPermissions()" aria-label="permission mode">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
         stroke-linecap="round" aria-hidden="true">
         <line x1="4" y1="8" x2="20" y2="8"/><circle cx="9" cy="8" r="2.4" fill="var(--panel3)"/>
         <line x1="4" y1="16" x2="20" y2="16"/><circle cx="15" cy="16" r="2.4" fill="var(--panel3)"/>
       </svg><span class="cv">auto</span>
     </button>
-    <button id="chip-effort" onclick="openSheet('effort')" aria-label="reasoning effort">
+    <button id="chip-effort" onclick="openEffortOrPicker()" aria-label="reasoning effort">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
         stroke-linecap="round" aria-hidden="true">
         <line x1="6" y1="18" x2="6" y2="13"/><line x1="12" y1="18" x2="12" y2="9"/>
@@ -1299,15 +1355,7 @@
       </svg><span class="cv">med</span>
     </button>
     <button id="chip-model" onclick="openSheet('model')" aria-label="model">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <circle cx="12" cy="12" r="3.2"/>
-        <circle cx="12" cy="4.4" r="1.7"/><circle cx="5.4" cy="17" r="1.7"/>
-        <circle cx="18.6" cy="17" r="1.7"/>
-        <line x1="12" y1="8.8" x2="12" y2="6.1"/>
-        <line x1="9.3" y1="13.7" x2="6.9" y2="16.1"/>
-        <line x1="14.7" y1="13.7" x2="17.1" y2="16.1"/>
-      </svg><span class="cv">model</span>
+      <span class="cv">model</span>
     </button>
     <button onclick="openSheet('cmd')" aria-label="commands">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -1342,36 +1390,26 @@
     <input type="file" id="caminput" accept="image/*" capture="environment" hidden
            onchange="uploadFiles(this.files, 'camerabtn')">
     <div class="cbox">
+      <div class="ctxrow">
+        <div class="ctxrule" id="ctxrule" role="progressbar" aria-label="context used"
+             aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>
+        <button type="button" id="clearctx" class="clearctx" onclick="clearContext()" aria-label="clear context">clear</button>
+      </div>
       <textarea id="input" rows="1" placeholder=""></textarea>
       <div class="cbar">
         <button class="mic" id="attachbtn" onclick="document.getElementById('fileinput').click()" aria-label="attach">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M21 11.5l-8.5 8.5a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.6 1.6 0 0 1-2.3-2.3l7.8-7.8"/>
-          </svg>
+          <span class="material-symbols-rounded" aria-hidden="true">attach_file</span>
         </button>
         <button class="mic" id="camerabtn" onclick="document.getElementById('caminput').click()" aria-label="take picture">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M3 8.5h3.2l1.5-2.5h8.6l1.5 2.5H21a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1z"/>
-            <circle cx="12" cy="13.5" r="3.5"/>
-          </svg>
+          <span class="material-symbols-rounded" aria-hidden="true">photo_camera</span>
         </button>
         <span class="gap"></span>
         <button class="mic" id="micbtn" onclick="toggleMic()" aria-label="dictate">
-          <svg class="i-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="9" y="2.5" width="6" height="11" rx="3"/>
-            <path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="21.5"/>
-          </svg>
-          <svg class="i-stop" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <rect x="6" y="6" width="12" height="12" rx="2.5"/>
-          </svg>
+          <span class="material-symbols-rounded i-mic" aria-hidden="true">mic</span>
+          <span class="material-symbols-rounded i-stop" aria-hidden="true">stop</span>
         </button>
         <button class="send" id="sendbtn" onclick="send()" disabled aria-label="send">
-          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M3.5 20.6l16.9-8.1c.8-.4.8-1.6 0-2L3.5 2.4c-.8-.4-1.6.4-1.3 1.2L4 11l-1.8 6.4c-.3.8.5 1.6 1.3 1.2z"/>
-          </svg>
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3.5 20.6l16.9-8.1c.8-.4.8-1.6 0-2L3.5 2.4c-.8-.4-1.6.4-1.3 1.2L4 11l-1.8 6.4c-.3.8.5 1.6 1.3 1.2z"/></svg>
         </button>
       </div>
     </div>
@@ -1408,6 +1446,29 @@ window.addEventListener('unhandledrejection', e =>
    cookie rides along automatically — including on the websockets. */
 const Q = '';
 let SESSIONS = [], current = null, paneWS = null;
+const codexConfirmedSettings = new Map();
+const hasCodexSettingsIdentity = row => row && row.provider === 'codex' &&
+  typeof row.sid === 'string' && row.sid.length > 0 &&
+  Number.isFinite(row.mtime) && row.mtime > 0;
+
+function reconcileCodexSettings(rows){
+  const present = new Set(rows.map(row => row.uuid));
+  for (const uuid of codexConfirmedSettings.keys()){
+    if (!present.has(uuid)) codexConfirmedSettings.delete(uuid);
+  }
+  return rows.map(row => {
+    const fresh = {...row}, confirmed = codexConfirmedSettings.get(row.uuid);
+    if (confirmed){
+      if (!hasCodexSettingsIdentity(row) || row.sid !== confirmed.sid || row.mtime > confirmed.mtime){
+        codexConfirmedSettings.delete(row.uuid);
+      } else {
+        fresh.model = confirmed.model;
+        fresh.effort = confirmed.effort;
+      }
+    }
+    return fresh;
+  });
+}
 // which pane the session screen wants connected; survives socket drops so we can
 // auto-reconnect. null when we're not on a session (fleet/usage screen).
 let paneWantUuid = null, paneReconnectT = null;
@@ -1452,31 +1513,52 @@ const LINE_RULES = {
 };
 /* Rules shared by every client: errors, progress bars, quoted input, rules. */
 const COMMON_RULES = [
-  [/(error|failed|refus)/i, 'c-red'],
+  [/^\s*(?:error|failed|failure|refused|✗|×)\b/i, 'c-red'],
   [/[█▓]/,                  'c-cyan'],
   [/^\s*>/,                 'c-green'],
   [/^\s*[─━]{4,}/,          'c-dim'],
 ];
-/* Grok stamps each turn with a wall clock on the right. Keep it — it is the
-   only turn boundary in its transcript — but sink it behind the words. */
-const STAMP_RE = /^(.*\S)(\s{2,})(\d{1,2}:\d{2}\s?[AP]M)\s*$/;
-
+function isFitLine(l, p){
+  if ((p === 'codex' && /^\s*(?:[─━]{4,}|[─━]+\s+Worked for\s+[^\r\n]*?\s+[─━]+)\s*$/.test(l)) ||
+      (p === 'claude' && /^\s*[─━]{4,}\s*$/.test(l)))
+    return true;
+  return false;
+}
 function colorizeLine(l, p){
+  if (isFitLine(l, p))
+    return `<span class="c-dim ${p === 'codex' ? 'codex-divider' : 'fitline'}">${esc(l)}</span>`;
   const rules = LINE_RULES[p] || LINE_RULES.claude;
-  let body = l, stamp = '';
-  if (p === 'grok'){
-    const m = l.match(STAMP_RE);
-    if (m){ body = m[1]; stamp = `${m[2]}<span class="c-dim">${esc(m[3])}</span>`; }
-  }
-  const e = esc(body);
+  // Codex's diff rows have a visible gutter before the sign. Requiring that
+  // gutter is important: a bare `- item` is ordinary Markdown, not a deletion.
+  const diff = p === 'codex' && /^\s*[│▌]\s*[+-](?![+-])/.test(l)
+    ? (/^\s*[│▌]\s*\+/.test(l) ? 'c-add' : 'c-del') : '';
+  const e = colorizeWords(esc(l));
+  if (diff) return `<span class="${diff}">${e}</span>`;
   for (const [re, cls] of rules)
-    if (re.test(body)) return `<span class="${cls}">${e}</span>` + stamp;
+    if (re.test(l)) return `<span class="${cls}">${e}</span>`;
   for (const [re, cls] of COMMON_RULES)
-    if (re.test(body)) return `<span class="${cls}">${e}</span>` + stamp;
-  return e + stamp;
+    if (re.test(l)) return `<span class="${cls}">${e}</span>`;
+  return e;
+}
+function colorizeWords(e){
+  return e.replace(/(`[^`]+`|--[\w-]+|(?:src|lib|test|tests|static)\/[\w./-]+)/g,
+    t => `<span class="${t[0] === '`' ? 'c-inline' : 'c-code'}">${t}</span>`);
 }
 function colorizeLines(text, p){ return text.split('\n').map(l => colorizeLine(l, p)); }
 function colorize(text, p){ return colorizeLines(text, p).join('\n'); }
+
+function lineLayoutClass(l){ return /^\s*(?:[-*•]\s|\d+\.\s)/.test(l) ? ' list-line' : ''; }
+function lineLayoutStyle(l){
+  const m = l.match(/^[ \t]*/)[0];
+  const indent = m.replace(/\t/g, '    ').length;
+  const rest = l.slice(m.length);
+  const marker = rest.match(/^(?:[-*•]\s+|\d+\.\s+|#{1,6}\s+|[╭╮╰╯┌┐└┘│▌█][─━╴╶╾╼-]*\s+|[❯›>⏺✻⎿⏵]\s+)/);
+  const markerWidth = marker ? Array.from(marker[0]).length : 0;
+  return `--logical-indent:${indent}ch;--marker-indent:${markerWidth}ch`;
+}
+function lineRenderClass(l, p){
+  return isFitLine(l, p) ? '' : ' hang' + lineLayoutClass(l);
+}
 
 function toast(msg, err){
   const t = document.getElementById('toast');
@@ -1497,6 +1579,7 @@ const buzz = n => { if (localStorage.getItem('haptics') === '0') return;
 let PENDING_PANE = '';
 let LIMITS = null;
 function renderFleet(rows){
+  rows = reconcileCodexSettings(rows);
   SESSIONS = rows;
   // the usage screen reads the same live rows, so repaint it in place
   if (document.getElementById('s-usage').classList.contains('on')) renderUsage();
@@ -1509,7 +1592,7 @@ function renderFleet(rows){
   }
   if (current){                     // keep the open session's effort in sync
     const fresh = rows.find(r => r.uuid === current.uuid);
-    if (fresh){ current = fresh; markEffort(fresh.effort); markMode(fresh.mode); markModel(fresh.model); renderActions(); }
+    if (fresh){ current = fresh; paintCtxBar(fresh.ctx); markEffort(fresh.effort); markMode(fresh.mode); markModel(fresh.model); renderActions(); }
   }
   const panes = `${rows.length} pane${rows.length===1?'':'s'}`;
   document.querySelectorAll('.sb-panes').forEach(e => e.textContent = panes);
@@ -1557,9 +1640,9 @@ const CLAWD_SVG = `
   <rect class="body"  x="7" y="6" width="30" height="28" rx="7"/>
   <rect class="shade" x="7" y="26" width="30" height="8" rx="4"/>
   <rect class="body"  x="7" y="6" width="30" height="24" rx="7"/>
+  <rect class="band" x="7" y="8" width="30" height="4.5" rx="2.25" fill="transparent"/>
   <rect class="eye" x="14" y="15" width="6" height="7" rx="2"/>
   <rect class="eye" x="24" y="15" width="6" height="7" rx="2"/>
-  <rect class="band" x="7" y="8" width="30" height="4.5" rx="2.25" fill="transparent"/>
 </svg>`;
 /* Codex wears OpenAI's face: the round chalk head is the blossom's ground, and
    the mark itself — three crossed lobes around a hollow hexagon — is cut out of
@@ -1579,9 +1662,8 @@ const CODEX_SVG = `
     <rect x="13" y="18.3" width="18" height="4" rx="2" transform="rotate(-60 22 20.3)"/>
   </g>
   <polygon class="body" points="25.2,20.3 23.6,23.1 20.4,23.1 18.8,20.3 20.4,17.5 23.6,17.5"/>
-  <path class="band" d="M9.51 12A14 14 0 0 1 21 6L23 6A14 14 0 0 1 34.49 12L31.21 14.29A10 10 0 0 0 23 10L21 10A10 10 0 0 0 12.79 14.29Z" fill="transparent"/>
 </svg>`;
-/* Grok is the hard one: a chamfered steel helmet with two swept fins, square
+/* Grok is the hard one: a chamfered steel helmet, square
    limbs, and xAI's slash-X for a face — one long diagonal, the counter-diagonal
    broken where it crosses, exactly as the mark is drawn. Darker skin than Codex
    so a mixed yard never reads as two pale twins. */
@@ -1591,8 +1673,6 @@ const GROK_SVG = `
   <rect class="limb leg-r" x="24" y="30" width="7" height="10"/>
   <rect class="limb arm-l" x="1"  y="14" width="7" height="15"/>
   <rect class="limb arm-r" x="36" y="14" width="7" height="15"/>
-  <polygon class="body" points="9,7 11.4,0.5 12.6,7"/>
-  <polygon class="body" points="35,7 32.6,0.5 31.4,7"/>
   <polygon class="body"  points="11,5 33,5 38,10 38,29 33,34 11,34 6,29 6,10"/>
   <polygon class="shade" points="6,27.5 38,27.5 38,29 33,34 11,34 6,29"/>
   <g class="eye">
@@ -1600,7 +1680,6 @@ const GROK_SVG = `
     <polygon points="26.6,10.8 31.2,10.8 24.6,18.4 20,18.4"/>
     <polygon points="18.6,19.6 23.2,19.6 16.4,26.6 11.8,26.6"/>
   </g>
-  <polygon class="band" points="9.6,6.4 34.4,6.4 38,10 38,10.2 6,10.2 6,10" fill="transparent"/>
 </svg>`;
 const SPRITES = {claude:CLAWD_SVG, codex:CODEX_SVG, grok:GROK_SVG};
 // The actual Claude bot mark (same as the brand logo): a subagent pet wears this
@@ -1751,16 +1830,15 @@ function fmtDur(sec){
 }
 
 /* ── game layer ─────────────────────────────────────
-   A forehead band, tinted by a stable hash of the pane name, gives every clawd a
-   colour you learn to recognise in a busy yard. The pet is pure joy — it doesn't
-   touch real state. */
+   Pets share a stable crew colour you learn to recognise in a busy yard.
+   The pet is pure joy — it doesn't touch real state. */
 // FNV-1a hash → a stable 32-bit number, so the same repo always maps the same way
 function hashStr(str){
   let h = 2166136261 >>> 0;
   for (let i = 0; i < str.length; i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
   return h >>> 0;
 }
-// A curated bandana palette — hand-picked to be maximally distinct on the dark
+// A curated crew palette — hand-picked to be maximally distinct on the dark
 // yard (spread around the wheel, varied lightness) instead of a raw hue hash,
 // which used to bunch several crews into look-alike teals. Repo → stable colour.
 const BAND_COLORS = [
@@ -1782,7 +1860,7 @@ const BAND_COLORS = [
 // Assign colours so crews on the yard together are always different: each new
 // repo takes whichever palette colour is currently least used, so the first 14
 // crews are guaranteed distinct (no two hashing to the same cyan). The choice is
-// remembered for the session, so a repo keeps its bandana across reconnects.
+// remembered for the session, so a repo keeps its colour across reconnects.
 const bandAssign = new Map();          // gkey → colour, stable for the session
 function bandColor(key){
   let col = bandAssign.get(key);
@@ -1830,18 +1908,18 @@ function petClawd(c){
   fxBurst(c, '❤', 3);
 }
 
-/* every pane in the same repo is one crew: they share a band colour and flock
+/* every pane in the same repo is one crew: their pets share a colour and they flock
    together. The key is the working directory (falls back to the name). */
 function groupKey(s){ return s.cwd || s.name || ''; }
 
-/* repo-colour on the forehead band — the whole crew wears the same one */
+/* repo-colour on Claude bandanas and pets — the whole crew shares the same one */
 function paintIdentity(c){
   c.gkey = groupKey(c.s);
   const col = bandColor(c.gkey);
   if (c._bandc !== col){ c._bandc = col;
     const band = c.el.querySelector('.band');
-    if (band) band.style.fill = col;
-    const pups = c.el.querySelector('.pups');   // pets wear the crew colour too
+    if (band) band.setAttribute('fill', col);
+    const pups = c.el.querySelector('.pups');   // pets wear the crew colour
     if (pups) pups.style.color = col; }
 }
 
@@ -2316,7 +2394,7 @@ function connectFleet(){
     catch(err){ status('bad JSON from server: ' + err.message); return; }
     try { if (d.sessions) renderFleet(d.sessions); }
     catch(err){ status('render failed: ' + err.message); return; }
-    if (d.limits) LIMITS = d.limits;
+    if (d.limits && (d.limits.five_hour || d.limits.seven_day || d.limits.weekly || d.limits.monthly || d.limits.session)) LIMITS = d.limits;
     const fh = d.limits && d.limits.five_hour;
     if (fh && fh.used_percentage != null){
       document.querySelectorAll('.sb-lim-fill').forEach(e => e.style.width = fh.used_percentage + '%');
@@ -2353,6 +2431,7 @@ function connectPane(uuid){
   if (paneWS) { try { paneWS.onclose = null; paneWS.close(); } catch(e){} }
   paneWS = new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/pane/${uuid}${Q}`);
   paneWS.onmessage = e => {
+    if (!current || current.uuid !== uuid) return;
     const d = JSON.parse(e.data);
     if (d.gone) { toast('pane closed', true); showFleet(); return; }
     if (d.history) history = d.history;
@@ -2363,7 +2442,9 @@ function connectPane(uuid){
     // fit AFTER the text lands — it sizes against the widest line we hold
     if (d.cols) cols = d.cols;
     fitFont(cols);
-    if (d.prompt !== undefined){ livePrompt = d.prompt; renderActions(); }
+    if (d.queued_questions !== undefined && current && current.uuid === uuid) current.queued_questions = d.queued_questions;
+    if (d.prompt !== undefined) applyPanePrompt(d.prompt);
+    if (d.prompt !== undefined || d.queued_questions !== undefined) renderActions();
     if ('suggest' in d) applySuggest(d.suggest);
     paint();
     // Reveal only once the LIVE screen has landed. The server ships history in
@@ -2423,15 +2504,27 @@ window.addEventListener('popstate', e => {
   } finally { navPop = false; }
 });
 
+function setThemeColor(color){
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', color);
+}
+
 function openSession(uuid){
   current = SESSIONS.find(s => s.uuid === uuid);
   if (!current) return;
+  setThemeColor('#22262d');
   pushNav({v: 'session', uuid});
   // Entering a chat starts with the header controls collapsed — the terminal
   // owns the screen; open the ••• row deliberately if you want the chips.
   chipsOpen = false; applyChips();
   document.getElementById('st').textContent = current.name;
   applyProviderChrome();
+  loadCommands();
+  codexPaneVersion++;
+  grokPaneVersion++;
+  codexModels = null; codexModelsError = ''; codexModelsLoading = false;
+  grokModels = null; grokModelsError = ''; grokModelsLoading = false;
+  if (current.provider === 'codex') loadCodexModels();
+  if (current.provider === 'grok') loadGrokModels();
   updateMeta();
   document.querySelectorAll('.chips button:not(.ghost)').forEach(b => b.disabled = !current.sendable);
   document.getElementById('sendbtn').disabled = !current.sendable;
@@ -2441,7 +2534,7 @@ function openSession(uuid){
   document.getElementById('s-session').classList.add('on');
   const pane = document.getElementById('pane');
   pane.textContent = '';
-  // In fit mode, clear any stale `wrap` class (added by shrinkToFit's last-resort
+  // In fit mode, clear any stale `wrap` class (added by shrinkToFit's last-resort)
   // soft-wrap in a prior session) — it's the 13px "big" state that would flash
   // before fit kicks in. In wrap mode the class is what we want, so leave it.
   if (fitMode === 0) pane.classList.remove('wrap');
@@ -2456,7 +2549,8 @@ function openSession(uuid){
   }, 1200);
 
   markEffort(current.effort); markMode(current.mode); markModel(current.model);
-  livePrompt = current.prompt || null; promptDismissed = null; renderActions();
+  suppressCodexPicker = false;
+  applyPanePrompt(current.prompt || null); promptDismissed = null; renderActions();
   history = []; live = ''; pinBottom = true; lastSig = null;   // land at newest output
   briefOpen = false; briefHasContent = false; applyBrief();   // brief hidden until the eye is tapped
   // Warm the brief NOW, not when the eye is tapped: the `claude -p` call takes a
@@ -2561,14 +2655,23 @@ function isDivider(l){
   return dashes >= 8 && /^[─━]{3,}/.test(t) && /[─━]{2,}$/.test(t);
 }
 function isBorder(l){ return isDivider(l) || /[╭╮╰╯┌┐└┘┏┓┗┛]/.test(l); }
+// Grok echoes every user turn with the same ❯ glyph as its composer, and it
+// pins that echo at the top of the viewport while the turn runs. The boxed
+// input (`│ ❯` between ╭/╰) is the only row we should treat as chrome.
+function isGrokComposerLine(lines, i){
+  const l = lines[i] || '';
+  if (!l.includes('❯')) return false;
+  if (/[│┃]/.test(l)) return true;
+  const prev = lines[i - 1] || '', next = lines[i + 1] || '';
+  return /[╭┌┏]/.test(prev) || /[╰└┗]/.test(next);
+}
 // The glyph each client draws in its own input box. Claude and Grok use ❯,
 // Codex a lighter ›, and Codex's box has no border at all.
 const PROMPT_GLYPH = {claude: '❯', codex: '›', grok: '❯'};
 // Codex opens every session by announcing the rename and how to resume it. It is
 // the same four lines every time and it is never the answer to anything.
 const CODEX_BANNER = /^\s*•\s*Session renamed/;
-// Grok paints a scrollbar in the rightmost column and indents the whole
-// transcript five spaces. On a 52-column pane both are width we do not have.
+// Grok paints a scrollbar in the rightmost column.
 const GROK_BAR = / {2,}[█▌│]+\s*$/;
 // Codex sprinkles a braille snowfall around its input box while it waits. Those
 // rows carry nothing but the animation, and they land above the prompt line, so
@@ -2579,16 +2682,102 @@ const CODEX_SPARKLE = /^[\s\u2800-\u28ff]*$/;
 // of the rows the answer needs. Cut from its heading down to the box.
 const GROK_OPTIN = /^\s*Help improve Grok/;
 
+function stripCodexPrompt(lines, prompt){
+  // Native picker/approval/question chrome is replaced by the actionbar. Cut
+  // the whole dialog — title, wrapped warning, options, footer — so none of
+  // that copy sits above the same buttons.
+  const footRe = /(?:press )?enter to (?:confirm|select|continue)|enter to submit(?: answer| all)?|esc to (?:cancel|dismiss|go back)/i;
+  const optionRe = /^\s*[›>❯]?\s*\d+\.\s+\S/;
+  let end = -1;
+  for (let i = lines.length - 1; i >= 0; i--){
+    if (footRe.test(lines[i])){ end = i; break; }
+  }
+  const limit = end >= 0 ? end : lines.length - 1;
+  let firstOpt = -1;
+  for (let i = 0; i <= limit; i++){
+    if (optionRe.test(lines[i])){ firstOpt = i; break; }
+  }
+  if (firstOpt < 0){
+    const labels = (prompt.options || []).map(o => (o.label || '').trim()).filter(l => l.length > 2);
+    for (let i = 0; i <= limit; i++){
+      if (labels.some(l => lines[i].includes(l))){ firstOpt = i; break; }
+    }
+  }
+  if (firstOpt < 0) return lines;
+  if (end < 0){
+    end = firstOpt;
+    for (let i = firstOpt + 1; i < lines.length; i++){
+      const t = lines[i].trim();
+      if (footRe.test(lines[i]) || optionRe.test(lines[i]) || t) end = i;
+      else break;
+    }
+  }
+  let start = firstOpt;
+  const markers = [];
+  if (prompt.question) markers.push(prompt.question.split('\n')[0].trim());
+  if (prompt.context) markers.push(prompt.context.split('\n')[0].trim());
+  for (const mark of markers){
+    if (!mark) continue;
+    const needle = mark.slice(0, Math.min(mark.length, 24));
+    for (let i = firstOpt - 1; i >= Math.max(0, firstOpt - 16); i--){
+      const t = lines[i].trim();
+      if (t && (t === mark || t.includes(needle) || mark.includes(t))){ start = i; break; }
+    }
+    if (start < firstOpt) break;
+  }
+  if (start === firstOpt){
+    let blanks = 0;
+    for (let i = firstOpt - 1, steps = 0; i >= 0 && steps < 12; i--, steps++){
+      const t = lines[i].trim();
+      if (!t){ if (++blanks > 1) break; continue; }
+      blanks = 0;
+      if (/^[─━]{4,}/.test(t) || /[╭╮╰╯┌┐└┘]/.test(t) || /^•\s/.test(t)) break;
+      if (/^[›>❯]\s/.test(t) && !optionRe.test(lines[i])) break;
+      start = i;
+      if (/\?\s*$/.test(t)) break;
+    }
+  }
+  let cut = end + 1;
+  while (cut < lines.length && /esc to |tab to |←|→/i.test(lines[cut])) cut++;
+  return lines.slice(0, start).concat(lines.slice(cut));
+}
+
+function stripGrokPrompt(lines){
+  const rule = /^\s*[─━]{4,}\d*[─━]*\s*$/;
+  const rules = [];
+  for (let i = 0; i < lines.length; i++){
+    if (rule.test(lines[i].replace(/ {2,}[█▌│]+\s*$/, ''))) rules.push(i);
+  }
+  if (rules.length < 2) return lines;
+  const start = rules[rules.length - 2], end = rules[rules.length - 1];
+  return lines.slice(0, start).concat(lines.slice(end + 1));
+}
+
 function trimChrome(text, prov){
   const p = prov || 'claude';
   let lines = text.split('\n');
+  if (p === 'codex' && livePrompt && livePrompt.provider === 'codex'
+      && promptKey(livePrompt) !== promptDismissed){
+    lines = stripCodexPrompt(lines, livePrompt);
+  }
+  if (p === 'grok' && livePrompt && livePrompt.provider === 'grok'
+      && promptKey(livePrompt) !== promptDismissed){
+    lines = stripGrokPrompt(lines);
+  }
   // Remove ONLY the input box (the one holding the prompt glyph) and everything
   // below it — its bottom border, the model/context bar, the ⏵⏵ mode line and the
   // "new task?" footer. The "✻ Cooked for 14s" status line sits ABOVE the box, so
   // it's kept: it's the last useful line before our own composer.
   const glyph = PROMPT_GLYPH[p] || '❯';
   let at = -1;
-  for (let i = lines.length - 1; i >= 0; i--){ if (lines[i].includes(glyph)){ at = i; break; } }
+  for (let i = lines.length - 1; i >= 0; i--){
+    // Codex uses the composer glyph for the selected numbered picker option too.
+    if (p === 'codex' && /^\s*›\s*\d+\./.test(lines[i])) continue;
+    // Grok's transcript prompt echo is not the input box — skip it or a running
+    // turn loses every tool line under the pinned ❯.
+    if (p === 'grok' && !isGrokComposerLine(lines, i)) continue;
+    if (lines[i].includes(glyph)){ at = i; break; }
+  }
   if (at >= 0){
     let top = at;
     while (top - 1 >= 0 && isBorder(lines[top - 1])) top--;   // climb the top border
@@ -2610,10 +2799,6 @@ function trimChrome(text, prov){
     const o = lines.findIndex(l => GROK_OPTIN.test(l));
     if (o >= 0) lines = lines.slice(0, o);
     lines = lines.map(l => l.replace(GROK_BAR, ''));
-    // Grok indents its whole transcript five columns. Pull those back — on a
-    // 52-column pane that margin is most of a word — while leaving any deeper
-    // indent (code, nested lists) standing relative to it.
-    lines = lines.map(l => l.replace(/^ {1,5}/, ''));
   }
   return lines.join('\n').replace(/\n+$/, '');
 }
@@ -2621,6 +2806,9 @@ function trimChrome(text, prov){
 let paintPending = false, lastSig = null;
 function paint(force){
   const p = document.getElementById('pane');
+  const prov = (current && current.provider) || 'claude';
+  p.classList.remove('theme-claude','theme-codex','theme-grok');
+  p.classList.add('theme-' + prov);
   // Never touch the DOM under a finger or a fling. iOS restarts or drops a
   // momentum scroll when the scroller's content changes mid-gesture — the
   // "scroll down, it jumps back up" — so frames that land while a gesture is
@@ -2628,10 +2816,12 @@ function paint(force){
   if (userScrolling){ paintPending = true; return; }
   paintPending = false;
   // trailing blank lines between scrollback and live screen just waste space
+  let liveT = trimChrome(live, prov);
   const hist = history.join('\n').replace(/\n+$/, '');
-  const prov = (current && current.provider) || 'claude';
-  const liveT = trimChrome(live, prov);
-  const lines = colorizeLines(hist ? hist + '\n' + liveT : liveT, prov);
+  const liveLines = (liveT || '').split('\n');
+  const histLines = hist ? hist.split('\n') : [];
+  const rawLines = histLines.length ? histLines.concat(liveLines) : liveLines;
+  const lines = colorizeLines(rawLines.join('\n'), prov);
   // A running pane pushes a frame twice a second because its spinner glyph
   // moved — text the chrome stripper throws away. Rendering those frames is
   // pure DOM churn in a scroller someone may be reading. If what we'd draw is
@@ -2660,14 +2850,13 @@ function paint(force){
   const kids = p.children;
   for (let i = 0; i < lines.length; i++){
     let el = kids[i];
-    if (!el){ el = document.createElement('div'); el.className = 'ln'; p.appendChild(el); }
+    if (!el){ el = document.createElement('div'); p.appendChild(el); }
+    el.className = 'ln' + lineRenderClass(rawLines[i], prov);
+    el.style.cssText = lineLayoutStyle(rawLines[i]);
     if (el.__h !== lines[i]){ el.innerHTML = lines[i] || ''; el.__h = lines[i]; }
   }
   while (kids.length > lines.length) p.removeChild(p.lastElementChild);
   if (fitMode === 0) shrinkToFit(p);
-  // A short transcript — a Grok pane is one screen with no scrollback, so it is
-  // usually short — should sit ON the composer like a conversation, not float at
-  // the top of an empty column. Push it down by whatever room is left over.
   const rows = p.children;
   let pad = '0px';
   if (rows.length){
@@ -2682,7 +2871,6 @@ function paint(force){
   }
   if (p.style.paddingTop !== pad) p.style.paddingTop = pad;
   if (pinBottom){
-    // Follow live output when parked at the bottom.
     p.scrollTop = p.scrollHeight;
   } else if (anchor && anchor.parentNode === p){
     const d = anchor.getBoundingClientRect().top - anchorTop;
@@ -2886,15 +3074,29 @@ window.addEventListener('pageshow', onResume);
    still show, so keep it current on every state change. Model leads — it's the
    thing you most want confirmed at a glance. Context is the rule underneath
    rather than a number in the line. */
-/* Permission mode, effort and model are steered by reading Claude's own status
-   line. Codex and Grok draw nothing of the sort, so their chips would be dead
-   controls — hide them and name the client in the meta line instead. */
+/* Model and effort chips mirror confirmed session settings for each client. */
 function applyProviderChrome(){
-  const claude = !current || (current.provider || 'claude') === 'claude';
+  const provider = (current && current.provider) || 'claude';
   ['chip-mode', 'chip-effort', 'chip-model'].forEach(id => {
     const b = document.getElementById(id);
-    if (b) b.style.display = claude ? '' : 'none';
+    if (b) b.style.display = ['claude', 'codex', 'grok'].includes(provider) ? '' : 'none';
   });
+  if (provider === 'codex'){
+    chipVal('chip-model', current.model || 'model');
+    chipVal('chip-mode', 'permissions');
+  } else if (provider === 'grok'){
+    chipVal('chip-model', shortModel(current.model) || current.model || 'model');
+    chipVal('chip-mode', current.mode || 'mode');
+    chipVal('chip-effort', EFFORT_LABEL[current.effort] || current.effort || 'effort');
+  }
+  const modeChip = document.getElementById('chip-mode');
+  if (modeChip) modeChip.setAttribute('aria-label',
+    provider === 'codex' ? 'permissions' : 'permission mode');
+  const clear = document.getElementById('clearctx');
+  if (clear){
+    clear.disabled = false;
+    clear.hidden = false;
+  }
 }
 
 function updateMeta(){
@@ -2904,6 +3106,7 @@ function updateMeta(){
     [prov, shortModel(current.model), current.mode,
      EFFORT_LABEL[current.effort]].filter(Boolean).join(' · ');
   paintCtxBar(current.ctx);
+  applyProviderChrome();
 }
 
 /* The gauge is always on screen, so an unknown context reads as an empty track
@@ -2928,13 +3131,13 @@ function chipVal(id, text){
   if (cv) cv.textContent = text;
 }
 function markEffort(level){
-  chipVal('chip-effort', EFFORT_LABEL[level] || 'effort');
+  chipVal('chip-effort', EFFORT_LABEL[level] || level || 'effort');
   if (current) current.effort = level;
   updateMeta();
   if (openKind === 'effort') renderSheet();
 }
 function markMode(mode){
-  chipVal('chip-mode', mode || 'mode');
+  chipVal('chip-mode', current && current.provider === 'codex' ? 'permissions' : mode || 'mode');
   if (current) current.mode = mode;
   updateMeta();
   if (openKind === 'mode') renderSheet();
@@ -2954,8 +3157,73 @@ function markModel(name){
 
 /* ── bottom sheet ──────────────────────────────────── */
 let openKind = null, COMMANDS = [];
+let codexModels = null, codexModelsError = '', codexModelsLoading = false, codexPaneVersion = 0;
+const codexChanges = new Set();
+let grokPaneVersion = 0;
+const grokChanges = new Set();
+let grokModels = null, grokModelsError = '', grokModelsLoading = false;
 
-function openSheet(kind){ openKind = kind; renderSheet();
+function openModeOrPermissions(){
+  if (current && current.provider === 'codex'){
+    runCmd('permissions');
+    return;
+  }
+  openSheet('mode');
+}
+function openEffortOrPicker(){
+  if (current && current.provider === 'codex'){
+    openCodexEffort();
+    return;
+  }
+  if (current && current.provider === 'grok'){
+    openGrokPicker('/api/effort', {});
+    return;
+  }
+  openSheet('effort');
+}
+async function openCodexEffort(){
+  if (!current || current.provider !== 'codex' || !current.sendable ||
+      codexChanges.has(current.uuid)) return;
+  const uuid = current.uuid, paneVersion = codexPaneVersion;
+  const body = {uuid};
+  if (current.model) body.model = current.model;
+  codexChanges.add(uuid); buzz(12);
+  try {
+    const result = await post('/api/effort', body);
+    if (!current || current.uuid !== uuid || current.provider !== 'codex' ||
+        codexPaneVersion !== paneVersion) return;
+    if (result.prompt){
+      suppressCodexPicker = false;
+      applyPanePrompt(result.prompt); promptDismissed = null;
+      renderActions(); paint();
+    } else toast('sent /model');
+  } catch(e){
+    if (current && current.uuid === uuid) toast(String(e.message), true);
+  } finally {
+    codexChanges.delete(uuid);
+  }
+}
+async function openGrokPicker(endpoint, values){
+  if (!current || current.provider !== 'grok' || !current.sendable ||
+      grokChanges.has(current.uuid)) return;
+  const uuid = current.uuid, paneVersion = grokPaneVersion;
+  grokChanges.add(uuid); buzz(12);
+  try {
+    const result = await post(endpoint, {uuid, ...values});
+    if (!current || current.uuid !== uuid || current.provider !== 'grok' ||
+        grokPaneVersion !== paneVersion) return;
+    if (result.prompt){
+      livePrompt = result.prompt; current.prompt = livePrompt; promptDismissed = null;
+      renderActions(); paint();
+    } else toast(endpoint.indexOf('effort') >= 0 ? 'sent /effort' : 'sent /model');
+  } catch(e){
+    if (current && current.uuid === uuid) toast(String(e.message), true);
+  } finally {
+    grokChanges.delete(uuid);
+  }
+}
+function openSheet(kind){
+  openKind = kind; renderSheet();
   document.getElementById('sheet').classList.add('on');
   document.getElementById('sheet-bg').classList.add('on');
   pushNav({v: 'sheet'}); }          // back closes the sheet, not the screen
@@ -3113,7 +3381,10 @@ let syncSheetKb = () => {};
   // desktop mouse fallback — skipped on touch devices to avoid emulated-mouse double-fire
   if (!('ontouchstart' in window)){
     let mouse = false;
-    bar.addEventListener('mousedown', e => { mouse = true; start(e.clientY, e.clientX); });
+    bar.addEventListener('mousedown', e => {
+      if (bar.classList.contains('codex-card') && !e.target.closest('.grab')) return;
+      mouse = true; start(e.clientY, e.clientX);
+    });
     window.addEventListener('mousemove', e => { if (mouse) move(e.clientY, e.clientX, () => e.preventDefault()); });
     window.addEventListener('mouseup', () => { if (mouse){ mouse = false; end(); } });
   }
@@ -3135,7 +3406,51 @@ function renderSheet(){
   body.innerHTML = '';
   const send = current && current.sendable;
 
-  if (openKind === 'effort'){
+  if (current && current.provider === 'codex' && openKind === 'effort'){
+    closeSheet();
+    openCodexEffort();
+    return;
+  }
+
+  if (current && current.provider === 'codex' && openKind === 'model'){
+    title.textContent = 'model';
+    const pending = codexChanges.has(current.uuid);
+    if (codexModelsLoading){
+      body.appendChild(opt('loading models…', {dis: true}));
+    } else if (codexModelsError){
+      body.appendChild(opt('retry loading models', {desc: codexModelsError, on: loadCodexModels}));
+    } else {
+      (codexModels || []).forEach(model => body.appendChild(opt(model.label || model.id, {
+        cur: current.model === model.id, dis: !send || pending,
+        on: () => setModel(model.id)})));
+      if (!codexModels || !codexModels.length) body.appendChild(opt('no models available', {dis: true}));
+    }
+    if (pending) body.appendChild(opt('applying change…', {dis: true}));
+  }
+
+  else if (current && current.provider === 'grok' && openKind === 'model'){
+    title.textContent = 'model';
+    const pending = grokChanges.has(current.uuid);
+    if (grokModelsLoading){
+      body.appendChild(opt('loading models…', {dis: true}));
+    } else if (grokModelsError){
+      body.appendChild(opt('retry loading models', {desc: grokModelsError, on: loadGrokModels}));
+    } else {
+      (grokModels || []).forEach(model => body.appendChild(opt(model.label || model.id, {
+        cur: grokModelIsCurrent(model), dis: !send || pending,
+        on: () => setModel(model.id)})));
+      if (!grokModels || !grokModels.length) body.appendChild(opt('no models available', {dis: true}));
+    }
+    if (pending) body.appendChild(opt('applying change…', {dis: true}));
+  }
+
+  else if (current && current.provider === 'codex' && openKind === 'mode'){
+    runCmd('permissions');
+    closeSheet();
+    return;
+  }
+
+  else if (openKind === 'effort'){
     title.textContent = 'reasoning effort';
     EFFORTS.forEach(l => body.appendChild(opt(l, {
       cur: current && current.effort === l, dis: !send,
@@ -3144,14 +3459,23 @@ function renderSheet(){
 
   else if (openKind === 'mode'){
     title.textContent = 'permission mode';
-    // bypass is launch-only (--dangerously-skip-permissions), so it shows as a
-    // state you can see and leave, never as one you can tap into.
-    [['bypass','set at launch — new panes start here'], ['plan','read-only planning'],
-     ['auto','auto-accept'], ['accept','accept edits'], ['manual','ask every time']]
-      .forEach(([m, d]) => body.appendChild(opt(m, {
-        desc: d, cur: current && current.mode === m,
-        dis: !send || m === 'bypass',
-        on: () => { setMode(m); closeSheet(); }})));
+    if (current && current.provider === 'grok'){
+      [['ask','ask every time'], ['plan','read-only planning'],
+       ['auto','classifier approves safe tools'],
+       ['always-approve','skip permission prompts']]
+        .forEach(([m, d]) => body.appendChild(opt(m, {
+          desc: d, cur: current && current.mode === m, dis: !send,
+          on: () => { setMode(m); closeSheet(); }})));
+    } else {
+      // bypass is launch-only (--dangerously-skip-permissions), so it shows as a
+      // state you can see and leave, never as one you can tap into.
+      [['bypass','set at launch — new panes start here'], ['plan','read-only planning'],
+       ['auto','auto-accept'], ['accept','accept edits'], ['manual','ask every time']]
+        .forEach(([m, d]) => body.appendChild(opt(m, {
+          desc: d, cur: current && current.mode === m,
+          dis: !send || m === 'bypass',
+          on: () => { setMode(m); closeSheet(); }})));
+    }
   }
 
   else if (openKind === 'model'){
@@ -3228,14 +3552,35 @@ let livePrompt = null;
    prompt on every frame, so a dismissal has to remember WHAT was dismissed — a
    genuinely new question (or a different session) brings the bar straight back. */
 let promptDismissed = null;
+let suppressCodexPicker = false;
+
+function isCodexSettingsPicker(p){
+  if (!p || p.provider !== 'codex') return false;
+  const q = ((p.question || '') + '\n' + (p.context || '')).toLowerCase();
+  return /select model|select reasoning|advanced reasoning|apply reasoning|choose where to apply/.test(q);
+}
+function applyPanePrompt(p){
+  if (suppressCodexPicker){
+    if (!p || isCodexSettingsPicker(p)) p = null;
+    else suppressCodexPicker = false;
+  }
+  livePrompt = p || null;
+  if (current) current.prompt = livePrompt;
+}
 
 const promptKey = p => !p ? '' :
-  (current ? current.uuid : '') + '|' + (p.question || '') + '|' +
-  (p.options || []).map(o => o.key + o.label).join('|');
+  (current ? current.uuid : '') + '|' + ((p.provider === 'codex' || p.provider === 'grok') && p.id ? p.id :
+    (p.question || '') + '|' + (p.options || []).map(o => o.key + o.label).join('|'));
 
 function dismissPrompt(){
+  if (livePrompt && (livePrompt.provider === 'codex' || livePrompt.provider === 'grok') &&
+      (livePrompt.actions || []).includes('cancel')){
+    sendCodexPrompt('cancel');
+    return;
+  }
   promptDismissed = promptKey(livePrompt);
   renderActions();
+  paint();
 }
 
 // Pending checked-state for the multi-select branch — keyed off promptKey()
@@ -3253,12 +3598,228 @@ async function sendSelect(){
   } catch(e){ toast(String(e.message), true); }
 }
 
+const codexPromptDrafts = new Map();
+const codexQueueRequests = new Map();
+let codexPromptCard = null, observedPromptKey = '', codexPromptVersion = 0;
+
+function codexPromptDraft(prompt){
+  const pk = promptKey(prompt);
+  if (!codexPromptDrafts.has(pk)){
+    const selected = (prompt.options || []).find(o => o.selected);
+    codexPromptDrafts.set(pk, {
+      selected: selected ? selected.index : null,
+      text: (prompt.input && prompt.input.text) || '', pending: false, error: ''
+    });
+  }
+  return codexPromptDrafts.get(pk);
+}
+
+async function sendCodexPrompt(action, optionIndex){
+  if (!current || !current.sendable || !livePrompt ||
+      (livePrompt.provider !== 'codex' && livePrompt.provider !== 'grok')) return;
+  const prompt = livePrompt, pk = promptKey(prompt), draft = codexPromptDraft(prompt);
+  if (draft.pending || !(prompt.actions || []).includes(action)) return;
+  const uuid = current.uuid;
+  const paneVersion = prompt.provider === 'grok' ? grokPaneVersion : codexPaneVersion;
+  const version = codexPromptVersion;
+  const payload = {uuid, prompt_id: prompt.id, action};
+  if (action === 'choose') payload.option_index = optionIndex;
+  if (action === 'submit'){
+    if (prompt.variant === 'async'){
+      if (optionIndex !== undefined) payload.option_index = optionIndex;
+      else if (prompt.input && prompt.input.allowed) payload.text = draft.text;
+    } else {
+      if (draft.selected !== null) payload.option_index = draft.selected;
+      if (prompt.input && prompt.input.allowed) payload.text = draft.text;
+    }
+  }
+  draft.pending = true; draft.error = ''; buzz(12); renderActions();
+  const livePaneVersion = () => prompt.provider === 'grok' ? grokPaneVersion : codexPaneVersion;
+  const stillPane = () => current && current.uuid === uuid && livePaneVersion() === paneVersion;
+  const stillCurrent = () => stillPane() &&
+    promptKey(livePrompt) === pk && codexPromptVersion === version;
+  try {
+    const result = await post('/api/prompt', payload);
+    if (!stillPane()) return;
+    if (isCodexSettingsPicker(prompt) && !result.prompt) suppressCodexPicker = true;
+    applyPanePrompt(result.prompt || null);
+    if ('queued_questions' in result) current.queued_questions = result.queued_questions;
+    promptDismissed = result.prompt ? null : promptDismissed;
+  } catch(e){
+    draft.error = String(e.message);
+    if (stillPane()) toast(draft.error, true);
+  } finally {
+    draft.pending = false;
+    if (current && current.uuid === uuid && livePaneVersion() === paneVersion) renderActions();
+  }
+}
+
+async function openCodexQuestions(){
+  if (!current || current.provider !== 'codex' || !current.sendable || livePrompt) return;
+  const queue = current.queued_questions;
+  if (!queue || !['alt_up', 'shift_left'].includes(queue.open_key)) return;
+  const uuid = current.uuid, paneVersion = codexPaneVersion, version = codexPromptVersion;
+  const requestKey = uuid + '|' + queue.id;
+  if (codexQueueRequests.get(requestKey)?.pending) return;
+  const state = {pending: true, error: ''}; codexQueueRequests.set(requestKey, state);
+  buzz(12); renderActions();
+  const stillCurrent = () => current && current.uuid === uuid && codexPaneVersion === paneVersion &&
+    codexPromptVersion === version && !livePrompt && current.queued_questions?.id === queue.id;
+  try {
+    const result = await post('/api/questions/open', {uuid, queue_id: queue.id});
+    if (!stillCurrent()) return;
+    livePrompt = result.prompt || null; current.prompt = livePrompt;
+    current.queued_questions = result.queued_questions || null;
+    promptDismissed = null;
+  } catch(e){
+    state.error = String(e.message);
+    if (stillCurrent()) toast(state.error, true);
+  } finally {
+    state.pending = false;
+    if (current && current.uuid === uuid && codexPaneVersion === paneVersion) renderActions();
+  }
+}
+
+function renderCodexPrompt(bar, prompt){
+  const pk = promptKey(prompt), draft = codexPromptDraft(prompt);
+  const asyncQuestion = prompt.kind === 'question' && prompt.variant === 'async';
+  const commandApproval = /Would you like to|Do you want to|run the following|^\s*\$ /m.test(
+    (prompt.question || '') + '\n' + (prompt.context || ''));
+  const buttonsOnly = prompt.kind === 'picker' || (prompt.kind === 'approval' && !commandApproval);
+  const cancelInOptions = (prompt.options || []).some(o => /\b(esc|cancel)\b/i.test(o.label));
+  // Cursor and native draft changes arrive on every frame. Keep the existing
+  // textarea and radio nodes so polling never steals focus or moves the caret.
+  const shape = JSON.stringify([pk, prompt.kind, prompt.variant, prompt.question, prompt.context,
+    prompt.question_index, prompt.question_count,
+    (prompt.options || []).map(o => [o.index, o.label, buttonsOnly ? '' : o.desc, o.custom, o.selected]),
+    !!(prompt.input && prompt.input.allowed), prompt.actions]);
+  if (!codexPromptCard || codexPromptCard.shape !== shape){
+    const focused = codexPromptCard && document.activeElement === codexPromptCard.textarea;
+    const caret = focused ? [codexPromptCard.textarea.selectionStart, codexPromptCard.textarea.selectionEnd] : null;
+    const restoreFocus = focused && codexPromptCard.pk === pk;
+    bar.innerHTML = '';
+    const card = {pk, shape, controls: [], radios: [], picks: [], textarea: null};
+    codexPromptCard = card;
+    const addText = (tag, cls, text) => {
+      const el = document.createElement(tag); el.className = cls; el.textContent = text;
+      bar.appendChild(el); return el;
+    };
+    addText('div', 'grab', '');
+    if (!buttonsOnly && prompt.kind === 'question' && prompt.question_count)
+      addText('div', 'prompt-count', 'Question ' + prompt.question_index + ' of ' + prompt.question_count);
+    let heading = null;
+    if (!buttonsOnly){
+      heading = addText('div', 'q', prompt.question || (prompt.kind === 'approval' ? 'Approval required' : 'Choose an option'));
+      heading.id = 'codex-prompt-question';
+      if (prompt.context && prompt.context !== prompt.question) addText('div', 'prompt-context', prompt.context);
+    }
+    const options = document.createElement('div'); options.className = 'opts';
+    if (prompt.kind === 'question' && !asyncQuestion && heading){
+      options.setAttribute('role', 'radiogroup'); options.setAttribute('aria-labelledby', heading.id);
+    }
+    (prompt.options || []).forEach((option, position) => {
+      const label = document.createElement(prompt.kind === 'question' && !asyncQuestion ? 'label' : 'button');
+      label.className = 'act' + (option.selected && buttonsOnly ? ' sel' : '');
+      if (prompt.kind === 'question' && !asyncQuestion){
+        const radio = document.createElement('input'); radio.type = 'radio'; radio.name = 'codex-prompt-option';
+        radio.value = String(option.index);
+        radio.onchange = () => { draft.selected = option.index; draft.error = ''; renderActions(); };
+        label.appendChild(radio); card.radios.push({radio, label, index: option.index}); card.controls.push(radio);
+      } else {
+        label.type = 'button';
+        const custom = asyncQuestion && (option.custom === true ||
+          (position === prompt.options.length - 1 && /^other\b/i.test(option.label)));
+        label.onclick = () => {
+          if (custom){ if (card.textarea) card.textarea.focus(); }
+          else sendCodexPrompt(asyncQuestion ? 'submit' : 'choose', option.index);
+        };
+        card.controls.push(label);
+        if (buttonsOnly) card.picks.push({button: label, index: option.index});
+      }
+      const text = document.createElement('span'); text.textContent = option.label;
+      if (option.desc && !buttonsOnly){
+        const desc = document.createElement('small'); desc.className = 'desc'; desc.textContent = option.desc; text.appendChild(desc);
+      }
+      label.appendChild(text); options.appendChild(label);
+    });
+    if (buttonsOnly && !cancelInOptions && (prompt.actions || []).includes('cancel')){
+      const cancel = document.createElement('button');
+      cancel.type = 'button'; cancel.className = 'act'; cancel.textContent = 'Cancel';
+      cancel.onclick = () => sendCodexPrompt('cancel');
+      options.appendChild(cancel); card.controls.push(cancel);
+    }
+    bar.appendChild(options);
+    if (prompt.kind === 'question' && prompt.input && prompt.input.allowed){
+      const label = document.createElement('label'); label.className = 'prompt-input';
+      label.textContent = asyncQuestion ? 'Your answer' : (prompt.options || []).length ? 'Notes' : 'Your answer';
+      const textarea = document.createElement('textarea'); textarea.rows = 3;
+      textarea.placeholder = prompt.input.placeholder || 'Type your answer'; textarea.value = draft.text;
+      textarea.oninput = () => { draft.text = textarea.value; draft.error = ''; };
+      label.appendChild(textarea); bar.appendChild(label); card.textarea = textarea; card.controls.push(textarea);
+    }
+    const buttons = document.createElement('div'); buttons.className = 'prompt-buttons';
+    const addAction = (action, label, cls = '') => {
+      if (!(prompt.actions || []).includes(action)) return;
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'act slim ' + cls;
+      button.textContent = label; button.onclick = () => sendCodexPrompt(action);
+      buttons.appendChild(button); card.controls.push(button);
+    };
+    if (prompt.kind === 'question'){
+      addAction('previous', 'Previous question'); addAction('next', 'Next question');
+      if (asyncQuestion){
+        if (prompt.input && prompt.input.allowed) addAction('submit', 'Send answer', 'send');
+        addAction('skip', 'Skip'); addAction('close', 'Back to chat');
+      } else addAction('submit', prompt.question_index < prompt.question_count ? 'Next answer' : 'Submit answers', 'send');
+    }
+    if (!buttonsOnly && !cancelInOptions) addAction('cancel', 'Cancel');
+    if (buttons.childNodes.length) bar.appendChild(buttons);
+    card.status = addText('div', 'prompt-status', ''); card.status.setAttribute('role', 'status');
+    if (restoreFocus && card.textarea){ card.textarea.focus(); card.textarea.setSelectionRange(...caret); }
+  }
+  bar.className = 'actionbar on codex-card'; bar.style.transform = ''; bar.style.opacity = '';
+  const card = codexPromptCard;
+  card.controls.forEach(control => { control.disabled = draft.pending; });
+  card.radios.forEach(({radio, label, index}) => {
+    radio.checked = draft.selected === index; label.classList.toggle('sel', radio.checked);
+  });
+  (card.picks || []).forEach(({button, index}) => {
+    const option = (prompt.options || []).find(o => o.index === index);
+    button.classList.toggle('sel', !!(option && option.selected));
+  });
+  card.status.textContent = draft.pending ? 'Sending…' : draft.error;
+  card.status.className = 'prompt-status' + (draft.error ? ' error' : '');
+}
+
 function renderActions(){
   const bar = document.getElementById('actionbar');
   const send = current && current.sendable;
+  const pk = promptKey(livePrompt);
+  if (observedPromptKey !== pk){ observedPromptKey = pk; codexPromptVersion++; }
+  if (send && livePrompt && (livePrompt.provider === 'codex' || livePrompt.provider === 'grok') &&
+      pk !== promptDismissed){
+    renderCodexPrompt(bar, livePrompt); return;
+  }
+  codexPromptCard = null;
   bar.innerHTML = '';
   bar.style.transform = ''; bar.style.opacity = '';   // drop any drag offset
   if (!send){ bar.className = 'actionbar'; return; }
+  const queue = current && current.provider === 'codex' && current.queued_questions;
+  if (!livePrompt && queue && queue.count > 0){
+    bar.className = 'actionbar on';
+    const state = codexQueueRequests.get(current.uuid + '|' + queue.id);
+    const supported = ['alt_up', 'shift_left'].includes(queue.open_key);
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'act';
+    button.textContent = state && state.pending ? 'Opening questions…' :
+      'Answer ' + queue.count + ' question' + (queue.count === 1 ? '' : 's');
+    button.disabled = !supported || !!(state && state.pending); button.onclick = openCodexQuestions;
+    bar.appendChild(button);
+    if (!supported || (state && state.error)){
+      const status = document.createElement('div'); status.className = 'q'; status.setAttribute('role', 'status');
+      status.textContent = !supported ? 'Open questions in the Codex terminal; this shortcut is unavailable.' : state.error;
+      bar.appendChild(status);
+    }
+    return;
+  }
 
   if (livePrompt && livePrompt.options && livePrompt.options.length
       && promptKey(livePrompt) !== promptDismissed){
@@ -3318,6 +3879,11 @@ function renderActions(){
   bar.className = 'actionbar';
 }
 
+function clearContext(){
+  if (!current) return;
+  runCmd('clear');
+}
+
 async function runCmd(id){
   if (!current) return;
   buzz(12);
@@ -3327,10 +3893,71 @@ async function runCmd(id){
 }
 
 function loadCommands(){
-  fetch('/api/commands')
-    .then(r => r.json()).then(d => { COMMANDS = d.commands || [];
-                                     if (openKind === 'cmd') renderSheet(); })
+  const uuid = current && current.uuid;
+  const provider = (current && current.provider) || 'claude';
+  COMMANDS = [];
+  if (openKind === 'cmd') renderSheet();
+  fetch('/api/commands?provider=' + encodeURIComponent(provider))
+    .then(r => r.json()).then(d => {
+      if ((current && current.uuid) !== uuid ||
+          ((current && current.provider) || 'claude') !== provider) return;
+      COMMANDS = d.commands || [];
+      if (openKind === 'cmd') renderSheet();
+    })
     .catch(() => {});
+}
+
+async function loadCodexModels(){
+  if (!current || current.provider !== 'codex') return;
+  const uuid = current.uuid, version = codexPaneVersion;
+  codexModelsLoading = true; codexModelsError = '';
+  if (['model', 'effort'].includes(openKind)) renderSheet();
+  try {
+    const response = await fetch('/api/codex/models');
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'could not load Codex models');
+    if (!current || current.uuid !== uuid || current.provider !== 'codex' || codexPaneVersion !== version) return;
+    codexModels = data.models || [];
+  } catch(e){
+    if (!current || current.uuid !== uuid || current.provider !== 'codex' || codexPaneVersion !== version) return;
+    codexModelsError = String(e.message);
+  } finally {
+    if (current && current.uuid === uuid && current.provider === 'codex' && codexPaneVersion === version){
+      codexModelsLoading = false;
+      if (['model', 'effort'].includes(openKind)) renderSheet();
+    }
+  }
+}
+
+async function changeCodexSetting(endpoint, values){
+  if (!current || current.provider !== 'codex' || !current.sendable || codexChanges.has(current.uuid)) return;
+  const uuid = current.uuid, version = codexPaneVersion, sid = current.sid, mtime = current.mtime;
+  const validOrigin = hasCodexSettingsIdentity(current);
+  const stillCurrent = () => current && current.uuid === uuid && current.provider === 'codex' &&
+    current.sid === sid && codexPaneVersion === version &&
+    SESSIONS.some(row => row.uuid === uuid && row.provider === 'codex' && row.sid === sid);
+  suppressCodexPicker = true;
+  applyPanePrompt(null);
+  renderActions();
+  codexChanges.add(uuid); buzz(12); renderSheet();
+  try {
+    const result = await post(endpoint, {uuid, ...values});
+    if (!stillCurrent() || !validOrigin || !hasCodexSettingsIdentity(current)) return;
+    codexConfirmedSettings.set(uuid, {sid, mtime: Math.max(mtime, current.mtime),
+      model: result.model, effort: result.level});
+    markModel(result.model); markEffort(result.level);
+    applyPanePrompt(result.prompt || null);
+    if (['model', 'effort'].includes(openKind)) closeSheet();
+    renderActions(); paint();
+    toast('model → ' + result.model + ' · effort → ' + result.level);
+  } catch(e){
+    suppressCodexPicker = false;
+    if (stillCurrent())
+      toast(String(e.message), true);
+  } finally {
+    codexChanges.delete(uuid);
+    if (current && current.uuid === uuid && ['model', 'effort', 'mode'].includes(openKind)) renderSheet();
+  }
 }
 
 async function setMode(mode){
@@ -3346,8 +3973,56 @@ async function setMode(mode){
    so the switch sticks to this pane only. Two taps required still, since a
    mid-task model switch is disruptive either way. */
 let pendingModel = null, pendingTimer = null;
+function grokModelIsCurrent(model){
+  const cur = ((current && current.model) || '').trim().toLowerCase();
+  return cur === (model.id || '').toLowerCase() || cur === (model.label || '').toLowerCase();
+}
+
+async function loadGrokModels(){
+  if (!current || current.provider !== 'grok') return;
+  const uuid = current.uuid, version = grokPaneVersion;
+  grokModelsLoading = true; grokModelsError = '';
+  if (openKind === 'model') renderSheet();
+  try {
+    const response = await fetch('/api/grok/models');
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'could not load Grok models');
+    if (!current || current.uuid !== uuid || current.provider !== 'grok' || grokPaneVersion !== version) return;
+    grokModels = data.models || [];
+  } catch(e){
+    if (!current || current.uuid !== uuid || current.provider !== 'grok' || grokPaneVersion !== version) return;
+    grokModelsError = String(e.message);
+  } finally {
+    if (current && current.uuid === uuid && current.provider === 'grok' && grokPaneVersion === version){
+      grokModelsLoading = false;
+      if (openKind === 'model') renderSheet();
+    }
+  }
+}
+
+async function changeGrokModel(name){
+  if (!current || current.provider !== 'grok' || !current.sendable || grokChanges.has(current.uuid)) return;
+  const uuid = current.uuid, version = grokPaneVersion;
+  grokChanges.add(uuid); buzz(12); renderSheet();
+  try {
+    const result = await post('/api/model', {uuid, model: name});
+    if (!current || current.uuid !== uuid || current.provider !== 'grok' || grokPaneVersion !== version) return;
+    markModel(result.model || name);
+    if (result.level) markEffort(result.level);
+    if (openKind === 'model') closeSheet();
+    toast('model → ' + (result.model || name));
+  } catch(e){
+    if (current && current.uuid === uuid) toast(String(e.message), true);
+  } finally {
+    grokChanges.delete(uuid);
+    if (current && current.uuid === uuid && openKind === 'model') renderSheet();
+  }
+}
+
 function setModel(name){
   if (!current) return;
+  if (current.provider === 'codex') return changeCodexSetting('/api/model', {model: name});
+  if (current.provider === 'grok') return changeGrokModel(name);
   if (pendingModel !== name){          // first tap arms, second fires
     pendingModel = name; renderSheet();
     clearTimeout(pendingTimer);
@@ -3363,6 +4038,7 @@ function setModel(name){
 
 async function setEffort(level){
   if (!current) return;
+  if (current.provider === 'codex') return changeCodexSetting('/api/effort', {level});
   buzz(12);
   markEffort(level);
   try {
@@ -3377,6 +4053,7 @@ function showFleet(){
   current = null;
   hideScreens();
   document.getElementById('s-fleet').classList.add('on');
+  setThemeColor('#14171b');
   replaceNav({v: 'fleet'});   // fleet is home — collapse, don't stack
 }
 
@@ -3396,6 +4073,7 @@ function showAuth(){
   pushNav({v: 'auth'});
   hideScreens();
   document.getElementById('s-auth').classList.add('on');
+  setThemeColor('#14171b');
   loadAuth();
 }
 
@@ -3683,6 +4361,19 @@ async function post(path, body){
    running that client; we arm PENDING_PANE with its UUID so the moment it lands
    in the fleet we drop straight into it — you answer its first-run prompt there. */
 const AGENT_LABEL = {claude:'Claude', codex:'Codex', grok:'Grok'};
+// Brand marks used in the history rows. Grok is xAI (the SpaceX-founded AI
+// company); these are the public, high-resolution marks hosted by Wikimedia.
+const AGENT_LOGO = {
+  claude: 'https://www.anthropic.com/favicon.ico',
+  codex: 'https://upload.wikimedia.org/wikipedia/commons/6/66/OpenAI_logo_2025_%28symbol%29.svg',
+  grok: 'https://upload.wikimedia.org/wikipedia/commons/9/93/XAI_Logo.svg',
+};
+function agentLogo(p){
+  const label = AGENT_LABEL[p] || p || 'agent';
+  const src = AGENT_LOGO[p];
+  return src ? `<span class="hm-brand p-${esc(p)}"><img src="${src}" alt="${esc(label)} logo" loading="lazy"></span>`
+             : `<span class="hm-brand hm-brand-fallback">${esc(label[0] || '?')}</span>`;
+}
 let SPAWN_AGENT = localStorage.getItem('spawnAgent') || 'claude';
 function spawnSession(){ buzz(14); openDirPicker(''); }
 
@@ -3778,11 +4469,12 @@ function renderDirPicker(data){
     body.appendChild(ap);
   }
 
-  const rows = atRoot ? data.roots : data.dirs;
+  const recents = atRoot ? (data.recents || []) : [];
+  const rows = atRoot ? (data.roots || []) : (data.dirs || []);
 
   // filter box — only worth showing once the list is long enough to scan
   let search;
-  if (rows.length > 6){
+  if (rows.length + recents.length > 6){
     search = document.createElement('div');
     search.className = 'dp-search';
     const inp = document.createElement('input');
@@ -3799,14 +4491,27 @@ function renderDirPicker(data){
   // scrolling folder list
   const list = document.createElement('div');
   list.className = 'dp-list';
-  rows.forEach((d, i) => {
-    const ico = atRoot ? (i === 0 ? DP_ICONS.home : DP_ICONS.drive) : DP_ICONS.folder;
+  const addLab = t => {
+    const el = document.createElement('div');
+    el.className = 'dp-lab'; el.textContent = t;
+    list.appendChild(el);
+  };
+  const addRow = (d, ico) => {
     const r = document.createElement('button');
     r.className = 'dp-row';
     r.dataset.name = (d.name || '').toLowerCase();
     r.innerHTML = ico + '<span class="dp-name">' + esc(d.name) + '</span>' + DP_ICONS.chev;
     r.onclick = () => openDirPicker(d.path);
     list.appendChild(r);
+  };
+  if (atRoot && recents.length){
+    addLab('recent');
+    recents.forEach(d => addRow(d, DP_ICONS.folder));
+    addLab('browse');
+  }
+  rows.forEach((d, i) => {
+    const ico = atRoot ? (i === 0 ? DP_ICONS.home : DP_ICONS.drive) : DP_ICONS.folder;
+    addRow(d, ico);
   });
   // shared "nothing here" line: covers an empty folder and a no-match filter
   const empty = document.createElement('div');
@@ -4081,6 +4786,20 @@ async function uploadFiles(files, btnId){
 
 async function send(){
   if (!current) return;
+  if (livePrompt && livePrompt.provider === 'codex'){
+    promptDismissed = null; renderActions();
+    const draft = codexPromptDraft(livePrompt);
+    if (draft.pending) return;
+    if (livePrompt.kind === 'question' && codexPromptCard && codexPromptCard.textarea){
+      if (input.value.trim()){
+        draft.text = draft.text ? draft.text + '\n' + input.value : input.value;
+        codexPromptCard.textarea.value = draft.text;
+        input.value = ''; autosize();
+      }
+      codexPromptCard.textarea.focus();
+    } else toast('Choose an option in the question card', true);
+    return;
+  }
   const t = input.value.trim();
   buzz(12);
   ensurePaneLive();          // dead socket → the sent prompt would never show
@@ -4252,18 +4971,64 @@ function dayChart(daily, metric, fmt, label, hue){
     </div>`;
 }
 // spend (cost) + tokens, stacked. Both read the same 30-day series.
-function usageCharts(daily){
+function usageCharts(daily, hasCost){
   if (!daily || !daily.length) return '';
-  return dayChart(daily, 'cost', fmtUsd, 'spend · last 30 days', 'var(--c-blue)')
+  return (hasCost ? dayChart(daily, 'cost', fmtUsd, 'spend · last 30 days', 'var(--c-blue)') : '')
        + dayChart(daily, 'tokens', fmtTok, 'tokens · last 30 days', 'var(--c-orange)');
 }
 
 let USAGE_D = null, usageTimer = null, USAGE_SIG = '';
+const USAGE_PROVIDERS = ['grok', 'claude', 'codex'];
+let USAGE_PROVIDER = localStorage.getItem('usageProvider') || 'grok';
+if (!USAGE_PROVIDERS.includes(USAGE_PROVIDER)) USAGE_PROVIDER = 'grok';
+// Per-provider snapshot so swiping Grok ↔ Claude ↔ Codex paints instantly
+// instead of blanking and refetching. TTL matches the server's 120s usage cache.
+const USAGE_TTL_MS = 120000;
+const USAGE_CACHE = {};            // provider -> {d, at, sig, fetchedAt}
 // Absolute server epoch (unix seconds) the usage data was computed at. Same idea
 // as the fleet's s.work_since: fixed reference the client subtracts its own clock
 // from every frame, so the label keeps counting between the 60s refetches.
 let USAGE_AT = 0, _usageAgeTxt = '';
 
+function usageCacheFresh(p){
+  const hit = USAGE_CACHE[p];
+  return !!(hit && hit.d && hit.fetchedAt && Date.now() - hit.fetchedAt < USAGE_TTL_MS);
+}
+function applyUsageCache(p){
+  const hit = USAGE_CACHE[p];
+  USAGE_D = hit ? hit.d : null;
+  USAGE_AT = hit ? hit.at : 0;
+  // Never restore sig: renderUsage skips a DOM rebuild when sig matches, and
+  // that skip is for the 1s fleet socket tick on the SAME screen. Restoring
+  // the previous visit's sig after a swipe leaves the last provider's HTML.
+  USAGE_SIG = '';
+}
+function stashUsageCache(p){
+  p = p || USAGE_PROVIDER;
+  if (!USAGE_D) return;
+  const prev = USAGE_CACHE[p] || {};
+  USAGE_CACHE[p] = { d: USAGE_D, at: USAGE_AT, sig: USAGE_SIG,
+                     fetchedAt: prev.fetchedAt || Date.now() };
+}
+
+function paintUsageTabs(){
+  document.querySelectorAll('#usage-tabs .hs').forEach(b =>
+    b.classList.toggle('on', b.dataset.p === USAGE_PROVIDER));
+}
+function setUsageProvider(p){
+  if (p === USAGE_PROVIDER || !USAGE_PROVIDERS.includes(p)) return;
+  stashUsageCache();
+  USAGE_PROVIDER = p;
+  try { localStorage.setItem('usageProvider', p); } catch(_){}
+  applyUsageCache(p);
+  paintUsageTabs();
+  buzz(8);
+  const el = document.getElementById('usage-body');
+  if (el) el.style.transform = '';
+  if (USAGE_D) renderUsage();
+  else if (el) el.innerHTML = skelList(3);
+  loadUsage();
+}
 /* Freshness label, ticked off the client clock against the server's compute
    epoch — exactly how the fleet working-timers count (Date.now()/1000 - epoch).
    Called from the rAF tick() loop, which runs every frame regardless of screen. */
@@ -4295,15 +5060,17 @@ function showUsage(){
   pushNav({v: 'usage'});   // back from usage returns to fleet
   hideScreens();
   document.getElementById('s-usage').classList.add('on');
+  setThemeColor('#14171b');
+  paintUsageTabs();
   // Do NOT reset USAGE_SIG here. The #usage-body DOM from the last visit is still
   // in place; keeping the sig means renderUsage repaints only when the data has
   // actually changed, so reopening shows the previous numbers instantly and they
   // update in place instead of blanking and snapping back.
   renderUsage();                       // paint from cache immediately, if unchanged it's a no-op
-  loadUsage();                         // then refresh in the background
+  loadUsage();                         // refetch only if this provider's snapshot is stale
   clearInterval(usageTimer);
   usageTimer = setInterval(() => {
-    if (document.getElementById('s-usage').classList.contains('on')) loadUsage();
+    if (document.getElementById('s-usage').classList.contains('on')) loadUsage(USAGE_PROVIDER, true);
     else { clearInterval(usageTimer); usageTimer = null; }
   }, 60000);
   // The per-second label tick is driven by the rAF tick() loop, same as the
@@ -4332,6 +5099,7 @@ function sysDur(s){
 }
 
 let SYS = null, sysTimer = null, SYS_AT = 0, _sysAgeTxt = '';
+let sysDetailsOpen = false;
 const SYS_EVERY = 15;          // seconds between /api/sysinfo polls
 function paintSysAge(){
   const el = document.getElementById('sys-age');
@@ -4347,9 +5115,14 @@ function showSys(){
   pushNav({v: 'sys'});
   hideScreens();
   document.getElementById('s-sys').classList.add('on');
+  setThemeColor('#14171b');
   if (SYS) renderSys(); else document.getElementById('sys-body').innerHTML = skelSys();
-  loadSys();
-  loadDevices();                    // refresh the Devices list + peer liveness
+  // Keep revisits instant while allowing a stale page to refresh on return.
+  if (!SYS || Date.now()/1000 - SYS_AT >= SYS_EVERY) loadSys();
+  if (DEVICES && Date.now()/1000 - DEV_AT < SYS_EVERY) {
+    renderDevList();
+    probePeers();                   // refresh peer liveness without refetching the list
+  } else loadDevices();
   clearInterval(sysTimer);
   sysTimer = setInterval(() => {
     if (document.getElementById('s-sys').classList.contains('on')) loadSys();
@@ -4392,7 +5165,7 @@ function batColor(bat){
 /* A usage-page meter: caps label + bold mono value on one line, the tall
    track under it, and an optional dim mono footnote — the same shape the
    rate-limit cards use, so the two screens read as one. */
-/* Loading state drawn in the page's own shapes: the 2×2 gauge boxes (ring,
+/* Loading state drawn in the page's own shapes: the 2×2 gauge field (ring,
    number, caption) and four meters under a Load header, so nothing jumps when
    the real numbers land. */
 function skelSys(){
@@ -4446,6 +5219,35 @@ function sysRing(pct, color){
   </svg>`;
 }
 
+const SYS_ACTION_PROMPTS = {
+  battery: 'Diagnose and reduce energy drain on this Mac. Spawn an agent to investigate and implement safe fixes, verify the results, and avoid destructive actions.',
+  temperature: 'Diagnose and safely lower this Mac’s temperature. Spawn an agent to investigate and implement safe fixes, verify the results, and avoid destructive actions.',
+  cpu: 'Diagnose and safely reduce CPU use on this Mac. Spawn an agent to investigate and implement safe fixes, verify the results, and avoid destructive actions.',
+  storage: 'Diagnose and safely free disk space without deleting important data. Spawn an agent to investigate and implement safe fixes, verify the results, and avoid destructive actions.'
+};
+const SYS_FIX_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5 5L3 18v3h3l6.7-6.7a4 4 0 0 0 5-5l-2.4 2.4-3-3 2.4-2.4Z"/></svg>';
+const SYS_ACTION_LABELS = {battery:'Reduce energy drain', temperature:'Lower Mac temperature', cpu:'Reduce CPU usage', storage:'Free storage'};
+
+function sysActionButton(kind){
+  const label = SYS_ACTION_LABELS[kind];
+  return `<button class="sys-fix" type="button" onclick="startSysAction('${kind}', this)" aria-label="${label}" title="${label}">${SYS_FIX_ICON}</button>`;
+}
+
+async function startSysAction(kind, btn){
+  if (btn.disabled) return;
+  btn.disabled = true;
+  buzz(14);
+  toast('starting system fix…');
+  try {
+    const r = await post('/api/spawn', {provider: SPAWN_AGENT, initial_prompt: SYS_ACTION_PROMPTS[kind]});
+    PENDING_PANE = r.uuid;
+    showFleet();
+  } catch(e){
+    btn.disabled = false;
+    toast(String(e.message), true);
+  }
+}
+
 /* Diagnostics compresses agent/tool presence to a single line of dots + names
    — no paths, just present or missing. */
 function sysDots(items){
@@ -4484,7 +5286,7 @@ function renderSys(){
     : bat.state === 'charged' ? 'charged'
     : bat.state === 'discharging' ? (bat.remaining ? `${esc(bat.remaining)} left` : 'on battery')
     : bat.state === 'ac' ? 'on AC' : '—';
-  const batCap = batCapMain + (!noBat && ld.bat_health != null ? ` · ${ld.bat_health}% health` : '');
+  const batCap = batCapMain;
 
   // ── temperature. The sensor is the battery gas gauge's, the only one a
   // non-root process can read, so it is labelled as the pack and never as a
@@ -4493,57 +5295,52 @@ function renderSys(){
   const tCol = tempColor(tC);
   const tRingPct = tC == null ? null : clamp01((tC - 20) / (60 - 20)) * 100;
   const throttled = ld.thermal === 'throttled';
-  const tCap = (ld.temp_cell_c != null ? `cell ${ld.temp_cell_c.toFixed(1)}°` : '—')
-    + (throttled ? ` · <b class="bad">throttled ${esc(ld.cpu_limit)}%</b>` : '');
+  const tCap = throttled ? `<b class="bad">throttled ${esc(ld.cpu_limit)}%</b>` : '';
 
   // ── cpu
   const cpuPct = ld.cpu_pct;
   const cpuCol = cpuPct == null ? 'var(--dim)' : limitColor(cpuPct);
-  const user = ld.cpu_user, sysp = ld.cpu_sys;
-  const load = cpu.load || [];
-  const loadTxt = load.length ? load.map(v => v == null ? '—' : v.toFixed(2)).join(' / ') : '—';
   const memPct = (mem.total && mem.used != null) ? Math.round(mem.used / mem.total * 100) : null;
   const swapPct = (ld.swap_total && ld.swap_used != null)
     ? Math.round(ld.swap_used / ld.swap_total * 100) : null;
-  const cpuCap = (ld.gpu_pct != null ? `gpu ${ld.gpu_pct}% · ` : '') + `${cpu.cores ?? '—'} cores`;
+  const cpuCap = `${cpu.cores ?? '—'} cores`;
 
   // ── storage
   const diskPct = (disk.total && disk.used != null) ? Math.round(disk.used / disk.total * 100) : null;
   const diskCol = diskPct == null ? 'var(--dim)' : limitColor(diskPct);
-  const diskCap = (disk.free != null ? `${fmtBytes(disk.free)} free` : '—')
-    + (disk.free != null && disk.total != null ? ` of ${fmtBytes(disk.total)}` : '');
+  const diskCap = disk.free != null ? `${fmtBytes(disk.free)} free` : '—';
 
   body.innerHTML = `
     <div class="sys-grid">
       <div class="sys-cell">
-        <div class="sys-h">Battery</div>
+        <div class="sys-cell-head"><div class="sys-h">Battery</div>${sysActionButton('battery')}</div>
         <div class="sys-hero">
           ${sysRing(batPct, noBat ? 'var(--dim)' : batC)}
-          <div class="sys-big" style="color:${noBat ? 'var(--dim)' : batC}">${noBat ? 'AC' : (batPct != null ? Math.round(batPct) + '<s>%</s>' : '—')}</div>
+          <div class="sys-big" style="color:${noBat ? 'var(--dim)' : batC}">${noBat ? 'AC' : (batPct != null ? Math.round(batPct) + '<span class="sys-unit">%</span>' : '—')}</div>
         </div>
         <div class="sys-cap">${batCap}</div>
       </div>
       <div class="sys-cell">
-        <div class="sys-h">Temperature</div>
+        <div class="sys-cell-head"><div class="sys-h">Temperature</div>${sysActionButton('temperature')}</div>
         <div class="sys-hero">
           ${sysRing(tRingPct, tCol)}
-          <div class="sys-big" style="color:${tCol}">${tC != null ? tC.toFixed(1) + '<s>°</s>' : '—'}</div>
+          <div class="sys-big" style="color:${tCol}">${tC != null ? tC.toFixed(1) + '<span class="sys-unit">°C</span>' : '—'}</div>
         </div>
         <div class="sys-cap">${tCap}</div>
       </div>
       <div class="sys-cell">
-        <div class="sys-h">CPU</div>
+        <div class="sys-cell-head"><div class="sys-h">CPU</div>${sysActionButton('cpu')}</div>
         <div class="sys-hero">
           ${sysRing(cpuPct, cpuCol)}
-          <div class="sys-big" style="color:${cpuCol}">${cpuPct != null ? cpuPct.toFixed(0) + '<s>%</s>' : '—'}</div>
+          <div class="sys-big" style="color:${cpuCol}">${cpuPct != null ? cpuPct.toFixed(0) + '<span class="sys-unit">%</span>' : '—'}</div>
         </div>
         <div class="sys-cap">${cpuCap}</div>
       </div>
       <div class="sys-cell">
-        <div class="sys-h">Storage</div>
+        <div class="sys-cell-head"><div class="sys-h">Storage</div>${sysActionButton('storage')}</div>
         <div class="sys-hero">
           ${sysRing(diskPct, diskCol)}
-          <div class="sys-big" style="color:${diskCol}">${diskPct != null ? diskPct + '<s>%</s>' : '—'}</div>
+          <div class="sys-big" style="color:${diskCol}">${diskPct != null ? diskPct + '<span class="sys-unit">%</span>' : '—'}</div>
         </div>
         <div class="sys-cap">${diskCap}</div>
       </div>
@@ -4551,41 +5348,39 @@ function renderSys(){
 
     <div class="sys-sec">
       <div class="sys-h">Load</div>
-      ${sysMeter('cpu', cpuPct != null ? pct(cpuPct) : '—', cpuPct, cpuCol,
-        (user != null || sysp != null)
-          ? `user <b>${user != null ? user.toFixed(1) + '%' : '—'}</b><span class="pc-sep">·</span>system <b>${sysp != null ? sysp.toFixed(1) + '%' : '—'}</b>` : '')}
-      ${sysMeter('load avg', load.length && load[0] != null ? load[0].toFixed(2) : '—',
-        (load.length && load[0] != null && cpu.cores) ? load[0] / cpu.cores * 100 : null,
-        (load.length && load[0] != null && cpu.cores) ? limitColor(load[0] / cpu.cores * 100) : 'var(--dim)',
-        load.length > 2 ? `5m <b>${load[1] == null ? '—' : load[1].toFixed(2)}</b><span class="pc-sep">·</span>15m <b>${load[2] == null ? '—' : load[2].toFixed(2)}</b><span class="pc-sep">·</span><b>${cpu.cores ?? '—'}</b> cores` : '')}
-      ${sysMeter('memory', mem.used != null ? fmtBytes(mem.used) : '—', memPct,
+      ${sysMeter('RAM', mem.used != null ? fmtBytes(mem.used) : '—', memPct,
         memPct == null ? 'var(--dim)' : limitColor(memPct),
-        `of <b>${mem.total != null ? fmtBytes(mem.total) : '—'}</b>` + (ld.mem_free_pct != null ? `<span class="pc-sep">·</span><b>${ld.mem_free_pct}%</b> free` : ''))}
-      ${sysMeter('swap', ld.swap_total ? fmtBytes(ld.swap_used) : 'unused', swapPct,
+        `<b>${mem.total != null ? fmtBytes(mem.total) : '—'}</b>` + (ld.mem_free_pct != null ? `<span class="pc-sep">·</span><b>${ld.mem_free_pct}%</b> free` : ''))}
+      ${sysMeter('Swap', ld.swap_total ? fmtBytes(ld.swap_used) : '—', swapPct,
         swapPct == null ? 'var(--dim)' : limitColor(swapPct),
-        ld.swap_total ? `of <b>${fmtBytes(ld.swap_total)}</b>` : '')}
+        ld.swap_total ? `<b>${fmtBytes(ld.swap_total)}</b>` : '')}
     </div>
 
     <div class="sys-sec rule" id="sys-devices"${devListHTML() ? '' : ' hidden'}>
       <div class="sys-h">Devices</div>
       <div class="devlist" id="sys-devlist">${devListHTML()}</div>
     </div>
-    <div class="sys-sec rule">
-      <div class="sys-h">Diagnostics</div>
-      ${sysRow('server', `up ${sysDur(server.uptime)} · ${esc(server.sha ?? '—')}`)}
-      ${sysRow('iTerm2', sysDot(!!server.iterm, server.iterm ? 'connected' : 'disconnected'))}
-      ${sysRow('panes', esc(server.panes ?? '—'))}
-      <div class="sys-toggle"><span>push</span>
-        <span style="display:flex;align-items:center;gap:10px">
-          <span style="font:13px var(--mono);color:var(--fg)">${push.configured ? 'on' : 'off'} · ${push.subscribers ?? 0} subscriber${(push.subscribers ?? 0) === 1 ? '' : 's'}</span>
-          <div class="sys-sw" id="sys-sw-push" onclick="sysTogglePush()"><i></i></div>
-        </span>
-      </div>
-      ${sysRow('agents', sysDots([['claude', deps.claude], ['codex', deps.codex], ['grok', deps.grok]]))}
-      ${sysRow('tools', sysDots([['whisper', deps.whisper], ['ffmpeg', deps.ffmpeg], ['tailscale', deps.tailscale]]))}
-    </div>
-    <div class="sys-sec rule">
-      <div class="sys-h">Settings</div>
+    <div class="sys-sec rule" id="sys-details">
+      <button class="sys-disclosure-toggle" type="button" aria-expanded="${sysDetailsOpen}" aria-controls="sys-details-body" onclick="toggleSysDetails()">
+        <span class="sys-h">Diagnostics &amp; settings</span>
+      </button>
+      <div class="sys-disclosure-body" id="sys-details-body"${sysDetailsOpen ? '' : ' hidden'}>
+        <div class="sys-subsec">
+          <div class="sys-h">Diagnostics</div>
+        ${sysRow('server', `up ${sysDur(server.uptime)} · ${esc(server.sha ?? '—')}`)}
+        ${sysRow('iTerm2', sysDot(!!server.iterm, server.iterm ? 'connected' : 'disconnected'))}
+        ${sysRow('panes', esc(server.panes ?? '—'))}
+        <div class="sys-toggle"><span>push</span>
+          <span style="display:flex;align-items:center;gap:10px">
+            <span style="font:13px var(--mono);color:var(--fg)">${push.configured ? 'on' : 'off'} · ${push.subscribers ?? 0} subscriber${(push.subscribers ?? 0) === 1 ? '' : 's'}</span>
+            <div class="sys-sw" id="sys-sw-push" onclick="sysTogglePush()"><i></i></div>
+          </span>
+        </div>
+        ${sysRow('agents', sysDots([['claude', deps.claude], ['codex', deps.codex], ['grok', deps.grok]]))}
+        ${sysRow('tools', sysDots([['whisper', deps.whisper], ['ffmpeg', deps.ffmpeg], ['tailscale', deps.tailscale]]))}
+        </div>
+        <div class="sys-subsec">
+          <div class="sys-h">Settings</div>
       <div class="sys-toggle"><span>default agent</span>
         <div class="sys-seg" id="sys-seg-agent">
           ${['claude','codex','grok'].map(a =>
@@ -4598,12 +5393,10 @@ function renderSys(){
         </div></div>
       <div class="sys-toggle"><span>chips open by default</span>
         <div class="sys-sw" id="sys-sw-chips" onclick="toggleSysChips()"><i></i></div></div>
-      <div class="sys-toggle"><span>history sort</span>
-        <div class="sys-seg" id="sys-seg-hist">
-          ${HIST_ORDER.map(k => `<button data-k="${k}" onclick="setSysHistSort('${k}')">${k}</button>`).join('')}
-        </div></div>
       <div class="sys-toggle"><span>haptics</span>
         <div class="sys-sw" id="sys-sw-haptics" onclick="toggleSysHaptics()"><i></i></div></div>
+        </div>
+      </div>
     </div>
     <div class="sys-sec">
       <button class="sys-btn" onclick="showAuth()">Auth &amp; integrations<i class="tabdot" id="authdot"></i></button>
@@ -4621,8 +5414,6 @@ function paintSysSettings(){
   if (seg1) seg1.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.a === SPAWN_AGENT));
   const seg2 = document.getElementById('sys-seg-fit');
   if (seg2) seg2.querySelectorAll('button').forEach(b => b.classList.toggle('on', Number(b.dataset.m) === fitMode));
-  const seg3 = document.getElementById('sys-seg-hist');
-  if (seg3) seg3.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.k === histSort));
   const swChips = document.getElementById('sys-sw-chips');
   if (swChips) swChips.classList.toggle('on', chipsOpen);
   const swHaptics = document.getElementById('sys-sw-haptics');
@@ -4650,15 +5441,19 @@ function toggleSysChips(){
   applyChips();
   buzz(8); paintSysSettings();
 }
-function setSysHistSort(k){
-  setHistSort(k);
-  paintSysSettings();
-}
 function toggleSysHaptics(){
   const on = localStorage.getItem('haptics') !== '0';
   localStorage.setItem('haptics', on ? '0' : '1');
   paintSysSettings();
   navigator.vibrate && navigator.vibrate(8);   // direct — buzz() would honor the flag we just flipped off
+}
+function toggleSysDetails(){
+  sysDetailsOpen = !sysDetailsOpen;
+  const button = document.querySelector('#sys-details .sys-disclosure-toggle');
+  const body = document.getElementById('sys-details-body');
+  if (!button || !body) return;
+  button.setAttribute('aria-expanded', String(sysDetailsOpen));
+  body.hidden = !sysDetailsOpen;
 }
 async function sysTogglePush(){ await toggleNotify(); paintSysSettings(); }
 
@@ -4685,12 +5480,53 @@ function hideScreens(){
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('on'));
 }
 
+/* Usage provider swipes are scoped to the usage content only. */
+(function usageSwipe(){
+  const screen = document.getElementById('s-usage');
+  const body = document.getElementById('usage-body');
+  if (!screen || !body) return;
+  let sx = 0, sy = 0, dragging = false, engaged = false, swallowClick = false;
+  screen.addEventListener('touchstart', e => {
+    if (!screen.classList.contains('on') || e.touches.length !== 1 ||
+        !e.target.closest('#usage-body')) return;
+    sx = e.touches[0].clientX; sy = e.touches[0].clientY;
+    dragging = true; engaged = false;
+  }, {passive:true});
+  screen.addEventListener('touchmove', e => {
+    if (!dragging) return;
+    const dx = e.touches[0].clientX - sx, dy = e.touches[0].clientY - sy;
+    if (!engaged) {
+      if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.2) engaged = true;
+      else if (Math.abs(dy) > 10 || Math.abs(dx) > 10) dragging = false;
+      else return;
+    }
+    e.preventDefault();
+  }, {passive:false});
+  screen.addEventListener('touchend', e => {
+    if (!dragging) return;
+    dragging = false;
+    if (!engaged) return;
+    engaged = false;
+    const dx = e.changedTouches[0].clientX - sx;
+    if (Math.abs(dx) < 72) return;
+    const i = USAGE_PROVIDERS.indexOf(USAGE_PROVIDER);
+    const next = USAGE_PROVIDERS[(i + (dx < 0 ? 1 : -1) + USAGE_PROVIDERS.length) % USAGE_PROVIDERS.length];
+    swallowClick = true;
+    setUsageProvider(next);
+    setTimeout(() => { swallowClick = false; }, 350);
+  }, {passive:true});
+  screen.addEventListener('click', e => {
+    if (!swallowClick) return;
+    swallowClick = false; e.preventDefault(); e.stopPropagation();
+  }, true);
+})();
+
 let HISTORY = [];
 function showHistory(){
   pushNav({v: 'history'});
   hideScreens();
   document.getElementById('s-history').classList.add('on');
-  paintHistSort();                         // reflect the saved sort mode
+  setThemeColor('#14171b');
   if (HISTORY.length) renderHistory();     // instant from cache
   loadHistory();                           // refresh in the background
 }
@@ -4711,28 +5547,6 @@ async function loadHistory(){
 }
 
 const histOpen = new Set();   // which directory groups are expanded (by cwd)
-// sort modes: recent (last activity), cost (spend), busy (message count)
-const HIST_ORDER = ['recent', 'cost', 'busy'];
-const HIST_SORTS = { recent: g => g.last, cost: g => g.cost,
-                     busy: g => g.items.reduce((n, h) => n + (h.prompts || 0), 0) };
-const HIST_ITEM  = { recent: h => h.last, cost: h => h.cost || 0,
-                     busy: h => h.prompts || 0 };
-let histSort = localStorage.getItem('histSort') || 'recent';
-if (!HIST_ORDER.includes(histSort)) histSort = 'recent';   // stale value in storage
-/* Light the current mode. Buttons are in HIST_ORDER order, so the index lines
-   up with the segment — no per-button ids to keep in sync. */
-function paintHistSort(){
-  const segs = document.querySelectorAll('#histsort .hs');
-  segs.forEach((b, i) => b.classList.toggle('on', HIST_ORDER[i] === histSort));
-}
-function setHistSort(k){
-  if (k === histSort || !HIST_ORDER.includes(k)) return;
-  histSort = k;
-  localStorage.setItem('histSort', histSort);
-  paintHistSort();
-  buzz(8);
-  renderHistory();
-}
 
 /* fuzzy search across prompt title, repo, model and path. A query token matches
    as a substring, or as a subsequence (typo/gap tolerant) for tokens ≥3 chars. */
@@ -4756,7 +5570,7 @@ function fuzzyHas(text, tok){
 function histMatch(h){
   if (!histQuery) return true;
   const text = ((h.title||'')+' '+(h.project||'')+' '+(h.model||'')+' '
-    +(h.cwd||'')+' '+(h.search||'')).toLowerCase();
+    +(h.provider||'')+' '+(h.cwd||'')+' '+(h.search||'')).toLowerCase();
   // Multi-word query → match the words in succession (as a phrase). Single word
   // stays fuzzy (substring or subsequence).
   if (/\s/.test(histQuery)) return text.includes(histQuery);
@@ -4826,7 +5640,7 @@ function renderHistory(){
   // Searching: skip grouping entirely — show a flat list of matching sessions.
   if (histQuery){
     const hits = HISTORY.filter(histMatch)
-      .sort((a, b) => HIST_ITEM[histSort](b) - HIST_ITEM[histSort](a));
+      .sort((a, b) => (b.last || 0) - (a.last || 0));
     document.getElementById('hist-meta').textContent =
       hits.length + (hits.length === 1 ? ' result' : ' results');
     body.innerHTML = '';
@@ -4843,8 +5657,8 @@ function renderHistory(){
         + '<span class="hwhen">'+esc(when)+'</span></div>'
         + (snip ? '<div class="hsnip">'+hlHtml(snip, toks)+'</div>' : '')
         + '<div class="hmeta">'
-        + (h.model ? '<span class="hm-model">'+esc(h.model)+'</span>' : '')
-        + '<span>'+h.prompts+' msg</span><span>'+fmtTok(h.tokens||0)+'</span>'
+        + (h.provider ? agentLogo(h.provider) : '')
+        + '<span>'+h.prompts+' prompts · '+fmtTok(h.tokens||0)+'</span>'
         + '<span class="hm-cost">'+fmtUsd(h.cost||0)+'</span></div>';
       b.onclick = () => resumeSession(h, b);
       body.appendChild(b);
@@ -4860,7 +5674,7 @@ function renderHistory(){
     let g = groups.get(key);
     if (!g){ g = {key, name: scratch ? 'scratch' : (h.project || key),
                   items: [], last: 0, first: Infinity, cost: 0, tokens: 0,
-                  prompts: 0, models: new Set(), byDay: {}};
+                  prompts: 0, byDay: {}};
              groups.set(key, g); }
     g.items.push(h);
     if ((h.last || 0) >= g.last) g.last = h.last || 0;
@@ -4868,14 +5682,12 @@ function renderHistory(){
     g.cost += h.cost || 0;
     g.tokens += h.tokens || 0;
     g.prompts += h.prompts || 0;
-    if (h.model) g.models.add(h.model);
     // bucket spend by local day for the activity sparkline
     const dk = dayKey(h.last || 0);
     if (dk) g.byDay[dk] = (g.byDay[dk] || 0) + (h.cost || 0);
   });
-  const key = HIST_SORTS[histSort];
-  const list = [...groups.values()].sort((a, b) => key(b) - key(a));
-  list.forEach(g => g.items.sort((a, b) => (HIST_ITEM[histSort](b)) - (HIST_ITEM[histSort](a))));
+  const list = [...groups.values()].sort((a, b) => b.last - a.last);
+  list.forEach(g => g.items.sort((a, b) => (b.last || 0) - (a.last || 0)));
   document.getElementById('hist-meta').textContent =
     list.length + ' dirs · ' + HISTORY.length + ' chats';
   body.innerHTML = '';
@@ -4885,9 +5697,6 @@ function renderHistory(){
     wrap.className = 'hgroup' + (open ? ' open' : '');
     const head = document.createElement('button');
     head.className = 'hg-head';
-    // Two models is all that fits beside the counts; the rest show in the rows
-    // once the group is open.
-    const models = [...g.models].slice(0, 2).join(' / ');
     head.innerHTML =
       '<div class="hg-top">'
       + '<svg class="hg-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
@@ -4899,7 +5708,6 @@ function renderHistory(){
       + '<span class="hg-cost">'+fmtUsd(g.cost)+'</span>'
       + '</div>'
       + '<div class="hg-foot">'
-      + (models ? '<span class="hg-mdl">'+esc(models)+'</span>' : '')
       + '<span class="hg-stat">'+g.prompts+' msg</span>'
       + '<span class="hg-stat">'+fmtTok(g.tokens)+'</span>'
       + sparkline(g.byDay, now)
@@ -4920,8 +5728,8 @@ function renderHistory(){
           '<div class="htop"><span class="htitle">'+esc(h.title||'untitled')+'</span>'
           + '<span class="hwhen">'+esc(when)+'</span></div>'
           + '<div class="hmeta">'
-          + (h.model ? '<span class="hm-model">'+esc(h.model)+'</span>' : '')
-          + '<span>'+h.prompts+' msg</span><span>'+fmtTok(h.tokens||0)+'</span>'
+          + (h.provider ? agentLogo(h.provider) : '')
+          + '<span>'+h.prompts+' prompts · '+fmtTok(h.tokens||0)+'</span>'
           + '<span class="hm-cost">'+fmtUsd(h.cost||0)+'</span></div>';
         b.onclick = () => resumeSession(h, b);
         items.appendChild(b);
@@ -4936,50 +5744,81 @@ async function resumeSession(h, btn){
   if (btn.classList.contains('busy')) return;
   btn.classList.add('busy'); buzz(14);
   try {
-    const r = await post('/api/resume', {session_id: h.session_id});
+    const r = await post('/api/resume', {session_id: h.session_id, provider: h.provider});
     PENDING_PANE = r.uuid;                  // drop into it once it lands in the fleet
     toast('resuming ' + (h.project || 'session') + '…');
     showFleet();
   } catch(e){ toast(String(e.message), true); btn.classList.remove('busy'); }
 }
 
-async function loadUsage(){
+async function loadUsage(p, force){
+  const want = p || USAGE_PROVIDER;
+  const viewing = want === USAGE_PROVIDER;
+  if (!force && usageCacheFresh(want)){
+    if (viewing && !USAGE_D){ applyUsageCache(want); renderUsage(); paintUsageAge(); }
+    return;
+  }
   const el = document.getElementById('usage-body');
-  if (!USAGE_D) el.innerHTML = skelList(3);
+  if (viewing && !USAGE_D) el.innerHTML = skelList(3);
   try {
-    const r = await fetch('/api/usage');
+    const r = await fetch('/api/usage?provider=' + encodeURIComponent(want));
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || r.status);
+    const at = d.computed_at || (d.age != null ? Date.now()/1000 - d.age : Date.now()/1000);
+    USAGE_CACHE[want] = { d, at, sig: (USAGE_CACHE[want] || {}).sig || '',
+                          fetchedAt: Date.now() };
+    if (USAGE_PROVIDER !== want) return;     // tab changed while this was in flight
     USAGE_D = d;
     // Prefer the server's absolute compute epoch; fall back to (now - age) for
     // an older server, and finally to now.
-    USAGE_AT = d.computed_at || (d.age != null ? Date.now()/1000 - d.age : Date.now()/1000);
+    USAGE_AT = at;
     renderUsage();
     paintUsageAge();
+    stashUsageCache(want);
   } catch(e){
-    if (!USAGE_D) el.innerHTML = `<div class="empty">usage failed:\n${esc(String(e.message))}</div>`;
+    if (viewing && !USAGE_D)
+      el.innerHTML = `<div class="empty">usage failed:\n${esc(String(e.message))}</div>`;
   }
 }
 
 function renderUsage(){
   const el = document.getElementById('usage-body');
   const d = USAGE_D;
-  const lim = LIMITS || (d && d.limits) || {};
-  const fh = lim.five_hour || {}, sd = lim.seven_day || {};
+  const live = LIMITS || {};
+  const lim = USAGE_PROVIDER === 'claude'
+    ? ((live.five_hour || live.seven_day) ? live : ((d && d.limits) || live))
+    : ((d && d.limits) || {});
+  const fh = lim.five_hour || {}, sd = lim.seven_day || lim.weekly || {};
+  const sessLim = lim.session || {}, mo = lim.monthly || {};
   paintUsageAge();   // ticks off the client clock, not the frozen d.age snapshot
 
   // Live fleet, straight off the socket — this screen is about what is running
-  // right now, so nothing here comes from history.
-  const rows = SESSIONS || [];
+  // right now, so nothing here comes from history. The tab picks the agent.
+  const rows = (SESSIONS || []).filter(r => (r.provider || 'claude') === USAGE_PROVIDER);
   const waiting = rows.filter(r => r.prompt);
   const working = rows.filter(r => !r.prompt && r.state === 'working');
   const idle    = rows.filter(r => !r.prompt && r.state !== 'working');
   const liveCost = rows.reduce((a, r) => a + (r.cost || 0), 0);
   const act = [...waiting, ...working];   // needs me / needs watching, in that order
+  const hasCost = !!(d && (
+    (d.today && d.today.cost) || (d.all_time && d.all_time.cost) ||
+    (d.daily || []).some(x => x.cost)));
+  // Grok SuperGrok is a weekly credit pool (no 5-hour window). Session is
+  // context-window fill of the hottest live chat. Claude/Codex keep 5h + 7d.
+  const limitRows = (USAGE_PROVIDER === 'grok'
+    ? [['session', sessLim, null, false],
+       ['weekly', sd, 24*7, true],
+       ['monthly', mo, 24*30, true]]
+    : [['5-hour', fh, 5, false],
+       ['7-day', sd, 24*7, true],
+       ['monthly', mo, 24*30, true]]
+  ).filter(([, l]) => l && l.used_percentage != null);
+  const hasLimits = limitRows.length > 0;
 
   // The socket repaints once a second. Rebuilding the DOM that often eats taps
   // and flickers, so only rebuild when something on THIS screen actually moved.
-  const sig = JSON.stringify([fh.used_percentage, sd.used_percentage,
+  const sig = JSON.stringify([USAGE_PROVIDER, hasCost, hasLimits,
+    fh.used_percentage, sd.used_percentage, sessLim.used_percentage, mo.used_percentage,
     fh.resets_at, sd.resets_at, d && d.daily && d.daily.length && d.daily[d.daily.length-1],
     d && d.today, d && d.all_time, Math.round(liveCost * 100), idle.length,
     act.map(r => [r.uuid, r.state, r.ctx, !!r.prompt, bubbleText(r),
@@ -4987,32 +5826,33 @@ function renderUsage(){
                   Math.floor((r.age || 0) / 5)])]);   // age coarsened to 5s buckets
   if (sig === USAGE_SIG) return;
   USAGE_SIG = sig;
+  if (USAGE_CACHE[USAGE_PROVIDER]) USAGE_CACHE[USAGE_PROVIDER].sig = sig;
   const at = (d && d.all_time) || null;
 
   el.innerHTML = `
-    <div class="usec">
+    ${hasLimits ? `<div class="usec">
       <h3>rate limits</h3>
-      ${[['5-hour', fh, 5, false], ['7-day', sd, 24*7, true]].map(([n, l, span, pd]) => `
+      ${limitRows.map(([n, l, span, pd]) => `
         <div class="meter">
           <div class="top"><span class="k">${n}</span><b>${pct(l.used_percentage)}</b></div>
           <div class="track tall"><i style="width:${Math.min(100, l.used_percentage||0)}%;
             background:${limitColor(l.used_percentage||0)}"></i></div>
           <div class="mbot">
-            ${paceLine(l.used_percentage, l.resets_at, span, pd)}
+            ${span != null ? paceLine(l.used_percentage, l.resets_at, span, pd) : ''}
             ${resetIn(l.resets_at) ? `<div class="rst">${esc(resetIn(l.resets_at))}</div>` : ''}
           </div>
         </div>`).join('')}
-    </div>
+    </div>` : ''}
 
     <div class="usec">
       <h3>spend</h3>
-      ${usageCharts(d && d.daily)}
+      ${usageCharts(d && d.daily, hasCost)}
       <div class="tiles">
         <div class="tile"><div class="k">today</div>
-          <div class="v">${d ? fmtUsd(d.today.cost) : '—'}</div>
-          <div class="s">${d ? fmtTok(d.today.tokens) + ' tokens' : ''}</div></div>
+          <div class="v">${d ? (hasCost ? fmtUsd(d.today.cost) : fmtTok(d.today.tokens)) : '—'}</div>
+          <div class="s">${d ? (hasCost ? fmtTok(d.today.tokens) + ' tokens' : 'tokens') : ''}</div></div>
         <div class="tile"><div class="k">live fleet</div>
-          <div class="v">${fmtUsd(liveCost)}</div>
+          <div class="v">${hasCost ? fmtUsd(liveCost) : (act.length + idle.length)}</div>
           <div class="s">${act.length} active · ${idle.length} idle</div></div>
       </div>
     </div>
@@ -5020,11 +5860,12 @@ function renderUsage(){
     <div class="usec">
       <h3>all time</h3>
       <div class="tiles tri">
-        <div class="tile"><div class="k">cost</div>
+        ${hasCost ? `<div class="tile"><div class="k">cost</div>
           <div class="v">${at ? fmtUsd(at.cost) : '—'}</div>
-          <div class="s">${at ? at.active_days + ' days' : ''}</div></div>
+          <div class="s">${at ? at.active_days + ' days' : ''}</div></div>` : ''}
         <div class="tile"><div class="k">tokens</div>
-          <div class="v">${at ? fmtTok(at.tokens) : '—'}</div></div>
+          <div class="v">${at ? fmtTok(at.tokens) : '—'}</div>
+          <div class="s">${!hasCost && at ? at.active_days + ' days' : ''}</div></div>
         <div class="tile"><div class="k">sessions</div>
           <div class="v">${at ? fmtTok(at.sessions) : '—'}</div></div>
       </div>
@@ -5156,7 +5997,7 @@ const lockErr = e => document.getElementById('lock-err').textContent =
    is a full navigation to that host's https origin — we never proxy API calls
    across hosts. It lives in the system page's Devices section, which only
    appears when there's somewhere to hop to. */
-let DEVICES = null, DEVSELF = '';
+let DEVICES = null, DEVSELF = '', DEV_AT = 0;
 const _esc = s => String(s||'').replace(/[<>&"]/g,
   c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
 
@@ -5164,7 +6005,7 @@ async function loadDevices(){
   try{
     const d = await (await fetch('/api/devices')).json();
     if(!d || !Array.isArray(d.devices)) return;
-    DEVSELF = d.self || ''; DEVICES = d.devices;
+    DEVSELF = d.self || ''; DEVICES = d.devices; DEV_AT = Date.now()/1000;
   }catch(e){ return; }
   renderDevList();
   probePeers();
@@ -5193,9 +6034,10 @@ function devListHTML(){
     const badge = b && b.percent != null
       ? `<span class="devbat${charging ? ' ac' : ''}" style="color:${batColor(b)}"`
         + ` title="${charging ? 'on charger' : 'on battery'}">`
-        + `${charging ? '<span class="bolt">⚡</span>' : ''}${b.percent}%</span>`
+        + `${b.percent}%</span>`
       : '';
-    const wake = !cur && d.wakeable
+    const sleepableSelf = cur && /macbook\s*pro/i.test(d.name || '') && d.sleepable;
+    const wake = (!cur && d.wakeable) || sleepableSelf
       ? (d.online
           ? `<button class="devbtn sleep" data-host="${_esc(d.host)}" onclick="sleepDevice(event,this)">sleep</button>`
           : `<button class="devbtn" data-host="${_esc(d.host)}" onclick="wakeDevice(event,this)">wake</button>`)
@@ -5390,6 +6232,7 @@ function start(){
   initPush();
   connectFleet();
   loadUsage();          // warm the usage cache now so the first open never flashes '—'
+  USAGE_PROVIDERS.forEach(p => { if (p !== USAGE_PROVIDER) loadUsage(p); });
   // deep links, for per-target home-screen shortcuts:
   //   ?screen=usage  → the dashboard
   //   ?pane=<uuid>   → straight into one session, once the fleet list arrives
