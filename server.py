@@ -2067,6 +2067,9 @@ _GIT_TTL = 12                # seconds a repo reading is reused across panes
 _GIT_MAX_UNTRACKED = 200     # line-count at most this many new files per repo
 _GIT_MAX_BYTES = 2_000_000   # ...and skip any single one bigger than this
 _git_cache = {}              # cwd -> (ts, {path: (add, del)} | None)
+_git_slow = {}               # cwd -> ts of its last git timeout
+_GIT_SLOW_TTL = 600          # don't retry a repo that timed out for this long
+_HOME = os.path.realpath(os.path.expanduser("~"))
 _churn = {}                  # session -> {"add", "del", "files", "last"}
 # Totals outlive the process: this server hot-reloads on every deploy, and a
 # chat that has been running for an hour must not have its counters zeroed
@@ -2113,8 +2116,21 @@ async def _git(cwd, *args):
         p = await asyncio.create_subprocess_exec(
             "git", "-C", cwd, *args,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+    except (OSError, ValueError):
+        return None
+    try:
         out, _ = await asyncio.wait_for(p.communicate(), 5)
-    except (TimeoutError, OSError, ValueError):
+    except TimeoutError:
+        # wait_for only abandons the await — the git itself keeps running. Left
+        # alone, a pane parked in a huge tree (e.g. $HOME, which is a repo on
+        # BigMac) leaked one `ls-files --others` per poll until procguard's
+        # 80-process emergency fired. Kill it and remember the repo is too slow.
+        try:
+            p.kill()
+            await p.wait()
+        except ProcessLookupError:
+            pass
+        _git_slow[cwd] = time.time()
         return None
     return out.decode("utf-8", "ignore") if p.returncode == 0 else None
 
@@ -2150,7 +2166,15 @@ async def git_snapshot(cwd):
     hit = _git_cache.get(cwd)
     if hit and time.time() - hit[0] < _GIT_TTL:
         return hit[1]
+    if time.time() - _git_slow.get(cwd, 0) < _GIT_SLOW_TTL:
+        return None
     snap = None
+    # A home directory that is itself a repo makes every pane under ~ "in git",
+    # and ls-files --others would walk the entire disk-sized tree. Not a project.
+    top = (await _git(cwd, "rev-parse", "--show-toplevel") or "").strip()
+    if not top or os.path.realpath(top) == _HOME:
+        _git_cache[cwd] = (time.time(), None)
+        return None
     # vs HEAD covers staged + unstaged; a repo with no commits yet has no HEAD,
     # so fall back to the index-only diff rather than reporting nothing.
     numstat = await _git(cwd, "diff", "--numstat", "HEAD")
