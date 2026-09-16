@@ -368,3 +368,74 @@ def test_maybe_grow_grok_only_with_watchers(monkeypatch):
     srv._WATCHERS[env.sid] = 1
     asyncio.run(srv._maybe_grow(env.sid, "grok"))
     assert srv._GROWN is None and env.state["toggles"] == 0
+
+
+class _FSWin(_W):
+    """Window that remembers whether it is in macOS native full screen."""
+
+    def __init__(self, wid, tabs, fullscreen):
+        super().__init__(wid, tabs)
+        self.fullscreen = fullscreen
+        self.exits = 0
+
+    async def async_get_fullscreen(self):
+        return self.fullscreen
+
+    async def async_set_fullscreen(self, value):
+        self.fullscreen = value
+        self.exits += 1
+
+
+def _fs_env(monkeypatch, fullscreen, known=True):
+    """One agent window in the given full-screen state, plus a bystander."""
+    agent = _FSWin("agent", [_T("1", [_S("AAAA")], [])], fullscreen)
+    other = _FSWin("other", [_T("2", [_S("ZZZZ")], [])], True)
+    monkeypatch.setattr(srv, "APP", _App([agent, other]))
+    monkeypatch.setattr(srv, "KNOWN_AGENTS", {"AAAA": "claude"} if known else {})
+    monkeypatch.setattr(srv.asyncio, "sleep", _no_sleep)
+    return agent, other
+
+
+async def _no_sleep(_seconds):
+    return None
+
+
+def test_unfullscreen_frees_the_agent_window(monkeypatch):
+    # A full-screen window refuses every grid resize, so normalize can never pin
+    # PANE_COLS there — dropping it out of full screen is what unblocks retiling.
+    agent, other = _fs_env(monkeypatch, fullscreen=True)
+    asyncio.run(srv._unfullscreen_agent_windows())
+    assert agent.fullscreen is False
+    assert agent.exits == 1
+    assert other.fullscreen is True          # no agents in it: left alone
+    assert other.exits == 0
+
+
+def test_unfullscreen_leaves_a_windowed_window_alone(monkeypatch):
+    agent, _ = _fs_env(monkeypatch, fullscreen=False)
+    asyncio.run(srv._unfullscreen_agent_windows())
+    assert agent.exits == 0
+
+
+def test_unfullscreen_skips_windows_without_agents(monkeypatch):
+    agent, other = _fs_env(monkeypatch, fullscreen=True, known=False)
+    asyncio.run(srv._unfullscreen_agent_windows())
+    assert agent.exits == 0
+    assert other.exits == 0
+
+
+def test_normalize_all_frees_full_screen_first(monkeypatch):
+    calls = []
+
+    async def fake_unfull():
+        calls.append("unfull")
+
+    async def fake_sessions():
+        calls.append("scan")
+        return {}
+
+    monkeypatch.setattr(srv, "_unfullscreen_agent_windows", fake_unfull)
+    monkeypatch.setattr(srv, "all_sessions", fake_sessions)
+    monkeypatch.setattr(srv, "KNOWN_AGENTS", {})
+    asyncio.run(srv.normalize_all(passes=1))
+    assert calls[0] == "unfull"

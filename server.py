@@ -462,6 +462,48 @@ async def _set_font(session, spec):
         return False
 
 
+async def _unfullscreen_agent_windows():
+    """Take any window holding agent panes out of macOS native full screen.
+
+    A full-screen iTerm window cannot be re-tiled: `async_set_grid_size` answers
+    RPCException: IMPOSSIBLE for *every* pane in it, whatever size is asked for —
+    even a one-column change — because the window itself is pinned to the screen
+    and the split dividers have nowhere to move. Big Mac's fleet window was left
+    full screen, so normalize_all could never pin PANE_COLS there: its panes sat
+    at 70 cols against the MacBook's 52, and the phone renderer, which sizes its
+    font so `cols` characters fill the screen, shrank the text to a smear.
+
+    Dropping the window to a plain frame is what unblocks the grid, so do it
+    before sweeping. Only windows that actually hold known agents are touched,
+    and only when they are full screen, so a terminal the user is reading stays
+    as it is.
+    """
+    try:
+        await APP.async_refresh()
+    except Exception as e:
+        print(f"  [normalize] scan failed: {type(e).__name__}: {e}", flush=True)
+        return
+    freed = 0
+    for w in APP.terminal_windows:
+        ids = {s.session_id.upper() for t in w.tabs for s in t.all_sessions}
+        if not (ids & set(KNOWN_AGENTS)):
+            continue
+        try:
+            if not await w.async_get_fullscreen():
+                continue
+            await w.async_set_fullscreen(False)
+            freed += 1
+        except Exception as e:
+            print(f"  [normalize] un-fullscreen failed: {type(e).__name__}: {e}",
+                  flush=True)
+    if freed:
+        # The exit animation takes about a second; sweeping before it lands reads
+        # the old grid and asks for sizes iTerm is still refusing.
+        await asyncio.sleep(1.2)
+        print(f"  [normalize] left full screen ({freed} window(s)) so panes can retile",
+              flush=True)
+
+
 async def normalize_pane(session):
     """Single nudge for a freshly spawned pane: canonical font, cols pinned to
     PANE_COLS, rows grown toward PANE_ROWS. Full convergence is normalize_all."""
@@ -500,6 +542,7 @@ async def normalize_all(passes=10):
     not forced. Re-sweeping converges the tiled squeeze; stop when a sweep is a
     no-op."""
     changes = 0
+    await _unfullscreen_agent_windows()
     for _ in range(passes):
         try:
             sessions = await all_sessions()    # refreshes APP, so grid_size is live
