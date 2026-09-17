@@ -19,7 +19,7 @@
 <link rel="stylesheet"
   href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&display=swap">
 <link rel="stylesheet"
-  href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20,300..700,0,-25&amp;icon_names=attach_file,delete_sweep,history,home,mic,notifications,photo_camera,settings,stop,tune&amp;display=block">
+  href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20,300..700,0,-25&amp;icon_names=attach_file,delete_sweep,history,home,ink_eraser,mic,notifications,photo_camera,settings,stop,tune&amp;display=block">
 <title>The Yard — CC Dispatch</title>
 <style>
   :root{
@@ -260,15 +260,22 @@
   /* Context gauge: an inset status track inside the composer card. It shares
      the card's border with the input, while the small inset keeps it reading
      as a designed indicator rather than a second divider. */
-  .ctxrow{display:flex;align-items:center;gap:8px;margin:0 4px 6px}
+  .ctxrow{display:flex;align-items:center;gap:6px;margin:0 4px 6px}
   .ctxrule{flex:1;min-width:0;height:5px;width:auto;margin:0;border-radius:999px;
     background:var(--panel3);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--line2) 70%,transparent);
     overflow:hidden}
   .ctxrule i{display:block;height:100%;width:0;background:var(--c-blue);
     border-radius:inherit;transition:width .35s ease, background-color .35s ease}
-  .clearctx{flex:none;padding:4px 8px;border:0;background:transparent;color:var(--dimmer);
-    font:700 10px/1 var(--ui);letter-spacing:.08em;text-transform:uppercase;cursor:pointer}
-  .clearctx:disabled{opacity:.4;cursor:default}
+  /* Clear sits on the gauge row as an icon, not a word. It carries the same
+     stroke weight as the composer's attach/camera glyphs so the whole card
+     reads as one icon family. */
+  .ctxbtn{flex:none;width:26px;height:26px;padding:0;border:0;background:transparent;
+    color:var(--dimmer);cursor:pointer;display:flex;align-items:center;justify-content:center;
+    -webkit-tap-highlight-color:transparent}
+  .ctxbtn .material-symbols-rounded{font-size:21px;
+    font-variation-settings:"FILL" 0,"wght" 700,"GRAD" -25,"opsz" 24}
+  .ctxbtn:active{color:var(--fg)}
+  .ctxbtn:disabled{opacity:.4;cursor:default}
   .hdrbtn.ico{width:32px;height:32px;padding:0;
     display:flex;align-items:center;justify-content:center}
   .hdrbtn.ico svg{width:17px;height:17px;display:block}
@@ -1389,7 +1396,9 @@
       <div class="ctxrow">
         <div class="ctxrule" id="ctxrule" role="progressbar" aria-label="context used"
              aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>
-        <button type="button" id="clearctx" class="clearctx" onclick="clearContext()" aria-label="clear context">clear</button>
+        <button type="button" id="clearctx" class="ctxbtn" onclick="clearContext()" aria-label="clear context">
+          <span class="material-symbols-rounded" aria-hidden="true">ink_eraser</span>
+        </button>
       </div>
       <textarea id="input" rows="1" placeholder=""></textarea>
       <div class="cbar">
