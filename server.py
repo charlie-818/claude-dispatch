@@ -351,19 +351,64 @@ def _is_spinner(line):
     return bool(s) and bool(_SPINNER_RE.search(s))
 
 
-def _collapse_repeats(lines, max_block=16):
-    """Drop runs of adjacent identical blocks, keeping one copy. GATED to the
-    leaked status footer: only a block that contains the rotating Tip banner is
-    ever collapsed, so real chat content — double blanks, repeated box borders,
-    two identical code lines — is preserved byte-for-byte and the phone view
-    stays character-identical to the terminal (and to any other host)."""
+# Full-width box borders are the width fingerprint of a TUI frame: it draws
+# its border across the whole pane, so a border row's length equals the pane
+# width at the moment it was printed. Covers both light and heavy/double
+# corner/tee glyphs.
+_BORDER_RE = re.compile(r"^\s*[╭╰┌└├╞][─═━]{8,}[╮╯┐┘┤╡]\s*$")
+
+
+def _trim_stale_width(lines):
+    """Claude/Codex/Grok reprint their whole transcript whenever the pane's
+    column width changes (e.g. a resize), so scrollback can hold a stale
+    pre-resize copy of the conversation followed by the current copy wrapped
+    at the new width. Byte-identical dedupe cannot catch this because the two
+    copies are wrapped differently and are not identical text. Box borders
+    are drawn full-width, so their length fingerprints the pane width at the
+    time they were printed; find the last border printed at a different width
+    than the most recent (live) border and drop everything up to and
+    including it — that's the stale reprint the phone can't render coherently.
+    The terminal's own scrollback is untouched; this only trims what's served."""
+    borders = [(i, len(l.strip())) for i, l in enumerate(lines) if _BORDER_RE.match(l)]
+    if len(borders) < 2:
+        return lines
+    live_width = borders[-1][1]
+    # Group consecutive borders of the same width. A pane that really was
+    # another width printed many frames at it; a single odd-width border is a
+    # one-off narrow box inside the chat, and must not cost the reader every
+    # line above it — so only a run of at least two counts as a stale width.
+    runs = []                      # [(last_index, width, count)]
+    for i, w in borders:
+        if runs and abs(runs[-1][1] - w) <= 2:
+            runs[-1] = (i, runs[-1][1], runs[-1][2] + 1)
+        else:
+            runs.append((i, w, 1))
+    for last_i, w, count in reversed(runs[:-1]):
+        if abs(w - live_width) <= 2 or count < 2:
+            continue
+        # A pane-width border is the widest thing on screen. If anything above
+        # it is wider, this is a narrow box drawn inside a wider pane, not the
+        # pane's own frame — keep looking rather than eat the reader's history.
+        if w + 1 < max((len(l.rstrip()) for l in lines[:last_i + 1]), default=0):
+            continue
+        return lines[last_i + 1:]
+    return lines
+
+
+def _collapse_repeats(lines, max_block=60):
+    """Drop runs of adjacent identical blocks, keeping one copy. GATED so that
+    real chat content — double blanks, two identical code lines — is preserved
+    byte-for-byte and the phone view stays character-identical to the terminal
+    (and to any other host). A block is only collapsed when it contains either
+    the rotating Tip banner or a box border (a reprinted composer/status frame
+    is never legitimate twice in a row)."""
     out = lines
     for blk in range(min(max_block, len(out) // 2), 0, -1):
         res, i, n = [], 0, len(out)
         while i < n:
             block = out[i:i + blk]
             if (i + 2 * blk <= n and block == out[i + blk:i + 2 * blk]
-                    and any("Tip:" in x for x in block)):
+                    and any("Tip:" in x or _BORDER_RE.match(x) for x in block)):
                 res.extend(block)                   # keep first copy
                 j = i + blk
                 while j + blk <= n and out[j:j + blk] == block:
@@ -377,11 +422,12 @@ def _collapse_repeats(lines, max_block=16):
 
 
 def clean_history(lines):
-    # Only the ephemeral status footer is touched: the spinner/elapsed line is
-    # dropped, and repeated Tip-banner blocks are collapsed to one. Everything
-    # else is untouched, so scroll length, wrap width and formatting match the
-    # source terminal exactly on every host.
+    # The ephemeral status footer is dropped, a stale pre-resize reprint (if
+    # any) is trimmed, then repeated Tip-banner/border blocks are collapsed to
+    # one. Everything else is untouched, so scroll length, wrap width and
+    # formatting match the source terminal exactly on every host.
     kept = [l for l in lines if not _is_spinner(l)]
+    kept = _trim_stale_width(kept)
     return _collapse_repeats(kept)
 
 
