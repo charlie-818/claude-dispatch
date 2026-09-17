@@ -527,7 +527,10 @@ async def fit_window_cols(window):
                       for t in window.tabs for s in t.all_sessions
                       if s.session_id.upper() in KNOWN_AGENTS and s.grid_size is not None]
             if not widths:
-                return
+                # panes mid-relayout (a full-screen exit still animating) report
+                # no grid; re-measure rather than give up on the window
+                await asyncio.sleep(0.4)
+                continue
             w_max = max(widths)
             if PANE_COLS <= w_max <= PANE_COLS + COL_TOL:
                 return
