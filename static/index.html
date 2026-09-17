@@ -5810,15 +5810,20 @@ function renderUsage(){
     (d.daily || []).some(x => x.cost)));
   // Grok SuperGrok is a weekly credit pool (no 5-hour window). Session is
   // context-window fill of the hottest live chat. Claude/Codex keep 5h + 7d.
-  const limitRows = (USAGE_PROVIDER === 'grok'
+  // The windows a provider always has are shown whether or not one of its
+  // agents happens to be running: a Codex or Grok session idle since this
+  // morning still holds a rate-limit position, and dropping the whole section
+  // when nothing was live made the page look broken rather than quiet. Monthly
+  // is the exception — not every provider reports one — so it appears only
+  // when there is a reading behind it.
+  const primary = USAGE_PROVIDER === 'grok'
     ? [['session', sessLim, null, false],
-       ['weekly', sd, 24*7, true],
-       ['monthly', mo, 24*30, true]]
+       ['weekly', sd, 24*7, true]]
     : [['5-hour', fh, 5, false],
-       ['7-day', sd, 24*7, true],
-       ['monthly', mo, 24*30, true]]
-  ).filter(([, l]) => l && l.used_percentage != null);
-  const hasLimits = limitRows.length > 0;
+       ['7-day', sd, 24*7, true]];
+  const limitRows = primary.concat(
+    mo && mo.used_percentage != null ? [['monthly', mo, 24*30, true]] : []);
+  const hasLimits = true;
 
   // The socket repaints once a second. Rebuilding the DOM that often eats taps
   // and flickers, so only rebuild when something on THIS screen actually moved.
@@ -5837,16 +5842,21 @@ function renderUsage(){
   el.innerHTML = `
     ${hasLimits ? `<div class="usec">
       <h3>rate limits</h3>
-      ${limitRows.map(([n, l, span, pd]) => `
+      ${limitRows.map(([n, l, span, pd]) => {
+        // No reading yet (nothing has ever run, or none was recorded): keep the
+        // row and show an empty bar rather than a misleading 0%.
+        const has = l && l.used_percentage != null;
+        const v = has ? (l.used_percentage || 0) : 0;
+        return `
         <div class="meter">
-          <div class="top"><span class="k">${n}</span><b>${pct(l.used_percentage)}</b></div>
-          <div class="track tall"><i style="width:${Math.min(100, l.used_percentage||0)}%;
-            background:${limitColor(l.used_percentage||0)}"></i></div>
+          <div class="top"><span class="k">${n}</span><b>${has ? pct(l.used_percentage) : '—'}</b></div>
+          <div class="track tall"><i style="width:${has ? Math.min(100, v) : 0}%;
+            background:${limitColor(v)}"></i></div>
           <div class="mbot">
-            ${span != null ? paceLine(l.used_percentage, l.resets_at, span, pd) : ''}
-            ${resetIn(l.resets_at) ? `<div class="rst">${esc(resetIn(l.resets_at))}</div>` : ''}
+            ${has && span != null ? paceLine(l.used_percentage, l.resets_at, span, pd) : ''}
+            ${has && resetIn(l.resets_at) ? `<div class="rst">${esc(resetIn(l.resets_at))}</div>` : ''}
           </div>
-        </div>`).join('')}
+        </div>`;}).join('')}
     </div>` : ''}
 
     <div class="usec">

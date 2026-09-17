@@ -2104,6 +2104,9 @@ def fleet_limits(files):
       * a placeholder — a just-started pane reports 0% against a window it
         synthesised (this hour + 5h) before any rate-limit header arrived.
 
+    A window whose every reading has closed reports 0% rather than vanishing:
+    it rolled over and nothing ran in the new one, which is worth showing.
+
     Picking the newest resets_at hits the placeholder every time and shows 0%
     while the account is really at 17%. So: drop closed windows, then take the
     highest percentage still open. Usage only climbs inside a window, so every
@@ -2112,22 +2115,32 @@ def fleet_limits(files):
     winner must not drag an unrelated 7d reading along with it.
     """
     now, out = time.time(), {}
-    for window in ("five_hour", "seven_day"):
+    for window in ("five_hour", "seven_day", "monthly"):
         best = None
+        rolled = False
         for f in files.values():
             w = (f.get("limits") or {}).get(window)
             if not isinstance(w, dict):
                 continue
-            resets = w.get("resets_at") or 0
-            if resets and resets <= now:          # window already rolled over
-                continue
             pct = w.get("used_percentage")
             if pct is None:
+                continue
+            resets = w.get("resets_at") or 0
+            if resets and resets <= now:          # window already rolled over
+                rolled = True
                 continue
             if best is None or pct > best.get("used_percentage", -1):
                 best = w
         if best is not None:
             out[window] = best
+        elif rolled:
+            # Every reading we hold for this window has closed. That is not an
+            # absence of data -- the window rolled over and nothing has run
+            # since, so usage in the current one is genuinely zero. Saying so
+            # keeps the row on the usage page instead of making it disappear
+            # whenever an agent has been idle a while, which reads as breakage.
+            out[window] = {"used_percentage": 0, "resets_at": None,
+                           "stale": True}
     return out
 
 
