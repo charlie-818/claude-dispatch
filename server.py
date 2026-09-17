@@ -504,6 +504,50 @@ async def _unfullscreen_agent_windows():
               flush=True)
 
 
+async def fit_window_cols(window):
+    """Resize a whole agent window so its pane columns land on PANE_COLS.
+
+    A tiled tab redistributes width among sibling panes on every grid-size
+    change, so pinning each pane's grid to PANE_COLS one at a time never
+    converges: iTerm answers the request, then hands the freed or borrowed
+    columns straight back to its neighbours. The lever that actually holds is
+    the window frame — a tab with C pane columns lands each pane at PANE_COLS
+    only when the window itself is C * PANE_COLS characters wide. So measure
+    the current per-pane width, scale the window's point width by the ratio
+    to PANE_COLS, and let iTerm's own tiling redistribute the *new* width
+    evenly — which is exactly what pins every pane to PANE_COLS at once.
+    """
+    try:
+        ids = {s.session_id.upper() for t in window.tabs for s in t.all_sessions}
+        if not (ids & set(KNOWN_AGENTS)):
+            return
+        for _ in range(6):
+            await APP.async_refresh()
+            widths = [int(s.grid_size.width)
+                      for t in window.tabs for s in t.all_sessions
+                      if s.session_id.upper() in KNOWN_AGENTS and s.grid_size is not None]
+            if not widths:
+                return
+            w_max = max(widths)
+            if PANE_COLS <= w_max <= PANE_COLS + COL_TOL:
+                return
+            frame = await window.async_get_frame()
+            new_w = round(frame.size.width * PANE_COLS / w_max)
+            new_w = max(new_w, 400)
+            if abs(new_w - frame.size.width) < 2:
+                return
+            old_w = frame.size.width
+            await window.async_set_frame(
+                iterm2.util.Frame(origin=frame.origin,
+                                   size=iterm2.util.Size(new_w, frame.size.height)))
+            print(f"  [normalize] window fit {old_w} -> {new_w} pts "
+                  f"(targeting {PANE_COLS} cols, was {w_max})", flush=True)
+            await asyncio.sleep(0.4)
+    except Exception as e:
+        print(f"  [normalize] window fit {type(e).__name__}: {e}", flush=True)
+        return
+
+
 async def normalize_pane(session):
     """Single nudge for a freshly spawned pane: canonical font, cols pinned to
     PANE_COLS, rows grown toward PANE_ROWS. Full convergence is normalize_all."""
@@ -543,6 +587,8 @@ async def normalize_all(passes=10):
     no-op."""
     changes = 0
     await _unfullscreen_agent_windows()
+    for w in (APP.terminal_windows if APP else []):
+        await fit_window_cols(w)
     for _ in range(passes):
         try:
             sessions = await all_sessions()    # refreshes APP, so grid_size is live
@@ -577,6 +623,7 @@ async def normalize_all(passes=10):
     if changes:
         print(f"  [normalize] cols={PANE_COLS}, rows>={PANE_ROWS} best-effort "
               f"({changes} change(s))", flush=True)
+    return changes
 
 
 async def pane_text(session):
@@ -5930,6 +5977,45 @@ async def _grow_janitor():
             traceback.print_exc()
 
 
+async def _geometry_janitor():
+    """Periodically re-pin agent window widths if columns have drifted.
+
+    Drift happens with no server involvement — a tab gets a new split, the
+    window is resized or full-screened — so a one-shot normalize at startup is
+    not enough to keep the phone's column count equal across hosts.
+
+    Never resize while a phone is watching a pane: a width change makes Claude
+    reprint its transcript, which doubles the scrollback and jumps the view
+    mid-read.
+
+    A layout that cannot reach PANE_COLS (a pane physically too short/narrow to
+    grow on a smaller screen) would otherwise be re-swept forever, so a sweep
+    that changes nothing parks this geometry: retry only once the measured
+    widths differ from the ones that already failed.
+    """
+    stuck = None                      # width signature a no-op sweep gave up on
+    while True:
+        await asyncio.sleep(45)
+        try:
+            if _WATCHERS:
+                continue
+            sessions = await all_sessions()
+            widths = sorted(int(s.grid_size.width)
+                            for uuid, s in sessions.items()
+                            if uuid in KNOWN_AGENTS and s.grid_size is not None)
+            if not widths:
+                continue
+            sig = tuple(widths)
+            if sig == stuck:
+                continue
+            if all(PANE_COLS <= w <= PANE_COLS + COL_TOL for w in widths):
+                stuck = None
+                continue
+            stuck = sig if not await normalize_all(passes=4) else None
+        except Exception:
+            traceback.print_exc()
+
+
 async def ws_pane(request):
     if not authed(request):
         return web.json_response({"error": "locked"}, status=401)
@@ -7139,6 +7225,7 @@ async def main(connection):
 
     asyncio.create_task(_notify_watcher())     # push when sessions finish / need input
     asyncio.create_task(_grow_janitor())       # never leave a pane maximized with nobody watching
+    asyncio.create_task(_geometry_janitor())   # re-pin window width if pane cols drift off PANE_COLS
     asyncio.create_task(_rebuild_history())    # warm the history cache so first open is instant
     asyncio.create_task(_load_sampler())       # background CPU/GPU/thermal snapshot for /api/sysinfo
     asyncio.create_task(_bg_sampler())         # which chats still have a background shell alive
