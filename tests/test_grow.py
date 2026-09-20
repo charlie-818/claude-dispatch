@@ -129,11 +129,21 @@ def test_locate_finds_minimized(monkeypatch):
 
 def test_orphan_maximize_detected(monkeypatch):
     monkeypatch.setattr(srv, "_GROWN", None)
+    monkeypatch.setattr(srv, "_WATCHERS", {"AAAA": 1})
     _fleet(monkeypatch, [_S("AAAA")], [_S("BBBB")])
     assert srv._orphan_maximize() == ("AAAA", "w1")
 
 
+def test_orphan_maximize_left_alone_when_unwatched(monkeypatch):
+    """A zoom with no phone on it is the local user's own ⇧⌘⏎ — don't undo it."""
+    monkeypatch.setattr(srv, "_GROWN", None)
+    monkeypatch.setattr(srv, "_WATCHERS", {})
+    _fleet(monkeypatch, [_S("AAAA")], [_S("BBBB")])
+    assert srv._orphan_maximize() is None
+
+
 def test_orphan_ignores_unmanaged_and_flat(monkeypatch):
+    monkeypatch.setattr(srv, "_WATCHERS", {"AAAA": 1})
     _fleet(monkeypatch, [_S("AAAA")], [_S("BBBB")], known=False)
     assert srv._orphan_maximize() is None
     _fleet(monkeypatch, [_S("AAAA"), _S("BBBB")], [])
@@ -282,6 +292,7 @@ def test_grow_tick_grows_watched_grok(monkeypatch):
     env.tab.minimized_sessions = [env.other]
     env.tab.all_sessions = [env.sess, env.other]
     env.state["on"] = True
+    srv._WATCHERS[env.sid] = 1
     asyncio.run(srv._grow_tick())
     assert srv._GROWN is None
     assert env.state["toggles"] == 1 and env.state["on"] is False
@@ -301,6 +312,7 @@ def test_grow_tick_restores_orphan_claude(monkeypatch):
     env.tab.minimized_sessions = [env.other]
     env.tab.all_sessions = [env.sess, env.other]
     env.state["on"] = True
+    srv._WATCHERS[env.sid] = 1        # a phone is watching: this zoom is ours to undo
     asyncio.run(srv._grow_tick())
     assert srv._GROWN is None
     assert env.state["toggles"] == 1 and env.state["on"] is False
@@ -437,5 +449,23 @@ def test_normalize_all_frees_full_screen_first(monkeypatch):
     monkeypatch.setattr(srv, "_unfullscreen_agent_windows", fake_unfull)
     monkeypatch.setattr(srv, "all_sessions", fake_sessions)
     monkeypatch.setattr(srv, "KNOWN_AGENTS", {})
-    asyncio.run(srv.normalize_all(passes=1))
+    asyncio.run(srv.normalize_all(passes=1, force=True))
     assert calls[0] == "unfull"
+
+
+def test_normalize_all_background_sweep_leaves_full_screen(monkeypatch):
+    """A periodic sweep must never drag the user's window out of full screen."""
+    calls = []
+
+    async def fake_unfull():
+        calls.append("unfull")
+
+    async def fake_sessions():
+        calls.append("scan")
+        return {}
+
+    monkeypatch.setattr(srv, "_unfullscreen_agent_windows", fake_unfull)
+    monkeypatch.setattr(srv, "all_sessions", fake_sessions)
+    monkeypatch.setattr(srv, "KNOWN_AGENTS", {})
+    asyncio.run(srv.normalize_all(passes=1))
+    assert "unfull" not in calls

@@ -218,6 +218,11 @@ PANE_COLS = 52
 # Rows are the pane floor for every client. A dozen tiled panes cannot each be
 # phone-height in one window — iTerm refuses the resize.
 PANE_ROWS = 25
+# Geometry pinning is for phone parity, not for the Mac the user is sitting at.
+# "off" disables every automatic resize/un-fullscreen (panes stay however the
+# user left them; the phone just renders whatever width it finds).
+GEOMETRY_PIN = os.environ.get("DISPATCH_GEOMETRY", "on").lower() != "off"
+
 COL_TOL = 3              # accept 52..55 cols (a tiled window fills to 53/54); only
                         # a pane outside this band (e.g. font-drift balloon) is reset
 
@@ -508,6 +513,26 @@ async def _set_font(session, spec):
         return False
 
 
+async def _fullscreen_session_ids():
+    """Session ids living in a window the user put into macOS full screen.
+
+    A background sweep must not touch these: resizing the frame or the grid of a
+    full-screen window either fails outright or drags the window back out of
+    full screen behind the user's back."""
+    held = set()
+    try:
+        for w in (APP.terminal_windows if APP else []):
+            try:
+                if not await w.async_get_fullscreen():
+                    continue
+            except Exception:
+                continue
+            held |= {s_.session_id.upper() for t in w.tabs for s_ in t.all_sessions}
+    except Exception:
+        pass
+    return held
+
+
 async def _unfullscreen_agent_windows():
     """Take any window holding agent panes out of macOS native full screen.
 
@@ -523,6 +548,12 @@ async def _unfullscreen_agent_windows():
     before sweeping. Only windows that actually hold known agents are touched,
     and only when they are full screen, so a terminal the user is reading stays
     as it is.
+
+    Only a forced sweep (startup, post-deploy, explicit request) does this. A
+    background sweep leaves a full-screen window alone: full screen is a
+    deliberate act by the person at the Mac, and kicking them out of it 45
+    seconds later — then shrinking the window to PANE_COLS on top of that — is
+    the "my window keeps un-full-screening itself" bug.
     """
     try:
         await APP.async_refresh()
@@ -550,7 +581,7 @@ async def _unfullscreen_agent_windows():
               flush=True)
 
 
-async def fit_window_cols(window):
+async def fit_window_cols(window, force=False):
     """Resize a whole agent window so its pane columns land on PANE_COLS.
 
     A tiled tab redistributes width among sibling panes on every grid-size
@@ -567,6 +598,8 @@ async def fit_window_cols(window):
         ids = {s.session_id.upper() for t in window.tabs for s in t.all_sessions}
         if not (ids & set(KNOWN_AGENTS)):
             return
+        if not force and await window.async_get_fullscreen():
+            return              # user's full screen wins; re-pin when they leave it
         for _ in range(6):
             await APP.async_refresh()
             widths = [int(s.grid_size.width)
@@ -600,6 +633,8 @@ async def fit_window_cols(window):
 async def normalize_pane(session):
     """Single nudge for a freshly spawned pane: canonical font, cols pinned to
     PANE_COLS, rows grown toward PANE_ROWS. Full convergence is normalize_all."""
+    if not GEOMETRY_PIN:
+        return False
     try:
         if await _pane_font(session) != CANON_FONT:
             await _set_font(session, CANON_FONT)
@@ -617,7 +652,7 @@ async def normalize_pane(session):
         return False
 
 
-async def normalize_all(passes=10):
+async def normalize_all(passes=10, force=False):
     """Normalise every known Claude pane toward the reference geometry so the phone
     view matches across hosts. Runs at startup / after a SIGHUP reload so an
     existing off-size host (Big Mac) converges without a respawn.
@@ -634,10 +669,13 @@ async def normalize_all(passes=10):
     inflating cols (font is shared between the two axes), so height is best-effort,
     not forced. Re-sweeping converges the tiled squeeze; stop when a sweep is a
     no-op."""
+    if not GEOMETRY_PIN:
+        return 0
     changes = 0
-    await _unfullscreen_agent_windows()
+    if force:
+        await _unfullscreen_agent_windows()
     for w in (APP.terminal_windows if APP else []):
-        await fit_window_cols(w)
+        await fit_window_cols(w, force=force)
     for _ in range(passes):
         try:
             sessions = await all_sessions()    # refreshes APP, so grid_size is live
@@ -645,9 +683,10 @@ async def normalize_all(passes=10):
             print(f"  [normalize] scan failed: {type(e).__name__}: {e}", flush=True)
             return
         acted = False
+        held = set() if force else await _fullscreen_session_ids()
         for uuid in list(KNOWN_AGENTS):
             s = sessions.get(uuid)
-            if s is None:
+            if s is None or uuid in held:
                 continue
             if await _pane_font(s) != CANON_FONT:
                 await _set_font(s, CANON_FONT)
@@ -2795,7 +2834,8 @@ def writes(action):
             request["_body"] = body
             auth.audit(request, action, {k: str(v)[:120] for k, v in body.items()})
             uuid = str(body.get("uuid", "")).upper()
-            serial = uuid and action in {"key", "send", "cmd", "model", "effort", "mode", "prompt"}
+            serial = uuid and action in {"key", "send", "cmd", "model", "effort", "mode", "prompt",
+                                 "rewind"}
             if serial and uuid in _PANE_WRITES:
                 return web.json_response({"error": "pane control is busy; try again"}, status=409)
             if serial:
@@ -4071,6 +4111,216 @@ async def api_cmd(request):
     else:
         await send_slash(s, command)
     return web.json_response({"ok": True, "cmd": command})
+
+
+# ── /rewind ────────────────────────────────────────────────────────────────
+# Claude's /rewind is a full-screen picker, not a numbered prompt: a scrolling
+# window over the session's checkpoints with a caret you walk with the arrow
+# keys. A phone can't arrow through a list it can't see, so the server reads the
+# picker off the pane, walks the caret up to harvest EVERY checkpoint (the window
+# only ever shows two or three at 52 columns), and hands the client the whole
+# list. Tapping a row walks the caret back to that absolute index and hits Enter,
+# which drops the pane onto Claude's own confirm prompt — a plain numbered menu
+# the phone already knows how to render.
+_REWIND_HEAD = "Restore the code and/or conversation"
+_REWIND_FOOT = "Enter to continue"
+_REWIND_MORE = re.compile(r"^\s*[\u2191\u2193]\s*(\d+)\s+more\s+(above|below)")
+_REWIND_MAX = 120          # cap the harvest walk; long sessions stop at the oldest 120
+
+
+def detect_rewind(text):
+    """Parse the rewind picker off a pane. None when it isn't on screen.
+
+    Returns absolute positions: `above` rows scrolled off the top, `below` off
+    the bottom, and the visible `items` in order. The caret's absolute index is
+    `above` + its offset among the visible items.
+    """
+    lines = text.split("\n")
+    start = next((i for i, l in enumerate(lines) if _REWIND_HEAD in l), None)
+    if start is None:
+        return None
+    end = next((i for i, l in enumerate(lines[start:], start) if _REWIND_FOOT in l), None)
+    if end is None:
+        return None
+    above = below = 0
+    body, heading = [], True
+    for l in lines[start + 1:end]:
+        if heading:                         # the prompt wraps ("…point before…")
+            if l.strip():
+                continue
+            heading = False
+        m = _REWIND_MORE.match(l)
+        if m:
+            if m.group(2) == "above":
+                above = int(m.group(1))
+            else:
+                below = int(m.group(1))
+            continue
+        body.append(l)
+    items, block = [], []
+
+    def close():
+        if not block:
+            return
+        head = block[0].strip()
+        sel = head.startswith("\u276f")
+        label = head[1:].strip() if sel else head
+        items.append({"label": label, "meta": " ".join(block[1:]).strip(),
+                      "selected": sel, "current": label == "(current)"})
+        block.clear()
+
+    for l in body:
+        if l.strip():
+            block.append(l.strip())
+        else:
+            close()
+    close()
+    if not items:
+        return None
+    return {"above": above, "below": below, "items": items}
+
+
+def _rewind_caret(frame):
+    off = next((i for i, it in enumerate(frame["items"]) if it["selected"]), 0)
+    return frame["above"] + off
+
+
+async def _rewind_wait(s, tries=40, prev=None):
+    """Poll until the picker is up (and, with `prev`, until it has changed)."""
+    for _ in range(tries):
+        frame = detect_rewind(await pane_text(s))
+        if frame and (prev is None or frame != prev):
+            return frame
+        await asyncio.sleep(0.1)
+    return None
+
+
+async def _rewind_step(s, key, frame):
+    """Move the caret one row and wait for the redraw to settle.
+
+    A half-painted picker parses as a DIFFERENT frame with the caret in the
+    wrong place, so a frame only counts once it repeats. A key that never lands
+    (the pane was busy repainting) is worth one resend — walking to the wrong
+    row is what rewinds the wrong turn, and the caller re-derives the caret from
+    the pane after every step, so an overshoot corrects itself.
+    """
+    for attempt in range(2):
+        await s.async_send_text(KEYS[key])
+        moved = await _rewind_wait(s, 30, frame)
+        if moved:
+            await asyncio.sleep(0.12)
+            again = detect_rewind(await pane_text(s))
+            return again if again else moved
+    return frame
+
+
+async def _rewind_type(s):
+    """Type "/rewind" into an empty composer and confirm it landed alone.
+
+    Two traps. A slash only opens Claude's command popup on an empty line, so
+    typed after a half-written draft the command rides along and the Enter that
+    follows SUBMITS the lot. And the row under the caret may be a grey history
+    suggestion rather than typed text — indistinguishable often enough that
+    hammering ctrl-C to "clear" it walks a pane straight out of Claude. So:
+    one ctrl-C at most, then read the composer back and only press Enter when it
+    holds nothing but the command. Returns (draft, ok).
+    """
+    draft = read_input_box(await pane_text(s))[1]
+    if draft:
+        await s.async_send_text(KEYS["^C"])          # clears typed text; a no-op on a ghost
+        await asyncio.sleep(0.4)
+    await s.async_send_text("/rewind")
+    await asyncio.sleep(0.9)                         # let the command popup settle
+    typed = read_input_box(await pane_text(s))[1].strip()
+    if typed != "/rewind":
+        # something else is in the box — take our own keystrokes back out and
+        # leave whatever the owner was writing untouched and unsent
+        await s.async_send_text("\x7f" * len("/rewind"))
+        return draft, False
+    await s.async_send_text("\r")
+    return draft, True
+
+
+@writes("rewind")
+async def api_rewind(request):
+    """open → harvest the checkpoint list; pick → walk to one and confirm."""
+    body = request.get("_body") or {}
+    uuid, action = str(body.get("uuid", "")).upper(), body.get("action", "open")
+    s = (await all_sessions()).get(uuid)
+    if not s:
+        return web.json_response({"error": "no such pane"}, status=404)
+    job = await s.async_get_variable("jobName") or ""
+    screen = await pane_text(s)
+    if pane_provider(uuid, job, screen) != "claude":
+        return web.json_response({"error": "rewind is a Claude command"}, status=400)
+
+    if action == "cancel":
+        if detect_rewind(screen):
+            await s.async_send_text(KEYS["esc"])
+        return web.json_response({"ok": True, "closed": True})
+
+    if action == "open":
+        frame = detect_rewind(screen)
+        draft = ""
+        if not frame:
+            draft, ok = await _rewind_type(s)
+            if not ok:
+                return web.json_response(
+                    {"error": "the composer is not empty — send or clear it first"},
+                    status=409)
+            frame = await _rewind_wait(s, 40)
+        if not frame:
+            return web.json_response(
+                {"error": "the rewind picker did not open"}, status=409)
+        seen, steps = {}, 0
+
+        def merge(f):
+            for j, it in enumerate(f["items"]):
+                seen[f["above"] + j] = it
+
+        merge(frame)
+        while frame["above"] > 0 and steps < _REWIND_MAX:
+            frame = await _rewind_step(s, "up", frame)
+            merge(frame)
+            steps += 1
+        items = [dict(seen[i], i=i) for i in sorted(seen)]
+        return web.json_response({"ok": True, "items": items,
+                                  "caret": _rewind_caret(frame),
+                                  "truncated": frame["above"] > 0,
+                                  "draft": draft})
+
+    if action == "pick":
+        target = body.get("index")
+        if not isinstance(target, int) or target < 0:
+            return web.json_response({"error": "index is required"}, status=400)
+        frame = detect_rewind(screen)
+        if not frame:
+            return web.json_response(
+                {"error": "the rewind picker is no longer open"}, status=409)
+        caret = _rewind_caret(frame)
+        # re-derive the caret from the pane every step: a frame can be stale by
+        # the time this lands, and walking to the wrong row rewinds the wrong turn
+        for _ in range(_REWIND_MAX + len(frame["items"])):
+            if caret == target:
+                break
+            frame = await _rewind_step(s, "down" if caret < target else "up", frame)
+            moved = _rewind_caret(frame)
+            if moved == caret:
+                return web.json_response(
+                    {"error": "the rewind caret stopped moving"}, status=409)
+            caret = moved
+        if caret != target:
+            return web.json_response(
+                {"error": "could not reach that checkpoint"}, status=409)
+        await s.async_send_text("\r")
+        for _ in range(30):                            # hand back Claude's confirm menu
+            prompt = detect_prompt(await pane_text(s), "claude", uuid)
+            if prompt:
+                return web.json_response({"ok": True, "prompt": prompt})
+            await asyncio.sleep(0.1)
+        return web.json_response({"ok": True, "prompt": None})
+
+    return web.json_response({"error": f"bad action {action!r}"}, status=400)
 
 
 @guard
@@ -5993,7 +6243,11 @@ async def _maybe_grow(uuid, provider=None):
 def _orphan_maximize():
     """A tab of ours left maximized with no record of who did it: the server
     restarted while a phone was watching, or someone hit ⇧⌘⏎ on the Mac and
-    walked away. Returns (uuid, window id) of the visible pane, or None."""
+    walked away. Returns (uuid, window id) of the visible pane, or None.
+
+    Only reported while a phone is actually watching that pane. A maximize with
+    no viewer is the person at the Mac zooming one chat to read it, and undoing
+    that a few seconds later is the "can't full-screen an individual chat" bug."""
     for w in (APP.terminal_windows if APP else []):
         for t in w.tabs:
             if not t.minimized_sessions or len(t.sessions) != 1:
@@ -6001,7 +6255,10 @@ def _orphan_maximize():
             if not any(s.session_id.upper() in KNOWN_AGENTS
                        for s in t.all_sessions):
                 continue                  # not a tab we manage
-            return t.sessions[0].session_id.upper(), w.window_id
+            uuid = t.sessions[0].session_id.upper()
+            if not _WATCHERS.get(uuid):
+                continue              # local user's own zoom — leave it alone
+            return uuid, w.window_id
     return None
 
 
@@ -6059,12 +6316,14 @@ async def _geometry_janitor():
     while True:
         await asyncio.sleep(45)
         try:
-            if _WATCHERS:
+            if _WATCHERS or not GEOMETRY_PIN:
                 continue
             sessions = await all_sessions()
+            held = await _fullscreen_session_ids()
             widths = sorted(int(s.grid_size.width)
                             for uuid, s in sessions.items()
-                            if uuid in KNOWN_AGENTS and s.grid_size is not None)
+                            if uuid in KNOWN_AGENTS and s.grid_size is not None
+                            and uuid not in held)
             if not widths:
                 continue
             sig = tuple(widths)
@@ -7219,6 +7478,7 @@ async def main(connection):
     app.router.add_post("/api/mode", api_mode)
     app.router.add_post("/api/model", api_model)
     app.router.add_post("/api/cmd", api_cmd)
+    app.router.add_post("/api/rewind", api_rewind)
     app.router.add_get("/api/commands", api_commands)
     app.router.add_get("/api/codex/models", api_codex_models)
     app.router.add_get("/api/grok/models", api_grok_models)
@@ -7294,7 +7554,7 @@ async def main(connection):
 
     async def _normalize_once():
         await asyncio.sleep(2)                 # let APP settle after (re-)connect
-        await normalize_all()                  # widen existing narrow panes post-deploy
+        await normalize_all(force=True)        # widen existing narrow panes post-deploy
     asyncio.create_task(_normalize_once())
 
     # Where the phone should actually point: the tailnet name, over TLS, served
