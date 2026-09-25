@@ -219,9 +219,14 @@ PANE_COLS = 52
 # phone-height in one window — iTerm refuses the resize.
 PANE_ROWS = 25
 # Geometry pinning is for phone parity, not for the Mac the user is sitting at.
-# "off" disables every automatic resize/un-fullscreen (panes stay however the
-# user left them; the phone just renders whatever width it finds).
-GEOMETRY_PIN = os.environ.get("DISPATCH_GEOMETRY", "on").lower() != "off"
+# Off by default: every pin resizes the iTerm window itself (fit_window_cols sets
+# the frame, async_set_grid_size grows it), and the 45s janitor re-ran that on
+# any drift — a manual resize, a new split, a spawn — so the fleet window kept
+# snapping back to a size nobody chose. set_grid_size "succeeds" even when
+# clamped, so the janitor's no-op guard never parked and the fight never ended.
+# DISPATCH_GEOMETRY=on opts a host back in; off, panes stay however the user left
+# them and the phone renders whatever width it finds.
+GEOMETRY_PIN = os.environ.get("DISPATCH_GEOMETRY", "off").lower() == "on"
 
 COL_TOL = 3              # accept 52..55 cols (a tiled window fills to 53/54); only
                         # a pane outside this band (e.g. font-drift balloon) is reset

@@ -446,6 +446,7 @@ def test_normalize_all_frees_full_screen_first(monkeypatch):
         calls.append("scan")
         return {}
 
+    monkeypatch.setattr(srv, "GEOMETRY_PIN", True)   # opt-in; default is off
     monkeypatch.setattr(srv, "_unfullscreen_agent_windows", fake_unfull)
     monkeypatch.setattr(srv, "all_sessions", fake_sessions)
     monkeypatch.setattr(srv, "KNOWN_AGENTS", {})
