@@ -326,11 +326,14 @@ def trust_dir(path):
             cfg = json.load(f)
     except Exception:
         cfg = {}
+    # mkdtemp hands back /var/folders/..., but Claude keys trust by the resolved
+    # path (/private/var/folders/...), so mark both spellings.
     key = os.path.abspath(path)
     projects = cfg.setdefault("projects", {})
-    entry = projects.setdefault(key, {})
-    entry["hasTrustDialogAccepted"] = True
-    entry.setdefault("hasCompletedProjectOnboarding", True)
+    for k in {key, os.path.realpath(key)}:
+        entry = projects.setdefault(k, {})
+        entry["hasTrustDialogAccepted"] = True
+        entry.setdefault("hasCompletedProjectOnboarding", True)
     tmp = p + ".tmp"
     try:
         with open(tmp, "w") as f:
@@ -3446,7 +3449,9 @@ async def _auto_trust(sess):
             text = await pane_text(sess)
         except Exception:
             continue
-        if "trust the files in this folder" not in text.lower():
+        low = text.lower()
+        if not ("trust the files in this folder" in low
+                or ("quick safety check" in low and "trust" in low)):
             continue                      # only ever act on the trust dialog
         p = detect_prompt(text)
         if not p:
