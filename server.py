@@ -25,6 +25,7 @@ import json
 import math
 import os
 import pathlib
+import pickle
 import platform
 import re
 import secrets
@@ -4989,6 +4990,7 @@ _CODEX_SID_RE = re.compile(
     r"rollout-.*-([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
     r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\.jsonl$")
 _native_scan_cache = {}           # path -> {"k":[mtime,size], "pack": dict}
+_scan_dirty = [False]             # a transcript was (re)scanned since the last save
 
 
 def _parse_ts(ts):
@@ -5041,6 +5043,7 @@ def _cached_pack(path, key, builder):
         return c["pack"]
     pack = builder()
     _native_scan_cache[path] = {"k": key, "pack": pack}
+    _scan_dirty[0] = True
     return pack
 
 
@@ -5707,6 +5710,7 @@ def _claude_hist_cached(path):
         return c["e"]
     e = _scan_history_file(path)
     _hist_cache[path] = {"k": k, "e": e}
+    _scan_dirty[0] = True
     return e
 
 
@@ -5775,9 +5779,58 @@ def _kick_history():
     return _history_task
 
 
+# The per-file scan caches, saved across restarts. Without this every restart
+# (each deploy, each iTerm2 reconnect) re-reads every transcript — ~5s before
+# the first history view can answer. Entries are keyed on mtime+size, so a
+# stale file is simply re-scanned.
+SCAN_CACHE_FILE = HERE / ".scan_cache.pkl"
+SCAN_CACHE_VERSION = 1
+_scan_cache_loaded = [False]
+
+
+def _load_scan_cache():
+    _scan_cache_loaded[0] = True
+    try:
+        with open(SCAN_CACHE_FILE, "rb") as fh:
+            d = pickle.load(fh)
+        if d.get("v") == SCAN_CACHE_VERSION:
+            _hist_cache.update(d.get("hist") or {})
+            _native_scan_cache.update(d.get("native") or {})
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        print(f"  [history] scan cache unreadable, rebuilding: {type(e).__name__}: {e}",
+              flush=True)
+
+
+def _save_scan_cache():
+    if not _scan_dirty[0]:
+        return
+    _scan_dirty[0] = False
+    tmp = SCAN_CACHE_FILE.with_suffix(".tmp")
+    try:
+        with open(tmp, "wb") as fh:
+            pickle.dump({"v": SCAN_CACHE_VERSION, "hist": dict(_hist_cache),
+                         "native": dict(_native_scan_cache)}, fh,
+                        protocol=pickle.HIGHEST_PROTOCOL)
+        os.chmod(tmp, 0o600)                       # holds transcript snippets
+        os.replace(tmp, SCAN_CACHE_FILE)
+    except Exception as e:
+        _scan_dirty[0] = True                      # e.g. a scan mutated it mid-copy
+        print(f"  [history] scan cache save failed: {type(e).__name__}: {e}", flush=True)
+
+
+def _build_history_persisted():
+    if not _scan_cache_loaded[0]:
+        _load_scan_cache()
+    data = _build_history()
+    _save_scan_cache()
+    return data
+
+
 async def _rebuild_history():
     try:
-        _history_result["data"] = await asyncio.to_thread(_build_history)
+        _history_result["data"] = await asyncio.to_thread(_build_history_persisted)
         _history_result["at"] = time.time()
     except Exception as e:
         print(f"  [history] rebuild failed: {type(e).__name__}: {e}", flush=True)

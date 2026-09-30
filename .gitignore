@@ -18,6 +18,9 @@ vapid_public.txt
 # Peer/fleet + rolling summary caches (may contain transcript text)
 .peers.json
 .summaries.json
+# Per-file transcript scan cache for history/usage (transcript snippets)
+.scan_cache.pkl
+.scan_cache.tmp
 .churn.json
 # Audit + runtime logs
 audit.log
