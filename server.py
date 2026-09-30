@@ -3104,12 +3104,39 @@ async def _send_provider_text(sess, text, provider, submit=True):
     if provider == "codex":
         text = _codex_safe_text(text)
         await sess.async_send_text("\x1b[200~" + text + "\x1b[201~")
+    elif provider == "claude":
+        # Bracketed paste, not raw keystrokes: unwrapped, Claude Code has to
+        # guess from timing where a long burst ends, and an Enter that lands
+        # mid-burst submits only the part it has absorbed — the long-message
+        # cut-off. Strip the end marker so the text can't close the paste early.
+        text = text.replace("\x1b[201~", "")
+        await sess.async_send_text("\x1b[200~" + text + "\x1b[201~")
     else:
         await sess.async_send_text(text)
     if submit:
-        await asyncio.sleep(0.15)
+        if provider == "claude":
+            await _await_input_settled(sess)
+        else:
+            await asyncio.sleep(0.15)
         await sess.async_send_text("\r")
     return text
+
+
+async def _await_input_settled(sess, timeout=4.0):
+    """Hold the Enter until Claude's ❯ box shows the pasted text and has stopped
+    changing, instead of a fixed pause that a long message outruns."""
+    await asyncio.sleep(0.15)
+    deadline = time.monotonic() + timeout
+    prev = None
+    while time.monotonic() < deadline:
+        try:
+            ghost, cur = read_input_box(await pane_text(sess))
+        except Exception:
+            return
+        if cur and not ghost and cur == prev:
+            return
+        prev = cur
+        await asyncio.sleep(0.1)
 
 
 async def _prompt_wait(s, uuid, predicate):
@@ -5737,6 +5764,17 @@ _history_result = {"at": 0, "data": None, "building": False}
 _HISTORY_TTL = 8
 
 
+_history_task = None   # the in-flight build, so a cold request joins it instead of racing it
+
+
+def _kick_history():
+    global _history_task
+    if _history_task is None or _history_task.done():
+        _history_result["building"] = True
+        _history_task = asyncio.create_task(_rebuild_history())
+    return _history_task
+
+
 async def _rebuild_history():
     try:
         _history_result["data"] = await asyncio.to_thread(_build_history)
@@ -5752,16 +5790,13 @@ async def api_history(request):
     now = time.time()
     r = _history_result
     if r["data"] is None:
-        # cold: build once synchronously so the first response has content
-        try:
-            r["data"] = await asyncio.to_thread(_build_history)
-            r["at"] = now
-        except Exception as e:
-            print(f"  [history] failed: {type(e).__name__}: {e}", flush=True)
-            return web.json_response({"error": f"{type(e).__name__}: {e}"}, status=500)
+        # cold: join the startup warm-up (or start one) rather than paying for a
+        # second full read of every transcript in parallel with it
+        await asyncio.shield(_kick_history())
+        if r["data"] is None:
+            return web.json_response({"error": "history build failed"}, status=500)
     elif now - r["at"] > _HISTORY_TTL and not r["building"]:
-        r["building"] = True
-        asyncio.create_task(_rebuild_history())   # refresh behind the instant answer
+        _kick_history()                           # refresh behind the instant answer
     return web.json_response({"history": r["data"]})
 
 
@@ -6405,6 +6440,64 @@ async def ws_pane(request):
 _WS_FLEET = set()   # live /ws/fleet sockets, for the load page's "watchers" count
 
 
+# One build_fleet() loop shared by every open socket. Each socket used to run
+# its own every second, so a phone + a laptop tab doubled the iTerm2 API load,
+# and a fresh socket waited behind a full build before it saw anything. Now the
+# pump builds once per tick and fans the same frame out; a new socket gets the
+# last frame straight away if it is recent.
+_FLEET_SENT = {}          # ws -> blob last sent to it (None until its first frame)
+_FLEET_SINCE = {}         # ws -> (peer, connect time) until its first frame lands
+_fleet_last = {"blob": None, "msg": None, "at": 0.0}
+_fleet_pump_task = None
+FLEET_CACHE_OK = 30       # s: a cached frame this fresh is fine for first paint
+
+
+async def _fleet_send(ws, blob, msg):
+    try:
+        await ws.send_str(msg)
+    except Exception:
+        _WS_FLEET.discard(ws)
+        return
+    _FLEET_SENT[ws] = blob
+    since = _FLEET_SINCE.pop(ws, None)
+    if since:
+        print(f"  [ws/fleet] {since[0]} first payload sent after "
+              f"{time.time() - since[1]:.2f}s ({len(msg)} bytes)", flush=True)
+
+
+async def _fleet_pump():
+    while _WS_FLEET:
+        t0 = time.time()
+        try:
+            rows, limits = await build_fleet()
+            pending = vault.pending_count()
+        except Exception as e:
+            print(f"  [ws/fleet] build ERROR {type(e).__name__}: {e}", flush=True)
+            await asyncio.sleep(1.0)
+            continue
+        took = time.time() - t0
+        if took > 2:
+            print(f"  [ws/fleet] slow build_fleet: {took:.2f}s", flush=True)
+        blob = json.dumps([rows, limits, pending], sort_keys=True)
+        if blob != _fleet_last["blob"]:
+            _fleet_last["blob"] = blob
+            _fleet_last["msg"] = json.dumps({"sessions": rows, "limits": limits,
+                                             "pending": pending})
+        _fleet_last["at"] = time.time()
+        stale = [ws for ws in list(_WS_FLEET)
+                 if not ws.closed and _FLEET_SENT.get(ws) != blob]
+        if stale:
+            await asyncio.gather(*(_fleet_send(ws, blob, _fleet_last["msg"])
+                                   for ws in stale))
+        await asyncio.sleep(1.0)
+
+
+def _ensure_fleet_pump():
+    global _fleet_pump_task
+    if _fleet_pump_task is None or _fleet_pump_task.done():
+        _fleet_pump_task = asyncio.create_task(_fleet_pump())
+
+
 async def ws_fleet(request):
     peer = request.remote
     if not authed(request):
@@ -6413,28 +6506,27 @@ async def ws_fleet(request):
     print(f"  [ws/fleet] {peer} connected", flush=True)
     ws = web.WebSocketResponse(heartbeat=25)
     await ws.prepare(request)
+    _FLEET_SINCE[ws] = (peer, time.time())
+    _FLEET_SENT[ws] = None
     _WS_FLEET.add(ws)
-    last = None
     try:
-        while not ws.closed:
-            rows, limits = await build_fleet()
-            pending = vault.pending_count()
-            blob = json.dumps([rows, limits, pending], sort_keys=True)
-            if blob != last:
-                first = last is None
-                last = blob
-                await ws.send_json({"sessions": rows, "limits": limits,
-                                    "pending": pending})
-                if first:
-                    print(f"  [ws/fleet] {peer} first payload sent "
-                          f"({len(rows)} panes, {len(blob)} bytes)", flush=True)
-            await asyncio.sleep(1.0)
+        if _fleet_last["msg"] and time.time() - _fleet_last["at"] < FLEET_CACHE_OK:
+            await _fleet_send(ws, _fleet_last["blob"], _fleet_last["msg"])
+        _ensure_fleet_pump()
+        async for _ in ws:                 # nothing to read; just hold until close
+            pass
+        print(f"  [ws/fleet] {peer} disconnected", flush=True)
     except (asyncio.CancelledError, ConnectionResetError):
         print(f"  [ws/fleet] {peer} disconnected", flush=True)
     except Exception as e:
         print(f"  [ws/fleet] {peer} ERROR {type(e).__name__}: {e}", flush=True)
     finally:
         _WS_FLEET.discard(ws)
+        _FLEET_SENT.pop(ws, None)
+        since = _FLEET_SINCE.pop(ws, None)
+        if since:
+            print(f"  [ws/fleet] {peer} closed before any payload "
+                  f"({time.time() - since[1]:.2f}s)", flush=True)
         if not ws.closed:
             await ws.close()
     return ws
@@ -7558,7 +7650,7 @@ async def main(connection):
     asyncio.create_task(_notify_watcher())     # push when sessions finish / need input
     asyncio.create_task(_grow_janitor())       # never leave a pane maximized with nobody watching
     asyncio.create_task(_geometry_janitor())   # re-pin window width if pane cols drift off PANE_COLS
-    asyncio.create_task(_rebuild_history())    # warm the history cache so first open is instant
+    _kick_history()                            # warm the history cache so first open is instant
     asyncio.create_task(_load_sampler())       # background CPU/GPU/thermal snapshot for /api/sysinfo
     asyncio.create_task(_bg_sampler())         # which chats still have a background shell alive
 

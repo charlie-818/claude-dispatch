@@ -1909,8 +1909,8 @@ def test_initial_prompt_waits_for_agent_ui_before_delivery(monkeypatch):
 
     assert delivered is True
     assert [call.args[0] for call in pane.async_send_text.await_args_list] == [
-        "diagnose safely", "\r"]
-    assert screens.await_count == 2
+        "\x1b[200~diagnose safely\x1b[201~", "\r"]
+    assert screens.await_count >= 2
 
 
 def test_codex_initial_prompt_uses_bracketed_paste(monkeypatch):
