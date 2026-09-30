@@ -3106,38 +3106,57 @@ async def _send_provider_text(sess, text, provider, submit=True):
         text = _codex_safe_text(text)
         await sess.async_send_text("\x1b[200~" + text + "\x1b[201~")
     elif provider == "claude":
-        # Bracketed paste, not raw keystrokes: unwrapped, Claude Code has to
-        # guess from timing where a long burst ends, and an Enter that lands
-        # mid-burst submits only the part it has absorbed — the long-message
-        # cut-off. Strip the end marker so the text can't close the paste early.
-        text = text.replace("\x1b[201~", "")
-        await sess.async_send_text("\x1b[200~" + text + "\x1b[201~")
+        await _type_in_chunks(sess, text)
     else:
         await sess.async_send_text(text)
     if submit:
         if provider == "claude":
-            await _await_input_settled(sess)
+            await _await_input_settled(sess, text)
         else:
             await asyncio.sleep(0.15)
         await sess.async_send_text("\r")
     return text
 
 
-async def _await_input_settled(sess, timeout=4.0):
-    """Hold the Enter until Claude's ❯ box shows the pasted text and has stopped
-    changing, instead of a fixed pause that a long message outruns."""
+TYPE_CHUNK = 200       # chars per write: under Claude Code's paste-burst size
+TYPE_GAP = 0.03        # s between writes, so consecutive chunks don't merge
+
+
+async def _type_in_chunks(sess, text):
+    """Type a message into Claude Code as ordinary keystrokes.
+
+    One big write reaches Claude Code as ~1KB reads, and it treats each read
+    as its own paste: the message arrives as several <pasted_content> blocks
+    split mid-word, which the model reads as quoted data rather than the
+    user's words, and whatever is still in flight when Enter lands is cut off.
+    Small spaced writes look like typing, so the text lands as one plain
+    message. (Bracketed paste arrives whole but still as <pasted_content>.)"""
+    for i in range(0, len(text), TYPE_CHUNK):
+        if i:
+            await asyncio.sleep(TYPE_GAP)
+        await sess.async_send_text(text[i:i + TYPE_CHUNK])
+
+
+async def _await_input_settled(sess, text, timeout=6.0):
+    """Hold the Enter until the END of what we typed shows on screen. A long
+    message takes Claude Code a while to absorb; the old fixed 150ms pause
+    before Enter submitted whatever part had landed so far."""
+    tail = re.sub(r"\s+", "", text)[-16:]
     await asyncio.sleep(0.15)
     deadline = time.monotonic() + timeout
-    prev = None
     while time.monotonic() < deadline:
         try:
-            ghost, cur = read_input_box(await pane_text(sess))
+            screen = await pane_text(sess)
         except Exception:
             return
-        if cur and not ghost and cur == prev:
+        # The whole screen, not read_input_box(): a tall message scrolls the ❯
+        # row off the top, and the box border breaks rows mid-word.
+        flat = re.sub(r"[\s│╎]+", "", screen or "")
+        if tail in flat:                   # bytes arrive in order: the end means all of it
             return
-        prev = cur
         await asyncio.sleep(0.1)
+    print(f"  [send] input box never showed the end of a {len(text)}-char message; "
+          f"pressing Enter anyway", flush=True)
 
 
 async def _prompt_wait(s, uuid, predicate):
