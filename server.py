@@ -5175,7 +5175,6 @@ def _codex_rate_limits(rl):
     """Codex token_count.rate_limits → five_hour/seven_day/monthly by window."""
     if not isinstance(rl, dict):
         return {}
-    now = time.time()
     out = {}
     windows = {300: "five_hour", 10080: "seven_day", 43200: "monthly"}
     for src, fallback in (("primary", "five_hour"), ("secondary", "seven_day")):
@@ -5187,9 +5186,9 @@ def _codex_rate_limits(rl):
             pct = w.get("used_percentage")
         if pct is None:
             continue
+        # Closed windows are kept: fleet_limits turns them into a 0% "rolled
+        # over" row. Dropping them here left an idle Codex with no limits at all.
         resets = w.get("resets_at") or 0
-        if resets and resets <= now:
-            continue
         wm = w.get("window_minutes")
         dst = fallback if wm is None else windows.get(wm)
         if not dst:
@@ -5262,10 +5261,10 @@ def _scan_codex_file(path):
                     slot["tokens"] += produced
                     slot["cost"] += _codex_cost(model, i, c, w, ot)
                 if typ == "event_msg":
-                    limits = _codex_rate_limits(p.get("rate_limits"))
+                    limits = _codex_rate_limits(p.get("rate_limits")) or limits
                 continue
             if typ == "event_msg" and p.get("type") == "token_count":
-                limits = _codex_rate_limits(p.get("rate_limits"))
+                limits = _codex_rate_limits(p.get("rate_limits")) or limits
                 continue
             if not (typ == "response_item" and p.get("type") == "message"
                     and p.get("role") == "user"):
@@ -5493,21 +5492,24 @@ def _grok_billing_limits():
     weekly pool — there is no 5-hour window. Tail the log rather than calling
     grok.com so we never handle the auth token.
     """
-    try:
-        with open(GROK_LOG, "rb") as fh:
-            fh.seek(0, 2)
-            fh.seek(max(0, fh.tell() - 1_000_000))
-            chunk = fh.read().decode("utf-8", "ignore")
-    except OSError:
-        return {}
     last = None
-    for line in chunk.splitlines():
-        if "billing: fetched credits config" not in line:
-            continue
+    for tail in (1_000_000, None):   # tail first; whole log if Grok sat idle
         try:
-            last = json.loads(line)
-        except Exception:
-            continue
+            with open(GROK_LOG, "rb") as fh:
+                fh.seek(0, 2)
+                fh.seek(max(0, fh.tell() - tail) if tail else 0)
+                chunk = fh.read().decode("utf-8", "ignore")
+        except OSError:
+            return {}
+        for line in chunk.splitlines():
+            if "billing: fetched credits config" not in line:
+                continue
+            try:
+                last = json.loads(line)
+            except Exception:
+                continue
+        if last:
+            break
     if not last:
         return {}
     cfg = (last.get("ctx") or {}).get("config") or {}
@@ -5519,6 +5521,11 @@ def _grok_billing_limits():
         "USAGE_PERIOD_TYPE_", "").lower()
     resets = _parse_ts(period.get("end") or cfg.get("billingPeriodEnd"))
     window = {"used_percentage": pct, "resets_at": resets}
+    if resets and resets <= time.time():
+        # Grok only logs this when it runs. A reading whose period has ended
+        # means the pool rolled over and nothing has run since: 0%, next reset
+        # unknown until Grok fetches again (same rule as fleet_limits).
+        window = {"used_percentage": 0, "resets_at": None, "stale": True}
     out = {kind: window}
     if kind == "weekly":
         out["seven_day"] = window
@@ -5803,7 +5810,7 @@ def _kick_history():
 # the first history view can answer. Entries are keyed on mtime+size, so a
 # stale file is simply re-scanned.
 SCAN_CACHE_FILE = HERE / ".scan_cache.pkl"
-SCAN_CACHE_VERSION = 1
+SCAN_CACHE_VERSION = 2          # 2: codex packs keep closed limit windows
 _scan_cache_loaded = [False]
 
 
