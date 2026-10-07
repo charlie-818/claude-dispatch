@@ -238,6 +238,10 @@
      blank rows at full line height; white-space/overflow inherit fit vs wrap mode. */
   .pane .ln{display:block;margin:0;white-space:inherit;overflow-wrap:inherit;
     min-height:1.42em}
+  /* table rows never wrap; fitTables() scales each grid's font to fit instead */
+  .pane .ln.tbl,.pane.wrap .ln.tbl{white-space:pre;overflow-wrap:normal;
+    padding-inline-start:0;text-indent:0;overflow:visible}
+  .pane .ln.th{font-weight:700}
   .pane .codex-divider,.pane .fitline{display:block;width:100%;max-width:100%;
     overflow:hidden;white-space:nowrap;overflow-wrap:normal}
   .pane.theme-claude{--chat-add:#3ddc5c;--chat-del:#ff6b61;--chat-code:#66a9ff;--chat-inline:#bd8dff}
@@ -1565,6 +1569,100 @@ function lineRenderClass(l, p){
   return isFitLine(l, p) ? '' : ' hang' + lineLayoutClass(l);
 }
 
+/* ── tables ───────────────────────────────────────────
+   A table is a grid: soft-wrapping one row, or hanging-indenting it off its
+   leading │, scatters the cells and the columns stop lining up. Claude draws
+   tables (and other boxes) in box-drawing glyphs; Codex and Grok can leave
+   raw Markdown pipes, which only align if every cell happens to be the same
+   width. So: find the table rows, re-pad pipe tables into an aligned grid,
+   never wrap a table row, and scale each table's font so its widest row fits
+   the pane (fitTables) — in both fit and wrap mode. */
+const BOX_ROW  = /^\s*[┌├└│┏┣┗┃╭╰╞╘╒╟╚╔║]/;
+const BOX_JOIN = /[┬┼┴┐┤┘┳╋┻┓┫┛╮╯╤╪╧╕╡╛]/;
+const PIPE_ROW = /^\s*\|.*\|\s*$/;
+const PIPE_SEP = /^\s*\|(?:\s*:?-{2,}:?\s*\|)+\s*$/;
+function isBoxRow(l){
+  if (!BOX_ROW.test(l)) return false;
+  return BOX_JOIN.test(l) || (l.match(/[│┃║]/g) || []).length >= 2;
+}
+// Marks table rows in place: returns kind per line (0 plain, 1 row, 2 header)
+// and block ids, and rewrites pipe tables in `lines` as aligned box grids.
+function findTables(lines){
+  const kind = new Array(lines.length).fill(0), block = new Array(lines.length).fill(-1);
+  let id = 0;
+  for (let i = 0; i < lines.length; ){
+    if (isBoxRow(lines[i])){
+      let j = i;
+      while (j < lines.length && isBoxRow(lines[j])) j++;
+      if (j - i >= 2){
+        // header = the cell rows above the first ├ rule (when there is one)
+        const sep = lines.slice(i, j).findIndex(l => /^\s*[├┣╞╟]/.test(l));
+        for (let k = i; k < j; k++){
+          kind[k] = sep > 0 && k < i + sep && /[│┃║]\s*\S/.test(lines[k]) ? 2 : 1;
+          block[k] = id;
+        }
+        id++;
+      }
+      i = Math.max(j, i + 1); continue;
+    }
+    if (PIPE_ROW.test(lines[i])){
+      let j = i;
+      while (j < lines.length && PIPE_ROW.test(lines[j])) j++;
+      const sepAt = lines.slice(i, j).findIndex(l => PIPE_SEP.test(l));
+      if (j - i >= 2 && sepAt >= 0){
+        alignPipes(lines, i, j);
+        for (let k = i; k < j; k++){
+          kind[k] = k < i + sepAt ? 2 : 1; block[k] = id;
+        }
+        id++;
+      }
+      i = j; continue;
+    }
+    i++;
+  }
+  return {kind, block};
+}
+const cellsOf = l => l.trim().replace(/^\|/, '').replace(/\|$/, '')
+  .split(/(?<!\\)\|/).map(c => c.trim());
+const glen = s => Array.from(s).length;
+function alignPipes(lines, from, to){
+  const indent = lines[from].match(/^\s*/)[0];
+  const rows = lines.slice(from, to).map(l => PIPE_SEP.test(l) ? null : cellsOf(l));
+  const n = Math.max(...rows.filter(Boolean).map(r => r.length));
+  const w = Array.from({length: n}, (_, c) =>
+    Math.max(1, ...rows.filter(Boolean).map(r => glen(r[c] || ''))));
+  for (let k = from; k < to; k++){
+    const r = rows[k - from];
+    lines[k] = indent + (r
+      ? '│ ' + w.map((cw, c) => (r[c] || '') + ' '.repeat(cw - glen(r[c] || ''))).join(' │ ') + ' │'
+      : '├' + w.map(cw => '─'.repeat(cw + 2)).join('┼') + '┤');
+  }
+}
+// Borders dim, cell text plain — the grid should recede behind the data.
+function colorizeTable(l){
+  return colorizeWords(esc(l)).replace(/[─━│┃║┌┐└┘├┤┬┴┼┏┓┗┛┣┫┳┻╋╭╮╰╯═╔╗╚╝╞╡╤╧╪╟╢╒╕╘╛]+/g,
+    g => `<span class="c-dim">${g}</span>`);
+}
+// Scale each table block's font (in em, so it rides the pane's own font) until
+// its widest row fits the pane. Reset first so a wider pane can grow it back.
+function fitTables(p){
+  const rows = p.querySelectorAll('.ln.tbl');
+  if (!rows.length) return;
+  const blocks = new Map();
+  rows.forEach(r => {
+    r.style.fontSize = '';
+    const b = blocks.get(r.dataset.tb) || []; b.push(r); blocks.set(r.dataset.tb, b);
+  });
+  const base = parseFloat(getComputedStyle(p).fontSize) || 13;
+  blocks.forEach(b => {
+    let widest = 0, avail = 0;
+    for (const r of b){ widest = Math.max(widest, r.scrollWidth); avail = r.clientWidth; }
+    if (!avail || widest <= avail) return;
+    const em = Math.max(MIN_PX / base, avail / widest * 0.995);
+    for (const r of b) r.style.fontSize = em.toFixed(3) + 'em';
+  });
+}
+
 function toast(msg, err){
   const t = document.getElementById('toast');
   /* state dot + text, so an error reads as a marked card instead of red prose */
@@ -2803,7 +2901,14 @@ function trimChrome(text, prov){
   if (p === 'grok'){
     const o = lines.findIndex(l => GROK_OPTIN.test(l));
     if (o >= 0) lines = lines.slice(0, o);
-    lines = lines.map(l => l.replace(GROK_BAR, ''));
+    // A table row ends in its own │ border, which GROK_BAR also matches. Only
+    // a bar sitting past that border is the scrollbar.
+    lines = lines.map(l => {
+      const m = l.match(GROK_BAR);
+      if (!m) return l;
+      const rest = l.slice(0, m.index);
+      return isBoxRow(l) && !/[│┃║]\s*$/.test(rest) ? l : rest;
+    });
   }
   return lines.join('\n').replace(/\n+$/, '');
 }
@@ -2826,7 +2931,8 @@ function paint(force){
   const liveLines = (liveT || '').split('\n');
   const histLines = hist ? hist.split('\n') : [];
   const rawLines = histLines.length ? histLines.concat(liveLines) : liveLines;
-  const lines = colorizeLines(rawLines.join('\n'), prov);
+  const tbl = findTables(rawLines);           // may re-pad pipe tables in place
+  const lines = rawLines.map((l, i) => tbl.kind[i] ? colorizeTable(l) : colorizeLine(l, prov));
   // A running pane pushes a frame twice a second because its spinner glyph
   // moved — text the chrome stripper throws away. Rendering those frames is
   // pure DOM churn in a scroller someone may be reading. If what we'd draw is
@@ -2856,12 +2962,17 @@ function paint(force){
   for (let i = 0; i < lines.length; i++){
     let el = kids[i];
     if (!el){ el = document.createElement('div'); p.appendChild(el); }
-    el.className = 'ln' + lineRenderClass(rawLines[i], prov);
-    el.style.cssText = lineLayoutStyle(rawLines[i]);
+    const k = tbl.kind[i];
+    el.className = 'ln' + (k ? ' tbl' + (k === 2 ? ' th' : '') : lineRenderClass(rawLines[i], prov));
+    if (k){ el.style.cssText = ''; el.dataset.tb = tbl.block[i]; }
+    else { el.style.cssText = lineLayoutStyle(rawLines[i]); delete el.dataset.tb; }
     if (el.__h !== lines[i]){ el.innerHTML = lines[i] || ''; el.__h = lines[i]; }
   }
   while (kids.length > lines.length) p.removeChild(p.lastElementChild);
-  if (fitMode === 0) shrinkToFit(p);
+  // tables first, so an over-wide grid can't drag the whole pane's font down;
+  // again after, since shrinkToFit may have moved the font they scale from
+  fitTables(p);
+  if (fitMode === 0){ shrinkToFit(p); fitTables(p); }
   const rows = p.children;
   let pad = '0px';
   if (rows.length){
@@ -5854,7 +5965,8 @@ function renderUsage(){
             background:${limitColor(v)}"></i></div>
           <div class="mbot">
             ${has && span != null ? paceLine(l.used_percentage, l.resets_at, span, pd) : ''}
-            ${has && resetIn(l.resets_at) ? `<div class="rst">${esc(resetIn(l.resets_at))}</div>` : ''}
+            ${has && resetIn(l.resets_at) ? `<div class="rst">${esc(resetIn(l.resets_at))}</div>`
+              : has && l.stale ? '<div class="rst">window reset · nothing run since</div>' : ''}
           </div>
         </div>`;}).join('')}
     </div>` : ''}
