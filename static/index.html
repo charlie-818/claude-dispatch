@@ -264,11 +264,11 @@
      border colour, so an empty gauge is just
      the border and the fill reads as the border lighting up. */
   .ctxrule{position:absolute;left:-.5px;top:-.5px;width:calc(100% + 1px);
-    height:calc(100% + 1px);overflow:visible;pointer-events:none}
-  /* Two arms leave the middle of the left edge — one over the top, one under
-     the bottom — and meet at the middle of the right edge at 100%. */
-  .ctxrule path{fill:none;stroke:var(--c-blue);stroke-width:2.5;stroke-dasharray:0 99999;
-    transition:stroke-dashoffset .35s ease, stroke .35s ease}
+    height:calc(100% + 1px);overflow:visible;pointer-events:none;
+    clip-path:inset(-4px calc(100% + 4px) -4px -4px);transition:clip-path .35s ease}
+  /* The whole outline, wiped in from the left: at N% the left side is lit and
+     the top and bottom are lit N% of the way across. */
+  .ctxrule rect{fill:none;stroke:var(--c-blue);stroke-width:2.5;transition:stroke .35s ease}
   .hdrbtn.ico .material-symbols-rounded{font-size:19px;
     font-variation-settings:"FILL" 0,"wght" 500,"GRAD" -25,"opsz" 20}
   .hdrbtn:disabled{opacity:.4;cursor:default}
@@ -442,13 +442,13 @@
   .act.send{justify-content:center;border-color:transparent;background:var(--blue);
     color:#06172e;font-weight:600}
 
-  /* One box, one line: the text on the left, the icons on the right. The row
-     is bottom-aligned, so as the textarea grows the icons stay pinned to the
-     last line instead of re-centring on every new one. */
+  /* One box holds everything: the text on top, spanning the full width, and a
+     fixed row of icons under it. The textarea grows and shrinks with the line
+     count INSIDE the box, so the icons never move relative to the text. */
   .composer{flex:none;padding:9px 10px 11px;background:transparent}
-  .cbox{position:relative;display:flex;flex-direction:row;align-items:flex-end;gap:2px;
+  .cbox{position:relative;display:flex;flex-direction:column;gap:2px;
     background:var(--panel);border:1px solid var(--line2);border-radius:var(--r3);
-    padding:7px 7px 7px 8px;transition:border-color .15s}
+    padding:9px 9px 8px;transition:border-color .15s}
   .cbox:focus-within{border-color:var(--blue)}
   /* The visible viewport can shrink behind mobile browser chrome. Body already
      owns the safe-area inset, so this is only a small deliberate visual lift. */
@@ -459,12 +459,13 @@
   /* line-height is a whole px on purpose: a fractional one makes scrollHeight
      round DOWN, so the box ends a hair short of its own text and the browser
      scrolls it to the caret — the jump you see when you stop typing. */
-  .composer textarea{flex:1;min-width:0;width:auto;resize:none;min-height:40px;max-height:132px;
+  .composer textarea{width:100%;resize:none;min-height:26px;max-height:132px;
     background:transparent;color:var(--fg);border:none;border-radius:0;
-    padding:9px 5px;font:15px/22px var(--ui);outline:none;overflow-y:hidden}
+    padding:3px 5px;font:15px/22px var(--ui);outline:none;overflow-y:hidden}
   .composer textarea::placeholder{color:var(--dimmer)}
-  .cbar{flex:none;display:flex;align-items:center;gap:4px;margin-bottom:3px}
-  .cbar .gap{display:none}
+  /* the persistent bottom line — icons pushed right, under the text */
+  .cbar{display:flex;align-items:center;gap:4px}
+  .cbar .gap{flex:1}
   /* Controls share a compact footprint and center their icons. Ghost buttons
      stay inside the box; only send carries the accent. */
   .mic,.send{flex:none;width:34px;height:34px;border-radius:999px;cursor:pointer;
@@ -1412,7 +1413,7 @@
         </button>
       </div>
       <svg class="ctxrule" id="ctxrule" role="progressbar" aria-label="context used"
-           aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><path/><path/></svg>
+           aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><rect width="100%" height="100%" rx="13.5"/></svg>
     </div>
   </div>
 </div>
@@ -3225,31 +3226,11 @@ function paintCtxBar(ctx){
   const bar = document.getElementById('ctxrule');
   if (!bar) return;
   const pct = Math.max(0, Math.min(100, ctx || 0));
-  bar.dataset.pct = pct;
-  sizeCtxBar(bar);
-  for (const p of bar.children) p.style.stroke = ctxColor(pct);
+  // the stroke overhangs the box by a px or two: fully hide it at 0, fully show it at 100
+  const right = pct >= 100 ? '-4px' : pct <= 0 ? 'calc(100% + 4px)' : (100 - pct) + '%';
+  bar.style.clipPath = `inset(-4px ${right} -4px -4px)`;
+  bar.firstElementChild.style.stroke = ctxColor(pct);
   bar.setAttribute('aria-valuenow', pct);
-}
-// Each arm is half the rounded border, left-middle to right-middle; the bottom
-// arm is the top one mirrored. Dashed in real pixels (iOS Safari ignores
-// pathLength) and re-measured whenever the composer grows or shrinks.
-function sizeCtxBar(bar){
-  const {width: w, height: h} = bar.getBoundingClientRect();
-  if (!w || !h) return;
-  const r = Math.min(13.5, w / 2, h / 2), m = h / 2;
-  const d = `M0 ${m}V${r}A${r} ${r} 0 0 1 ${r} 0H${w - r}A${r} ${r} 0 0 1 ${w} ${r}V${m}`;
-  const len = 2 * (m - r) + (w - 2 * r) + Math.PI * r;
-  const off = len * (1 - (+bar.dataset.pct || 0) / 100);
-  [...bar.children].forEach((p, i) => {
-    p.setAttribute('d', d);
-    p.setAttribute('transform', i ? `matrix(1 0 0 -1 0 ${h})` : '');
-    p.style.strokeDasharray = len + ' ' + len;
-    p.style.strokeDashoffset = off;
-  });
-}
-if (window.ResizeObserver){
-  const bar = document.getElementById('ctxrule');
-  if (bar) new ResizeObserver(() => sizeCtxBar(bar)).observe(bar.parentElement);
 }
 
 /* chips just mirror state; the options live in the sheet */
