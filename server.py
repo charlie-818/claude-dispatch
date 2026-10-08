@@ -3882,6 +3882,29 @@ async def api_browse(request):
                               "recents": _recent_dirs()})
 
 
+@writes("mkdir")
+async def api_mkdir(request):
+    """Make one new folder directly inside `path` — the picker's "new folder" row,
+    so a fresh project can be started without leaving the phone. One level only:
+    the name may not contain a slash or be `.`/`..`, and an existing name is an
+    error rather than a silent reuse."""
+    body = request.get("_body") or {}
+    parent = os.path.abspath(os.path.expanduser(str(body.get("path") or "")))
+    name = str(body.get("name") or "").strip()
+    if not body.get("path") or not os.path.isdir(parent):
+        return web.json_response({"error": "not a directory"}, status=404)
+    if not name or name in (".", "..") or "/" in name or "\0" in name:
+        return web.json_response({"error": "bad folder name"}, status=400)
+    full = os.path.join(parent, name)
+    try:
+        os.mkdir(full)
+    except FileExistsError:
+        return web.json_response({"error": "already exists"}, status=409)
+    except OSError as e:
+        return web.json_response({"error": e.strerror or str(e)}, status=403)
+    return web.json_response({"ok": True, "path": full, "name": name})
+
+
 # How each client is asked to shut itself down before the pane is closed.
 QUIT_CMD = {"claude": "/exit", "codex": "/quit", "grok": "/exit"}
 
@@ -7653,6 +7676,7 @@ async def main(connection):
     app.router.add_post("/api/submit", api_submit)
     app.router.add_post("/api/spawn", api_spawn)
     app.router.add_get("/api/browse", api_browse)
+    app.router.add_post("/api/mkdir", api_mkdir)
     app.router.add_post("/api/kill", api_kill)
     app.router.add_post("/api/reap", api_reap)
     app.router.add_post("/api/effort", api_effort)

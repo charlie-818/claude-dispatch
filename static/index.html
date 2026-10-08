@@ -349,6 +349,16 @@
   .dp-ico.home{color:var(--blue)}
   .dp-ico.drive{color:var(--violet)}
   .dp-chev{width:16px;height:16px;flex:none;color:var(--dimmer)}
+  /* "new folder" row — tapping it swaps in a name field + create button */
+  .dp-new,.dp-new .dp-ico{color:var(--blue)}
+  .dp-newform{cursor:default;padding:6px 6px 6px 13px}
+  .dp-newform:focus-within{border-color:var(--blue)}
+  .dp-newform input{flex:1;min-width:0;background:transparent;border:none;outline:none;
+    color:var(--fg);font:600 14px var(--ui);padding:6px 0}
+  .dp-newform input::placeholder{color:var(--dimmer)}
+  .dp-mk{flex:none;background:var(--blue);color:#06172e;border:none;border-radius:var(--r);
+    padding:8px 12px;font:700 13px var(--ui);cursor:pointer}
+  .dp-mk:disabled{opacity:.5}
   .dp-empty{font:12px var(--ui);color:var(--dim);text-align:center;padding:16px 0}
   .dp-lab{font:600 10px var(--ui);letter-spacing:.08em;text-transform:uppercase;
     color:var(--dim);padding:10px 4px 3px}
@@ -524,7 +534,7 @@
      Static "loading…" text reads as a hung app. Skeletons + a moving sheen say
      "content is on its way": the highlight sweeps left→right on a loop, staggered
      down the list so it ripples instead of flashing in unison. Bare status lines
-     ("connecting", "summarising") get bobbing dots so even a single line is
+     ("connecting") get bobbing dots so even a single line is
      visibly alive. */
   @keyframes shimmer{100%{background-position:-200% 0}}
   .sk{position:relative;overflow:hidden;display:flex;gap:12px;
@@ -553,16 +563,12 @@
   .dots i:nth-child(3){animation-delay:.32s}
   @keyframes dotbob{0%,75%,100%{opacity:.28;transform:translateY(1px)}
     38%{opacity:1;transform:translateY(-4px)}}
-  /* brief summary shimmers its own text while the model writes it */
-  .sessinfo.loading .ss-sum{background:linear-gradient(90deg,
-      var(--dim) 0%,var(--fg) 40%,var(--dim) 70%);background-size:200% 100%;
-    -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
-    animation:shimmer 1.6s linear infinite}
+  /* the summary is just bobbing dots under its headline while the model writes it */
+  .sessinfo.loading .ss-sum .dots{margin-left:0}
   @media(prefers-reduced-motion:reduce){
     #toast,#toast.on{transform:none}
     .sessinfo{animation:none}
     .sk-line,.sk-tag{animation:none;background:var(--panel2)}
-    .sessinfo.loading .ss-sum{animation:none;-webkit-text-fill-color:var(--dim)}
     .dots i{animation:dotfade 1.2s ease-in-out infinite}
     @keyframes dotfade{0%,100%{opacity:.3}50%{opacity:1}}}
 
@@ -2670,7 +2676,7 @@ async function loadSummary(uuid, show){
   const goalRow = document.getElementById('ss-goalrow');
   if (show && !briefHasContent){
     box.classList.add('loading');
-    sum.innerHTML = 'summarising session' + DOTS;
+    sum.innerHTML = DOTS;
     goalRow.hidden = true;
     briefHasContent = true;               // loading placeholder is worth showing
     applyBrief();
@@ -4542,6 +4548,7 @@ const DP_ICONS = {
   folder: '<svg class="dp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.5l-1.7-1.9A2 2 0 0 0 9.3 3.4H4a2 2 0 0 0-2 2V18a2 2 0 0 0 2 2Z"/></svg>',
   home: '<svg class="dp-ico home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5 12 3l9 6.5"/><path d="M5 10.5V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-9.5"/><path d="M9.5 21v-6h5v6"/></svg>',
   drive: '<svg class="dp-ico drive" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" x2="2" y1="12" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11Z"/><line x1="6" x2="6.01" y1="16" y2="16"/><line x1="10" x2="10.01" y1="16" y2="16"/></svg>',
+  newFolder: '<svg class="dp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.5l-1.7-1.9A2 2 0 0 0 9.3 3.4H4a2 2 0 0 0-2 2V18a2 2 0 0 0 2 2Z"/><line x1="12" y1="10" x2="12" y2="16"/><line x1="9" y1="13" x2="15" y2="13"/></svg>',
   chev: '<svg class="dp-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>',
   back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>',
   start: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>',
@@ -4616,6 +4623,37 @@ function renderDirPicker(data){
     r.onclick = () => openDirPicker(d.path);
     list.appendChild(r);
   };
+  // new folder — one tap turns the row into a name field; creating it opens the
+  // picker inside the new folder, so "Start here" is the very next tap
+  if (!atRoot){
+    const nf = document.createElement('button');
+    nf.className = 'dp-row dp-new';
+    nf.innerHTML = DP_ICONS.newFolder + '<span class="dp-name">new folder</span>';
+    nf.onclick = () => {
+      const f = document.createElement('form');
+      f.className = 'dp-row dp-new dp-newform';
+      f.innerHTML = DP_ICONS.newFolder;
+      const inp = document.createElement('input');
+      inp.type = 'text'; inp.placeholder = 'folder name'; inp.enterKeyHint = 'go';
+      inp.autocapitalize = 'off'; inp.autocomplete = 'off'; inp.spellcheck = false;
+      inp.onfocus = () => { syncSheetKb(); setTimeout(syncSheetKb, 150); setTimeout(syncSheetKb, 400); };
+      const mk = document.createElement('button');
+      mk.type = 'submit'; mk.className = 'dp-mk'; mk.textContent = 'create';
+      f.append(inp, mk);
+      f.onsubmit = async e => {
+        e.preventDefault();
+        const name = inp.value.trim();
+        if (!name) return;
+        mk.disabled = true;
+        try {
+          const d = await post('/api/mkdir', {path: data.path, name});
+          buzz(10); openDirPicker(d.path);
+        } catch(err){ mk.disabled = false; toast(String(err.message || err), true); }
+      };
+      nf.replaceWith(f); inp.focus();
+    };
+    list.appendChild(nf);
+  }
   if (atRoot && recents.length){
     addLab('recent');
     recents.forEach(d => addRow(d, DP_ICONS.folder));
@@ -4656,7 +4694,7 @@ function renderDirPicker(data){
 function filterDirRows(list, empty, q){
   q = q.trim().toLowerCase();
   let shown = 0;
-  list.querySelectorAll('.dp-row').forEach(r => {
+  list.querySelectorAll('.dp-row:not(.dp-new)').forEach(r => {
     const hit = !q || r.dataset.name.includes(q);
     r.style.display = hit ? '' : 'none';
     if (hit) shown++;
