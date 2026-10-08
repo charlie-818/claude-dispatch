@@ -2676,11 +2676,10 @@ async function loadSummary(uuid){
     const r = await fetch('/api/summary?uuid=' + encodeURIComponent(uuid));
     const d = await r.json();
     if (!current || current.uuid !== uuid) return;      // user switched panes
-    // Always leave something readable behind. An empty summary used to clear
-    // briefHasContent, which slammed the panel shut the instant it opened —
-    // say so in the panel instead of vanishing.
-    sum.textContent = d.summary || 'no summary yet — nothing to describe in this session';
-    briefHasContent = true;
+    // No real summary (a fresh chat, or the model had nothing to say) → the
+    // panel stays shut rather than showing a placeholder.
+    sum.textContent = d.summary || '';
+    briefHasContent = !!d.summary;
     // Summary is the norm; the goal block only appears if a real goal comes back.
     if (SHOW_GOAL && d.running && d.success){
       goal.textContent = d.success; goal.classList.remove('unsure');
@@ -2691,9 +2690,8 @@ async function loadSummary(uuid){
     applyBrief();
   } catch(e){
     if (!current || current.uuid !== uuid) return;
-    sum.textContent = 'summary unavailable';
     goalRow.hidden = true;
-    briefHasContent = true;
+    briefHasContent = false;
     applyBrief();
   }
 }

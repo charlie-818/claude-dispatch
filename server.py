@@ -2724,6 +2724,19 @@ async def _provider_summary(provider, digest, running, cwd=None):
     return summary, success
 
 
+# What the model writes when there is nothing to describe yet ("No summary to
+# display.", "Nothing to summarize", "N/A"). Not a summary — the phone keeps the
+# panel shut instead of showing it.
+_NO_SUMMARY = re.compile(
+    r"^\W*(?:(?:n/?a|none)\W*$|no (?:summary|activity|content|transcript|session|messages?)\b"
+    r"|nothing (?:to (?:summari[sz]e|describe|display|report)|yet|here)\b"
+    r"|(?:empty|new) session\W*$)", re.I)
+
+
+def _real_summary(text):
+    return text if text and not _NO_SUMMARY.search(text) else None
+
+
 async def _ensure_summary(uuid, path, pcount, running, provider=DEFAULT_PROVIDER, cwd=None):
     """Return this run's stored summary, computing it once if the prompt count
     moved (a new prompt = a new run to describe). One claude call per pane."""
@@ -2762,14 +2775,14 @@ async def api_summary(request):
     if not path or not os.path.exists(path):
         # Pane gone — still surface the last summary we saved for it, if any.
         e = _summaries.get(uuid) or {}
-        return web.json_response({"summary": e.get("summary"),
+        return web.json_response({"summary": _real_summary(e.get("summary")),
                                   "success": e.get("success"), "running": False})
     provider = f.get("provider") or DEFAULT_PROVIDER
     pcount = (session_ops(path)[1] if provider == DEFAULT_PROVIDER
               else native_ops(provider, path)["prompts"])
     entry = await _ensure_summary(uuid, path, pcount, running, provider,
                                   f.get("cwd")) or {}
-    return web.json_response({"summary": entry.get("summary"),
+    return web.json_response({"summary": _real_summary(entry.get("summary")),
                               "success": entry.get("success"),
                               "running": running, "prompts": pcount})
 
