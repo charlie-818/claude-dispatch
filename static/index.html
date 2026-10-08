@@ -2661,6 +2661,9 @@ function openSession(uuid){
    normally paints instantly; a tap re-checks in the background, which is free
    whenever the cache is still warm.
    `show` = the user is looking at it now, so paint the loading placeholder. */
+// Goal row is parked for now — the panel shows the summary only. Flip to
+// true to bring the goal back; markup, styles and data are all still wired.
+const SHOW_GOAL = false;
 async function loadSummary(uuid, show){
   const box = document.getElementById('sessinfo');
   const sum = document.getElementById('ss-sum');
@@ -2684,7 +2687,7 @@ async function loadSummary(uuid, show){
     sum.textContent = d.summary || 'no summary yet — nothing to describe in this session';
     briefHasContent = true;
     // Summary is the norm; the goal block only appears if a real goal comes back.
-    if (d.running && d.success){
+    if (SHOW_GOAL && d.running && d.success){
       goal.textContent = d.success; goal.classList.remove('unsure');
       goalRow.hidden = false;
     } else {
