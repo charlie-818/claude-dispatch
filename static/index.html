@@ -261,12 +261,11 @@
   /* The summary and controls buttons sit side by side at the right edge — one
      square, one border, one icon size between them, so they read as a pair. */
   .hdracts{flex:none;display:flex;align-items:center;gap:6px}
-  /* Context gauge: a slim track tucked directly under the composer card, in
-     normal flow (so it never covers the pane). Same panel fill and border as
-     the card, inset to the card's rounded corners, so the two read as one
-     stacked unit. */
-  .ctxrule{height:9px;margin:7px 10px 0;border-radius:999px;
-    background:var(--panel);border:1px solid var(--line2);overflow:hidden}
+  /* Context gauge: rides the composer card's bottom border, inset past the
+     rounded corners. The track is the border colour, so an empty gauge is just
+     the border and the fill reads as the border lighting up. */
+  .ctxrule{position:absolute;left:14px;right:14px;bottom:-2px;height:3px;
+    border-radius:999px;background:var(--line2);overflow:hidden;pointer-events:none}
   .ctxrule i{display:block;height:100%;width:0;background:var(--c-blue);
     border-radius:inherit;transition:width .35s ease, background-color .35s ease}
   .hdrbtn.ico .material-symbols-rounded{font-size:19px;
@@ -442,14 +441,13 @@
   .act.send{justify-content:center;border-color:transparent;background:var(--blue);
     color:#06172e;font-weight:600}
 
-  /* One box holds everything: the text on top, a fixed row of icons under it.
-     The textarea grows and shrinks with the line count INSIDE the box, so the
-     icons never move relative to the text — the old side-by-side row re-centred
-     the buttons on every new line. */
+  /* One box, one line: the text on the left, the icons on the right. The row
+     is bottom-aligned, so as the textarea grows the icons stay pinned to the
+     last line instead of re-centring on every new one. */
   .composer{flex:none;padding:9px 10px 11px;background:transparent}
-  .cbox{display:flex;flex-direction:column;gap:2px;
+  .cbox{position:relative;display:flex;flex-direction:row;align-items:flex-end;gap:2px;
     background:var(--panel);border:1px solid var(--line2);border-radius:var(--r3);
-    padding:9px 9px 8px;transition:border-color .15s}
+    padding:4px 4px 4px 8px;transition:border-color .15s}
   .cbox:focus-within{border-color:var(--blue)}
   /* The visible viewport can shrink behind mobile browser chrome. Body already
      owns the safe-area inset, so this is only a small deliberate visual lift. */
@@ -460,13 +458,12 @@
   /* line-height is a whole px on purpose: a fractional one makes scrollHeight
      round DOWN, so the box ends a hair short of its own text and the browser
      scrolls it to the caret — the jump you see when you stop typing. */
-  .composer textarea{width:100%;resize:none;min-height:26px;max-height:132px;
+  .composer textarea{flex:1;min-width:0;width:auto;resize:none;min-height:40px;max-height:132px;
     background:transparent;color:var(--fg);border:none;border-radius:0;
-    padding:3px 5px;font:15px/22px var(--ui);outline:none;overflow-y:hidden}
+    padding:9px 5px;font:15px/22px var(--ui);outline:none;overflow-y:hidden}
   .composer textarea::placeholder{color:var(--dimmer)}
-  /* the persistent bottom line — attach on the left, send on the right */
-  .cbar{display:flex;align-items:center;gap:4px}
-  .cbar .gap{flex:1}
+  .cbar{flex:none;display:flex;align-items:center;gap:4px}
+  .cbar .gap{display:none}
   /* Controls share a compact footprint and center their icons. Ghost buttons
      stay inside the box; only send carries the accent. */
   .mic,.send{flex:none;width:34px;height:34px;border-radius:999px;cursor:pointer;
@@ -1413,9 +1410,9 @@
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3.5 20.6l16.9-8.1c.8-.4.8-1.6 0-2L3.5 2.4c-.8-.4-1.6.4-1.3 1.2L4 11l-1.8 6.4c-.3.8.5 1.6 1.3 1.2z"/></svg>
         </button>
       </div>
+      <div class="ctxrule" id="ctxrule" role="progressbar" aria-label="context used"
+           aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>
     </div>
-    <div class="ctxrule" id="ctxrule" role="progressbar" aria-label="context used"
-         aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>
   </div>
 </div>
 
