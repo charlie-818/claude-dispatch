@@ -260,14 +260,14 @@
   /* The summary and controls buttons sit side by side at the right edge — one
      square, one border, one icon size between them, so they read as a pair. */
   .hdracts{flex:none;display:flex;align-items:center;gap:6px}
-  /* Context gauge: rides the composer card's bottom border, inset past the
-     rounded corners. The track is the border colour, so an empty gauge is just
+  /* Context gauge: wraps the composer card's whole border. The track is the
+     border colour, so an empty gauge is just
      the border and the fill reads as the border lighting up. */
   .ctxrule{position:absolute;left:-.5px;top:-.5px;width:calc(100% + 1px);
-    height:calc(100% + 1px);overflow:visible;pointer-events:none;transform:scaleY(-1)}
-  /* scaleY(-1) moves the rect's stroke start to the bottom-left: the fill runs
-     along the bottom, up the right, back across the top and down the left. */
-  .ctxrule rect{fill:none;stroke:var(--c-blue);stroke-width:2.5;stroke-dasharray:0 99999;
+    height:calc(100% + 1px);overflow:visible;pointer-events:none}
+  /* Two arms leave the middle of the left edge — one over the top, one under
+     the bottom — and meet at the middle of the right edge at 100%. */
+  .ctxrule path{fill:none;stroke:var(--c-blue);stroke-width:2.5;stroke-dasharray:0 99999;
     transition:stroke-dashoffset .35s ease, stroke .35s ease}
   .hdrbtn.ico .material-symbols-rounded{font-size:19px;
     font-variation-settings:"FILL" 0,"wght" 500,"GRAD" -25,"opsz" 20}
@@ -1412,7 +1412,7 @@
         </button>
       </div>
       <svg class="ctxrule" id="ctxrule" role="progressbar" aria-label="context used"
-           aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><rect width="100%" height="100%" rx="13.5"/></svg>
+           aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><path/><path/></svg>
     </div>
   </div>
 </div>
@@ -3227,19 +3227,25 @@ function paintCtxBar(ctx){
   const pct = Math.max(0, Math.min(100, ctx || 0));
   bar.dataset.pct = pct;
   sizeCtxBar(bar);
-  bar.firstElementChild.style.stroke = ctxColor(pct);
+  for (const p of bar.children) p.style.stroke = ctxColor(pct);
   bar.setAttribute('aria-valuenow', pct);
 }
-// iOS Safari ignores pathLength on <rect>, so dash in real pixels: the rounded
-// rect's perimeter, re-measured whenever the composer grows or shrinks.
+// Each arm is half the rounded border, left-middle to right-middle; the bottom
+// arm is the top one mirrored. Dashed in real pixels (iOS Safari ignores
+// pathLength) and re-measured whenever the composer grows or shrinks.
 function sizeCtxBar(bar){
   const {width: w, height: h} = bar.getBoundingClientRect();
   if (!w || !h) return;
-  const r = Math.min(13.5, w / 2, h / 2);
-  const len = 2 * (w + h) - 8 * r + 2 * Math.PI * r;
-  const rect = bar.firstElementChild;
-  rect.style.strokeDasharray = len + ' ' + len;
-  rect.style.strokeDashoffset = len * (1 - (+bar.dataset.pct || 0) / 100);
+  const r = Math.min(13.5, w / 2, h / 2), m = h / 2;
+  const d = `M0 ${m}V${r}A${r} ${r} 0 0 1 ${r} 0H${w - r}A${r} ${r} 0 0 1 ${w} ${r}V${m}`;
+  const len = 2 * (m - r) + (w - 2 * r) + Math.PI * r;
+  const off = len * (1 - (+bar.dataset.pct || 0) / 100);
+  [...bar.children].forEach((p, i) => {
+    p.setAttribute('d', d);
+    p.setAttribute('transform', i ? `matrix(1 0 0 -1 0 ${h})` : '');
+    p.style.strokeDasharray = len + ' ' + len;
+    p.style.strokeDashoffset = off;
+  });
 }
 if (window.ResizeObserver){
   const bar = document.getElementById('ctxrule');
