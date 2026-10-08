@@ -2614,7 +2614,7 @@ function setThemeColor(color){
 function openSession(uuid){
   current = SESSIONS.find(s => s.uuid === uuid);
   if (!current) return;
-  setThemeColor('#22262d');
+  setThemeColor('#14171b');
   pushNav({v: 'session', uuid});
   // Entering a chat starts with the header controls collapsed — the terminal
   // owns the screen; open the ••• row deliberately if you want the chips.
