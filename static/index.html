@@ -2655,11 +2655,11 @@ function openSession(uuid){
   suppressCodexPicker = false;
   applyPanePrompt(current.prompt || null); promptDismissed = null; renderActions();
   history = []; live = ''; pinBottom = true; lastSig = null;   // land at newest output
-  briefOpen = false; briefHasContent = false; applyBrief();   // brief hidden until the eye is tapped
+  briefHasContent = false; applyBrief();   // brief stays as the eye last left it
   // Warm the brief NOW, not when the eye is tapped: the `claude -p` call takes a
   // couple of seconds, so kicking it off on open means the text is already there
   // by the time anyone asks for it. Hidden until the eye toggles it on.
-  loadSummary(uuid, false);
+  loadSummary(uuid, briefOpen);
   connectPane(uuid);
 }
 
@@ -2711,8 +2711,8 @@ async function loadSummary(uuid, show){
 }
 
 /* Summary + goal stay hidden by default; the info button in the header reveals
-   them. Reset to hidden on each session open. */
-let briefOpen = false, briefHasContent = false;
+   them. Open/closed sticks across chats and reloads until toggled again. */
+let briefOpen = localStorage.getItem('brief') === '1', briefHasContent = false;
 function applyBrief(){
   document.getElementById('sessinfo').hidden = !(briefOpen && briefHasContent);
   const b = document.getElementById('briefbtn');
@@ -2736,6 +2736,7 @@ function toggleBrief(){
 // you can actually read on a phone; fit is the deliberate opt-out. Remembered
 // across opens, so a toggle sticks.
 let history = [], live = '', cols = +localStorage.getItem('cols') || 80,
+  try { localStorage.setItem('brief', briefOpen ? '1' : '0'); } catch(e){}
     fitMode = localStorage.getItem('fit') === '0' ? 0 : 1;   // 0 = fit cols, 1 = wrap
 // Pin the view to the bottom (newest output). True on open so a fresh chat lands
 // at the live prompt, not the top of scrollback. User scrolling up unpins;
