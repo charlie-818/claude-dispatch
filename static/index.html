@@ -261,11 +261,11 @@
   /* The summary and controls buttons sit side by side at the right edge — one
      square, one border, one icon size between them, so they read as a pair. */
   .hdracts{flex:none;display:flex;align-items:center;gap:6px}
-  /* Context gauge: a slim track sitting directly on top of the composer card,
-     in normal flow (so the pane ends above it, never under it). Same panel
-     fill and border as the card, inset to the card's rounded corners, so the
-     two read as one stacked unit. */
-  .ctxrule{height:6px;margin:0 10px 6px;border-radius:999px;
+  /* Context gauge: a slim track tucked directly under the composer card, in
+     normal flow (so it never covers the pane). Same panel fill and border as
+     the card, inset to the card's rounded corners, so the two read as one
+     stacked unit. */
+  .ctxrule{height:9px;margin:7px 10px 0;border-radius:999px;
     background:var(--panel);border:1px solid var(--line2);overflow:hidden}
   .ctxrule i{display:block;height:100%;width:0;background:var(--c-blue);
     border-radius:inherit;transition:width .35s ease, background-color .35s ease}
@@ -1392,27 +1392,27 @@
          itself rather than the photo library. -->
     <input type="file" id="caminput" accept="image/*" capture="environment" hidden
            onchange="uploadFiles(this.files, 'camerabtn')">
-    <div class="ctxrule" id="ctxrule" role="progressbar" aria-label="context used"
-         aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>
     <div class="cbox">
       <textarea id="input" rows="1" placeholder=""></textarea>
       <div class="cbar">
+        <span class="gap"></span>
+        <button class="mic" id="micbtn" onclick="toggleMic()" aria-label="dictate">
+          <span class="material-symbols-rounded i-mic" aria-hidden="true">mic</span>
+          <span class="material-symbols-rounded i-stop" aria-hidden="true">stop</span>
+        </button>
         <button class="mic" id="attachbtn" onclick="document.getElementById('fileinput').click()" aria-label="attach">
           <span class="material-symbols-rounded" aria-hidden="true">attach_file</span>
         </button>
         <button class="mic" id="camerabtn" onclick="document.getElementById('caminput').click()" aria-label="take picture">
           <span class="material-symbols-rounded" aria-hidden="true">photo_camera</span>
         </button>
-        <span class="gap"></span>
-        <button class="mic" id="micbtn" onclick="toggleMic()" aria-label="dictate">
-          <span class="material-symbols-rounded i-mic" aria-hidden="true">mic</span>
-          <span class="material-symbols-rounded i-stop" aria-hidden="true">stop</span>
-        </button>
         <button class="send" id="sendbtn" onclick="send()" disabled aria-label="send">
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3.5 20.6l16.9-8.1c.8-.4.8-1.6 0-2L3.5 2.4c-.8-.4-1.6.4-1.3 1.2L4 11l-1.8 6.4c-.3.8.5 1.6 1.3 1.2z"/></svg>
         </button>
       </div>
     </div>
+    <div class="ctxrule" id="ctxrule" role="progressbar" aria-label="context used"
+         aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>
   </div>
 </div>
 
