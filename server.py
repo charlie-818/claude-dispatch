@@ -197,14 +197,6 @@ CONN = None          # iterm2.Connection
 APP = None           # iterm2.App
 
 # ── Grid layout ─────────────────────────────────────────────────────────────
-# Spawns become splits in the fleet's own tab, arranged into a grid. Growth is
-# ROW-MAJOR so the dividers stay aligned: fill the top row across up to MAX_COLS
-# full-height columns, THEN drop a second row into each column, and so on. Row-
-# major is the only single-split growth path that keeps a clean NxM grid — a
-# column-first order leaves later columns split inside one pane's region and the
-# dividers no longer line up.
-GRID_MAX_COLS = 3    # top row grows to this many columns before rows start filling
-
 # Canonical Claude-pane width. The phone renderer sizes its font so `cols`
 # characters fill the screen, capped at 15px — so a pane narrower than this
 # blows the font past the cap and shows big text in only half the width (the
@@ -253,45 +245,47 @@ async def all_sessions():
     return out
 
 
-def _column_sessions(node):
-    """Leaf sessions under a column node, top-to-bottom."""
-    if isinstance(node, iterm2.Session):
-        return [node]
-    out = []
-    for c in node.children:
-        out.extend(_column_sessions(c))
-    return out
+def _stack_slot(tab):
+    """The pane a new full-width row should split off, or None if the tab has
+    panes side by side anywhere (a split there could only be one column wide).
 
-
-def grid_columns(tab):
-    """The tab's panes grouped into visual columns, left-to-right.
-
-    Returns a list of columns; each column is a list of Sessions top-to-bottom.
-    A vertical splitter at the root means its children ARE the columns; a
-    horizontal root (or a bare session) is a single column.
+    Agent panes are stacked, never placed side by side: Claude hard-wraps at the
+    pane's width, and a narrow pane reads as text filling half the phone. The
+    tallest row is the one halved, so heights stay even and no other pane moves.
     """
     root = tab.root
     if isinstance(root, iterm2.Session):
-        return [[root]]
-    if root.vertical:                      # dividers vertical -> children side by side
-        return [_column_sessions(child) for child in root.children]
-    return [_column_sessions(root)]        # dividers horizontal -> one stacked column
+        return root
+    if root.vertical or not all(isinstance(c, iterm2.Session) for c in root.children):
+        return None
+    return max(root.children,
+               key=lambda c: c.grid_size.height if c.grid_size else 0)
 
 
-def pick_grid_split(tab):
-    """Where the next pane should go to grow the grid row-major.
+async def open_agent_pane(app, cmd):
+    """Open a new agent pane running `cmd`, always full window width.
 
-    Returns (session_to_split, vertical) — vertical=True makes a new column to
-    the right, vertical=False drops a new row below the chosen pane.
+    Stacks into the stackable tab that already holds the most agents. With no
+    such tab (only side-by-side grids, or a tab of plain shells), it opens a new
+    tab in the fleet's window and stacking carries on there. None if no window.
     """
-    cols = grid_columns(tab)
-    building_top_row = all(len(c) == 1 for c in cols)
-    if building_top_row and len(cols) < GRID_MAX_COLS:
-        # New full-height column on the right (every column is one full-height pane).
-        return cols[-1][0], True
-    # Fill a row: the leftmost column with the fewest rows, split its bottom pane.
-    target = min(range(len(cols)), key=lambda i: (len(cols[i]), i))
-    return cols[target][-1], False
+    best, best_n = None, 0
+    for w in app.terminal_windows:
+        for t in w.tabs:
+            if _stack_slot(t) is None:
+                continue
+            n = sum(1 for x in t.all_sessions if x.session_id.upper() in KNOWN_AGENTS)
+            if n > best_n:
+                best, best_n = t, n
+    custom = _launch_profile(cmd)
+    if best is not None:
+        return await _stack_slot(best).async_split_pane(
+            vertical=False, before=False, profile_customizations=custom)
+    tab = fleet_tab(app)
+    if tab is None:
+        return None
+    new = await tab.window.async_create_tab(profile_customizations=custom)
+    return new.current_session
 
 
 def fleet_tab(app):
@@ -3698,18 +3692,13 @@ async def api_spawn(request):
     # no slash command), and a pane you drive from a phone can't answer prompts.
     args = "--dangerously-skip-permissions" if provider == DEFAULT_PROVIDER else ""
     cmd, launch_dir = _pane_launcher(scratch, lines, args=args, provider=provider)
-    # Grow the fleet's own tab into a grid instead of opening a new tab. Panes are
-    # placed row-major (see GRID_MAX_COLS) so the split lands in an aligned column
-    # or row rather than as a random narrow sliver.
+    # Stack a full-width row onto the fleet (see open_agent_pane).
     try:
-        tab = fleet_tab(APP)
-        if tab is None:
+        sess = await open_agent_pane(APP, cmd)
+        if sess is None:
             _discard_launcher(launch_dir)
             return web.json_response(
                 {"error": "no iTerm window open to spawn into"}, status=409)
-        src, vertical = pick_grid_split(tab)
-        sess = await src.async_split_pane(vertical=vertical, before=False,
-                                          profile_customizations=_launch_profile(cmd))
     except Exception as e:
         _discard_launcher(launch_dir)
         return web.json_response(
@@ -5972,14 +5961,11 @@ async def api_resume(request):
     cmd, launch_dir = _pane_launcher(
         cwd, args=resume_cli_args(provider, session_id), provider=provider)
     try:
-        tab = fleet_tab(APP)
-        if tab is None:
+        sess = await open_agent_pane(APP, cmd)
+        if sess is None:
             _discard_launcher(launch_dir)
             return web.json_response(
                 {"error": "no iTerm window open to resume into"}, status=409)
-        src, vertical = pick_grid_split(tab)
-        sess = await src.async_split_pane(vertical=vertical, before=False,
-                                          profile_customizations=_launch_profile(cmd))
     except Exception as e:
         _discard_launcher(launch_dir)
         return web.json_response(
