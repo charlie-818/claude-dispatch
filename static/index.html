@@ -159,7 +159,6 @@
   .sessinfo .ss-goal{font:400 13px/1.55 var(--ui);color:var(--fg2)}
   /* no clear goal yet — say so plainly rather than hiding the block */
   .sessinfo .ss-goal.unsure{color:var(--dim);font-style:italic}
-  .sessinfo.loading .ss-sum{color:var(--dim);font-style:italic}
   /* Reaper: ends every session older than REAP_H hours. Lives in the fleet
      header, always visible, and carries the count it would kill so the number
      is on screen before you tap. Disabled — not hidden — at zero, so the
@@ -563,8 +562,6 @@
   .dots i:nth-child(3){animation-delay:.32s}
   @keyframes dotbob{0%,75%,100%{opacity:.28;transform:translateY(1px)}
     38%{opacity:1;transform:translateY(-4px)}}
-  /* the summary is just bobbing dots under its headline while the model writes it */
-  .sessinfo.loading .ss-sum .dots{margin-left:0}
   @media(prefers-reduced-motion:reduce){
     #toast,#toast.on{transform:none}
     .sessinfo{animation:none}
@@ -2655,7 +2652,7 @@ function openSession(uuid){
   // Warm the brief NOW, not when the eye is tapped: the `claude -p` call takes a
   // couple of seconds, so kicking it off on open means the text is already there
   // by the time anyone asks for it. Hidden until the eye toggles it on.
-  loadSummary(uuid, briefOpen);
+  loadSummary(uuid);
   connectPane(uuid);
 }
 
@@ -2669,23 +2666,16 @@ function openSession(uuid){
 // Goal row is parked for now — the panel shows the summary only. Flip to
 // true to bring the goal back; markup, styles and data are all still wired.
 const SHOW_GOAL = false;
-async function loadSummary(uuid, show){
-  const box = document.getElementById('sessinfo');
+// No placeholder while the model writes: the panel stays shut until there is
+// text, then opens on its own if the eye is on.
+async function loadSummary(uuid){
   const sum = document.getElementById('ss-sum');
   const goal = document.getElementById('ss-goal');
   const goalRow = document.getElementById('ss-goalrow');
-  if (show && !briefHasContent){
-    box.classList.add('loading');
-    sum.innerHTML = DOTS;
-    goalRow.hidden = true;
-    briefHasContent = true;               // loading placeholder is worth showing
-    applyBrief();
-  }
   try {
     const r = await fetch('/api/summary?uuid=' + encodeURIComponent(uuid));
     const d = await r.json();
     if (!current || current.uuid !== uuid) return;      // user switched panes
-    box.classList.remove('loading');
     // Always leave something readable behind. An empty summary used to clear
     // briefHasContent, which slammed the panel shut the instant it opened —
     // say so in the panel instead of vanishing.
@@ -2701,7 +2691,6 @@ async function loadSummary(uuid, show){
     applyBrief();
   } catch(e){
     if (!current || current.uuid !== uuid) return;
-    box.classList.remove('loading');
     sum.textContent = 'summary unavailable';
     goalRow.hidden = true;
     briefHasContent = true;
@@ -2720,12 +2709,12 @@ function applyBrief(){
 }
 /* The eye only reveals what the prefetch already fetched. It still re-checks in
    the background (cached per prompt server-side, so that is free unless new
-   activity landed); the loading placeholder appears only if the prefetch has not
-   come back yet. */
+   activity landed); if the prefetch has not come back yet, the panel opens the
+   moment it does. */
 function toggleBrief(){
   briefOpen = !briefOpen; applyBrief(); buzz(8);
   try { localStorage.setItem('brief', briefOpen ? '1' : '0'); } catch(e){}
-  if (briefOpen && current) loadSummary(current.uuid, true);
+  if (briefOpen && current) loadSummary(current.uuid);
 }
 
 /* history (scrollback, sent once) sits above the live screen */
