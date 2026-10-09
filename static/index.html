@@ -6381,6 +6381,11 @@ function start(){
   connectFleet();
   loadUsage();          // warm the usage cache now so the first open never flashes '—'
   USAGE_PROVIDERS.forEach(p => { if (p !== USAGE_PROVIDER) loadUsage(p); });
+  // Warm history and system too, so their first open paints real data instead
+  // of a skeleton; each show*() still refreshes in the background after that.
+  loadHistory();
+  loadSys();
+  loadDevices();
   // deep links, for per-target home-screen shortcuts:
   //   ?screen=usage  → the dashboard
   //   ?pane=<uuid>   → straight into one session, once the fleet list arrives
