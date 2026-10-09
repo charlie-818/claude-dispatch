@@ -2429,11 +2429,29 @@ def churn_for(key, snap):
 _FLEET_CACHE = []      # last full yard, for while a pane is maximized
 
 
+# Chat sockets still waiting on their first frame. iTerm2 answers API calls one
+# at a time, and a fleet rebuild is ~4 calls per pane back to back, so a chat
+# opened mid-rebuild queued behind all of them and the phone sat on a blank pane
+# for seconds. The rebuild steps aside between panes until the chat has its text.
+_OPENING = 0
+_OPEN_CLEAR = asyncio.Event()
+_OPEN_CLEAR.set()
+
+
+async def _yield_to_opening_chat():
+    if _OPENING:
+        try:
+            await asyncio.wait_for(_OPEN_CLEAR.wait(), timeout=3)
+        except asyncio.TimeoutError:
+            pass
+
+
 async def build_fleet():
     sessions = await all_sessions()
     files = read_fleet_files()
     rows = []
     for uuid, s in sessions.items():
+        await _yield_to_opening_chat()
         try:
             job = await s.async_get_variable("jobName") or ""
             cwd = await s.async_get_variable("path") or ""
@@ -6484,11 +6502,24 @@ async def _geometry_janitor():
 
 
 async def ws_pane(request):
+    global _OPENING
     if not authed(request):
         return web.json_response({"error": "locked"}, status=401)
     uuid = request.match_info["uuid"].upper()
     ws = web.WebSocketResponse(heartbeat=25)
     await ws.prepare(request)
+    t_open, opening = time.time(), True
+    _OPENING += 1
+    _OPEN_CLEAR.clear()
+
+    def opened():
+        global _OPENING
+        nonlocal opening
+        if opening:
+            opening = False
+            _OPENING -= 1
+            if not _OPENING:
+                _OPEN_CLEAR.set()
     last = None
     hist_end = None                # absolute line after the scrollback we sent
     missing = 0                    # consecutive polls the pane was not listed
@@ -6528,10 +6559,15 @@ async def ws_pane(request):
                            "prompt": detect_prompt(txt, provider, uuid),
                            "suggest": detect_input(txt, provider)}
                 await ws.send_json(payload)
+                if opening:
+                    print(f"  [ws/pane] {uuid[:8]} first frame after "
+                          f"{time.time() - t_open:.2f}s", flush=True)
+                    opened()
             await asyncio.sleep(POLL)
     except (asyncio.CancelledError, ConnectionResetError):
         pass
     finally:
+        opened()
         await ungrow_pane(uuid)
         if not ws.closed:
             await ws.close()
@@ -6590,7 +6626,9 @@ async def _fleet_pump():
         if stale:
             await asyncio.gather(*(_fleet_send(ws, blob, _fleet_last["msg"])
                                    for ws in stale))
-        await asyncio.sleep(1.0)
+        # A chat being read needs only its chips from the fleet; ease off iTerm2
+        # so the chat's own screen polls are not queued behind rebuilds.
+        await asyncio.sleep(3.0 if _WATCHERS else 1.0)
 
 
 def _ensure_fleet_pump():
