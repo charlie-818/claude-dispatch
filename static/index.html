@@ -4611,7 +4611,10 @@ function renderDirPicker(data){
     list.appendChild(r);
   };
   // new folder — one tap turns the row into a name field; creating it opens the
-  // picker inside the new folder, so "Start here" is the very next tap
+  // picker inside the new folder, so "Start here" is the very next tap. A name
+  // still sitting in the field when Start is tapped is created first, so the
+  // agent never lands in the parent by mistake.
+  let newName = null, start;
   if (!atRoot){
     const nf = document.createElement('button');
     nf.className = 'dp-row dp-new';
@@ -4624,8 +4627,13 @@ function renderDirPicker(data){
       inp.type = 'text'; inp.placeholder = 'folder name'; inp.enterKeyHint = 'go';
       inp.autocapitalize = 'off'; inp.autocomplete = 'off'; inp.spellcheck = false;
       inp.onfocus = () => { syncSheetKb(); setTimeout(syncSheetKb, 150); setTimeout(syncSheetKb, 400); };
+      inp.oninput = () => { start.lastChild.textContent = inp.value.trim() ? 'Create & start' : 'Start here'; };
+      newName = () => inp.value.trim();
       const mk = document.createElement('button');
       mk.type = 'submit'; mk.className = 'dp-mk'; mk.textContent = 'create';
+      // keep focus in the field: on iOS the blur drops the keyboard, the sheet
+      // slides down, and the tap lands where the button used to be
+      mk.onmousedown = e => e.preventDefault();
       f.append(inp, mk);
       f.onsubmit = async e => {
         e.preventDefault();
@@ -4667,11 +4675,20 @@ function renderDirPicker(data){
   back.innerHTML = DP_ICONS.back + '<span>back</span>';
   // up a level; at a root (or top of a tree) back cancels the whole picker
   back.onclick = () => atRoot ? closeSheet() : openDirPicker(data.parent || '');
-  const start = document.createElement('button');
+  start = document.createElement('button');
   start.className = 'dp-btn dp-start';
   start.innerHTML = DP_ICONS.start + '<span>Start here</span>';
   start.disabled = atRoot;                    // no real dir chosen yet
-  start.onclick = () => spawnInDir(data.path);
+  start.onmousedown = e => { if (newName) e.preventDefault(); };   // same keyboard trap
+  start.onclick = async () => {
+    const name = newName && newName();
+    if (!name) return spawnInDir(data.path);
+    start.disabled = true;
+    try {
+      const d = await post('/api/mkdir', {path: data.path, name});
+      spawnInDir(d.path);
+    } catch(err){ start.disabled = false; toast(String(err.message || err), true); }
+  };
   foot.append(back, start);
   body.appendChild(foot);
 }
@@ -6381,11 +6398,6 @@ function start(){
   connectFleet();
   loadUsage();          // warm the usage cache now so the first open never flashes '—'
   USAGE_PROVIDERS.forEach(p => { if (p !== USAGE_PROVIDER) loadUsage(p); });
-  // Warm history and system too, so their first open paints real data instead
-  // of a skeleton; each show*() still refreshes in the background after that.
-  loadHistory();
-  loadSys();
-  loadDevices();
   // deep links, for per-target home-screen shortcuts:
   //   ?screen=usage  → the dashboard
   //   ?pane=<uuid>   → straight into one session, once the fleet list arrives
