@@ -1591,6 +1591,7 @@ function findTables(lines){
       let j = i;
       while (j < lines.length && isBoxRow(lines[j])) j++;
       if (j - i >= 2){
+        compactBox(lines, i, j);
         // header = the cell rows above the first ├ rule (when there is one)
         const sep = lines.slice(i, j).findIndex(l => /^\s*[├┣╞╟]/.test(l));
         for (let k = i; k < j; k++){
@@ -1617,6 +1618,45 @@ function findTables(lines){
     i++;
   }
   return {kind, block};
+}
+// Claude stretches a table's last column to fill the pane it was drawn in, so on
+// a wide pane the grid ends in a broad empty band that reads as an extra column.
+// Shrink every column to its widest cell, in place. Only a block whose glyphs
+// sit at the same columns on every row is touched — anything irregular, or with
+// double-width characters that would throw the count off, is left as drawn.
+const BOX_GLYPH = /[│┃║┌┐└┘├┤┬┴┼┏┓┗┛┣┫┳┻╋╭╮╰╯╔╗╚╝╞╡╤╧╪╟╢╒╕╘╛]/;
+const WIDE_CH = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]|\p{Extended_Pictographic}/u;
+function compactBox(lines, from, to){
+  if (WIDE_CH.test(lines.slice(from, to).join(''))) return;
+  const rows = lines.slice(from, to).map(l => Array.from(l));
+  const at = [];
+  rows[0].forEach((ch, x) => { if (BOX_GLYPH.test(ch)) at.push(x); });
+  if (at.length < 2) return;
+  const last = at[at.length - 1];
+  if (!rows.every(r => r.length === last + 1 && at.every(x => BOX_GLYPH.test(r[x])))) return;
+  const n = at.length - 1;
+  const cell = (r, c) => r.slice(at[c] + 1, at[c + 1]).join('');
+  const isRule = r => !/[│┃║]/.test(r[at[0]]);
+  const w = new Array(n).fill(0);
+  rows.forEach(r => { if (!isRule(r)) for (let c = 0; c < n; c++)
+    w[c] = Math.max(w[c], glen(cell(r, c).trim())); });
+  const indent = rows[0].slice(0, at[0]).join('');
+  rows.forEach((r, k) => {
+    let out = indent + r[at[0]];
+    for (let c = 0; c < n; c++){
+      const raw = cell(r, c);
+      if (isRule(r)) out += (raw[0] || '─').repeat(w[c] + 2);
+      else {
+        // keep Claude's centring (headers) — otherwise one space of padding
+        const t = raw.trim(), gap = w[c] - glen(t);
+        const lp = raw.length - raw.trimStart().length, rp = raw.length - raw.trimEnd().length;
+        const left = t && lp > 1 && Math.abs(lp - rp) <= 1 ? Math.floor(gap / 2) : 0;
+        out += ' ' + ' '.repeat(left) + t + ' '.repeat(gap - left) + ' ';
+      }
+      out += r[at[c + 1]];
+    }
+    lines[from + k] = out;
+  });
 }
 const cellsOf = l => l.trim().replace(/^\|/, '').replace(/\|$/, '')
   .split(/(?<!\\)\|/).map(c => c.trim());

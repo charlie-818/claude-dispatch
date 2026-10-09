@@ -439,6 +439,40 @@ def clean_history(lines):
     return _collapse_repeats(kept)
 
 
+# A box-table row that starts a line. Claude sizes a table to the pane it was
+# drawn in; shrink the pane later and iTerm re-wraps every row onto two lines,
+# leaving tails like "────┬───┐" that no longer look like table rows.
+_TABLE_ROW_START = re.compile(r"^\s*[┌├└│┏┣┗┃╭╰╞╘╒╟╚╔║]")
+
+
+def _join_wrapped_tables(lines, width):
+    """iTerm LineContents → strings, with soft-wrapped table rows put back
+    together (hard_eol False = iTerm wrapped it, not the program). Prose is
+    left as iTerm wrapped it. iTerm drops a wrapped line's trailing blanks, so
+    each piece is padded back to the pane `width` before the next is added."""
+    lines = list(lines)
+    if not width:
+        width = max((len(l.string) for l in lines if not l.hard_eol), default=0)
+    out, carry = [], None
+    for l in lines:
+        text = l.string.replace("\x00", " ")
+        if carry is not None:
+            text, carry = carry + text, None
+        if not l.hard_eol and _TABLE_ROW_START.match(text):
+            seg = len(text) % width if width else 0
+            carry = text + " " * ((width - seg) % width if width else 0)
+            continue
+        out.append(text.rstrip())
+    if carry is not None:
+        out.append(carry.rstrip())
+    return out
+
+
+def _grid_cols(session):
+    g = getattr(session, "grid_size", None)
+    return int(g.width) if g else 0
+
+
 async def pane_history(session, max_lines=600, since=None):
     """Scrollback above the visible screen, so the phone can read the whole chat.
 
@@ -470,8 +504,7 @@ async def pane_history(session, max_lines=600, since=None):
         if end <= start:
             return [], end
         lines = await session.async_get_contents(start, end - start)
-        return clean_history(
-            [l.string.replace("\x00", " ").rstrip() for l in lines]), end
+        return clean_history(_join_wrapped_tables(lines, _grid_cols(session))), end
     except Exception as e:
         print(f"  [history] failed: {type(e).__name__}: {e}", flush=True)
         return [], since
@@ -721,8 +754,8 @@ async def pane_text(session):
     c = await session.async_get_screen_contents()
     # iTerm returns NUL for every unwritten cell, not space. NULs are stripped
     # by innerHTML, which collapses the layout — translate them back to spaces.
-    return "\n".join(c.line(i).string.replace("\x00", " ").rstrip()
-                     for i in range(c.number_of_lines)).rstrip()
+    return "\n".join(_join_wrapped_tables(
+        (c.line(i) for i in range(c.number_of_lines)), _grid_cols(session))).rstrip()
 
 
 OPTION_RE = re.compile(r"^\s*[❯>›]?\s*(\d+)\.\s+(\S.*?)\s*$")
