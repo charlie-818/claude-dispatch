@@ -240,6 +240,7 @@
   .pane .ln.tbl,.pane.wrap .ln.tbl{white-space:pre;overflow-wrap:normal;
     padding-inline-start:0;text-indent:0;overflow:visible}
   .pane .ln.th{font-weight:700}
+  .pane .line-link{color:inherit;text-decoration:underline;pointer-events:auto;cursor:pointer}
   .pane .codex-divider,.pane .fitline{display:block;width:100%;max-width:100%;
     overflow:hidden;white-space:nowrap;overflow-wrap:normal}
   .pane.theme-claude{--chat-add:#3ddc5c;--chat-del:#ff6b61;--chat-code:#66a9ff;--chat-inline:#bd8dff}
@@ -1480,6 +1481,30 @@ let paneWantUuid = null, paneReconnectT = null;
 
 const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 
+/* Turn bare http(s) URLs into tappable links. Runs on already-escaped,
+   already-colourised HTML, so it must never touch what's inside a tag — only
+   the text between them, where colour/code spans and their own markup can't
+   be mistaken for a URL. Trailing punctuation that's almost certainly prose
+   (a period ending the sentence, a closing paren/bracket/quote) is peeled off
+   the link and left outside it. */
+const URL_RE = /\bhttps?:\/\/[^\s<>"']+/g;
+function linkify(html){
+  return html.replace(/<[^>]*>|[^<]+/g, seg => {
+    if (seg[0] === '<') return seg;      // leave tags (and their attrs) alone
+    return seg.replace(URL_RE, m => {
+      let url = m, trail = '';
+      while (url.length && /[.,)\]>'"]/.test(url[url.length - 1])){
+        trail = url[url.length - 1] + trail;
+        url = url.slice(0, -1);
+      }
+      if (!url) return m;
+      const href = url.replace(/"/g, '&quot;');
+      return `<a href="${href}" target="_blank" rel="noopener noreferrer" `
+        + `class="line-link" onclick="event.stopPropagation()">${url}</a>${trail}`;
+    });
+  });
+}
+
 /* Shimmering placeholder rows shaped like the cards that are about to land, so a
    slow fetch reads as "loading" not "stuck". n = how many rows to fake. */
 const skelList = (n = 5) => Array.from({length: n}, () =>
@@ -1531,19 +1556,19 @@ function isFitLine(l, p){
 }
 function colorizeLine(l, p){
   if (isFitLine(l, p))
-    return `<span class="c-dim ${p === 'codex' ? 'codex-divider' : 'fitline'}">${esc(l)}</span>`;
+    return linkify(`<span class="c-dim ${p === 'codex' ? 'codex-divider' : 'fitline'}">${esc(l)}</span>`);
   const rules = LINE_RULES[p] || LINE_RULES.claude;
   // Codex's diff rows have a visible gutter before the sign. Requiring that
   // gutter is important: a bare `- item` is ordinary Markdown, not a deletion.
   const diff = p === 'codex' && /^\s*[│▌]\s*[+-](?![+-])/.test(l)
     ? (/^\s*[│▌]\s*\+/.test(l) ? 'c-add' : 'c-del') : '';
   const e = colorizeWords(esc(l));
-  if (diff) return `<span class="${diff}">${e}</span>`;
+  if (diff) return linkify(`<span class="${diff}">${e}</span>`);
   for (const [re, cls] of rules)
-    if (re.test(l)) return `<span class="${cls}">${e}</span>`;
+    if (re.test(l)) return linkify(`<span class="${cls}">${e}</span>`);
   for (const [re, cls] of COMMON_RULES)
-    if (re.test(l)) return `<span class="${cls}">${e}</span>`;
-  return e;
+    if (re.test(l)) return linkify(`<span class="${cls}">${e}</span>`);
+  return linkify(e);
 }
 function colorizeWords(e){
   return e.replace(/(`[^`]+`|--[\w-]+|(?:src|lib|test|tests|static)\/[\w./-]+)/g,
@@ -1676,8 +1701,8 @@ function alignPipes(lines, from, to){
 }
 // Borders dim, cell text plain — the grid should recede behind the data.
 function colorizeTable(l){
-  return colorizeWords(esc(l)).replace(/[─━│┃║┌┐└┘├┤┬┴┼┏┓┗┛┣┫┳┻╋╭╮╰╯═╔╗╚╝╞╡╤╧╪╟╢╒╕╘╛]+/g,
-    g => `<span class="c-dim">${g}</span>`);
+  return linkify(colorizeWords(esc(l)).replace(/[─━│┃║┌┐└┘├┤┬┴┼┏┓┗┛┣┫┳┻╋╭╮╰╯═╔╗╚╝╞╡╤╧╪╟╢╒╕╘╛]+/g,
+    g => `<span class="c-dim">${g}</span>`));
 }
 // Scale each table block's font (in em, so it rides the pane's own font) until
 // its widest row fits the pane. Reset first so a wider pane can grow it back.
