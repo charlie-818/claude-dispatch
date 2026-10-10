@@ -252,14 +252,23 @@ def _stack_slot(tab):
     Agent panes are stacked, never placed side by side: Claude hard-wraps at the
     pane's width, and a narrow pane reads as text filling half the phone. The
     tallest row is the one halved, so heights stay even and no other pane moves.
+
+    None too once the tallest row can't be halved into two PANE_ROWS-tall panes.
+    Uncapped, six agents in one tab got 7 rows each: Claude's live region (reply,
+    spinner, composer, footer) no longer fit, every repaint spilled a stale copy
+    into scrollback, and the phone's chat showed duplicated lines over a screen
+    of nothing but the composer. A full tab opens a new one instead.
     """
     root = tab.root
     if isinstance(root, iterm2.Session):
-        return root
-    if root.vertical or not all(isinstance(c, iterm2.Session) for c in root.children):
+        slot = root
+    elif root.vertical or not all(isinstance(c, iterm2.Session) for c in root.children):
         return None
-    return max(root.children,
-               key=lambda c: c.grid_size.height if c.grid_size else 0)
+    else:
+        slot = max(root.children,
+                   key=lambda c: c.grid_size.height if c.grid_size else 0)
+    h = slot.grid_size.height if slot.grid_size else 0
+    return slot if h >= 2 * PANE_ROWS + 1 else None
 
 
 async def open_agent_pane(app, cmd):
