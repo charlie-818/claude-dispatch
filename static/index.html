@@ -1611,41 +1611,46 @@ function isBoxRow(l){
   return BOX_JOIN.test(l) || (l.match(/[│┃║]/g) || []).length >= 2;
 }
 // Marks table rows in place: returns kind per line (0 plain, 1 row, 2 header)
-// and block ids, and rewrites pipe tables in `lines` as aligned box grids.
-function findTables(lines){
-  const kind = new Array(lines.length).fill(0), block = new Array(lines.length).fill(-1);
+// and block ids, and rewrites pipe tables in `lines` as aligned box grids. A grid
+// wider than `maxCols` characters is laid out again narrower (reflowBox), which
+// can add lines — `lines` is replaced wholesale, so index it only afterwards.
+function findTables(lines, maxCols){
+  const out = [], kind = [], block = [];
   let id = 0;
+  const grid = rows => {
+    if (maxCols && Math.max(...rows.map(glen)) > maxCols) rows = reflowBox(rows, maxCols) || rows;
+    // header = the cell rows above the first ├ rule (when there is one)
+    const sep = rows.findIndex(l => /^\s*[├┣╞╟]/.test(l));
+    rows.forEach((l, k) => {
+      out.push(l); block.push(id);
+      kind.push(sep > 0 && k < sep && /[│┃║]\s*\S/.test(l) ? 2 : 1);
+    });
+    id++;
+  };
   for (let i = 0; i < lines.length; ){
     if (isBoxRow(lines[i])){
       let j = i;
       while (j < lines.length && isBoxRow(lines[j])) j++;
       if (j - i >= 2){
         compactBox(lines, i, j);
-        // header = the cell rows above the first ├ rule (when there is one)
-        const sep = lines.slice(i, j).findIndex(l => /^\s*[├┣╞╟]/.test(l));
-        for (let k = i; k < j; k++){
-          kind[k] = sep > 0 && k < i + sep && /[│┃║]\s*\S/.test(lines[k]) ? 2 : 1;
-          block[k] = id;
-        }
-        id++;
-      }
+        grid(lines.slice(i, j));
+      } else for (let k = i; k < Math.max(j, i + 1); k++){ out.push(lines[k]); kind.push(0); block.push(-1); }
       i = Math.max(j, i + 1); continue;
     }
     if (PIPE_ROW.test(lines[i])){
       let j = i;
       while (j < lines.length && PIPE_ROW.test(lines[j])) j++;
-      const sepAt = lines.slice(i, j).findIndex(l => PIPE_SEP.test(l));
-      if (j - i >= 2 && sepAt >= 0){
+      if (j - i >= 2 && lines.slice(i, j).some(l => PIPE_SEP.test(l))){
         alignPipes(lines, i, j);
-        for (let k = i; k < j; k++){
-          kind[k] = k < i + sepAt ? 2 : 1; block[k] = id;
-        }
-        id++;
-      }
+        grid(lines.slice(i, j));
+      } else for (let k = i; k < j; k++){ out.push(lines[k]); kind.push(0); block.push(-1); }
       i = j; continue;
     }
+    out.push(lines[i]); kind.push(0); block.push(-1);
     i++;
   }
+  lines.length = 0;
+  for (const l of out) lines.push(l);
   return {kind, block};
 }
 // Claude stretches a table's last column to fill the pane it was drawn in, so on
@@ -1655,14 +1660,20 @@ function findTables(lines){
 // double-width characters that would throw the count off, is left as drawn.
 const BOX_GLYPH = /[│┃║┌┐└┘├┤┬┴┼┏┓┗┛┣┫┳┻╋╭╮╰╯╔╗╚╝╞╡╤╧╪╟╢╒╕╘╛]/;
 const WIDE_CH = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]|\p{Extended_Pictographic}/u;
+// Where a grid's borders sit: the glyph columns of its first row, or null unless
+// every row (as an array of chars) has a border glyph at each of them.
+function gridAt(rows){
+  const at = [];
+  rows[0].forEach((ch, x) => { if (BOX_GLYPH.test(ch)) at.push(x); });
+  if (at.length < 2) return null;
+  const last = at[at.length - 1];
+  return rows.every(r => r.length === last + 1 && at.every(x => BOX_GLYPH.test(r[x]))) ? at : null;
+}
 function compactBox(lines, from, to){
   if (WIDE_CH.test(lines.slice(from, to).join(''))) return;
   const rows = lines.slice(from, to).map(l => Array.from(l));
-  const at = [];
-  rows[0].forEach((ch, x) => { if (BOX_GLYPH.test(ch)) at.push(x); });
-  if (at.length < 2) return;
-  const last = at[at.length - 1];
-  if (!rows.every(r => r.length === last + 1 && at.every(x => BOX_GLYPH.test(r[x])))) return;
+  const at = gridAt(rows);
+  if (!at) return;
   const n = at.length - 1;
   const cell = (r, c) => r.slice(at[c] + 1, at[c + 1]).join('');
   const isRule = r => !/[│┃║]/.test(r[at[0]]);
@@ -1702,6 +1713,98 @@ function alignPipes(lines, from, to){
       ? '│ ' + w.map((cw, c) => (r[c] || '') + ' '.repeat(cw - glen(r[c] || ''))).join(' │ ') + ' │'
       : '├' + w.map(cw => '─'.repeat(cw + 2)).join('┼') + '┤');
   }
+}
+// A grid too wide to read on this pane at any legible size (a three-column
+// table drawn on a 214-column terminal, opened on a phone) is laid out again
+// narrower, the way Claude does on a narrow terminal: narrow columns keep their
+// width, wide ones share what is left, and cell text word-wraps inside them.
+// When ├ rules separate the body rows, the lines between two rules are one row
+// that Claude already wrapped, so its cells are rejoined before wrapping again.
+// Returns the new lines, or null to leave the grid as drawn.
+function reflowBox(block, maxCols){
+  if (WIDE_CH.test(block.join(''))) return null;
+  const rows = block.map(l => Array.from(l));
+  const at = gridAt(rows);
+  if (!at) return null;
+  const n = at.length - 1;
+  const isRule = r => !/[│┃║]/.test(r[at[0]]);
+  let indent = rows[0].slice(0, at[0]).join('');
+  let budget = maxCols - glen(indent) - (3 * n + 1);
+  if (budget < 4 * n){ indent = ''; budget = maxCols - (3 * n + 1); }
+  if (budget < 4 * n) return null;          // too many columns to wrap usefully
+  const spans = rows.slice(1, -1).filter(isRule).length > 1;
+  const items = [];                          // {rule} | {cells, centre}
+  let cur = null;
+  for (const r of rows){
+    if (isRule(r)){ items.push({rule: r}); cur = null; continue; }
+    const raw = Array.from({length: n}, (_, c) => r.slice(at[c] + 1, at[c + 1]).join(''));
+    if (cur){
+      raw.forEach((t, c) => { t = t.trim(); if (t) cur.cells[c] = cur.cells[c] ? cur.cells[c] + ' ' + t : t; });
+      continue;
+    }
+    // keep Claude's centring (headers), as compactBox does
+    cur = {cells: raw.map(t => t.trim()), centre: raw.map(t => {
+      const lp = t.length - t.trimStart().length, rp = t.length - t.trimEnd().length;
+      return !!t.trim() && lp > 1 && Math.abs(lp - rp) <= 1; })};
+    items.push(cur);
+    if (!spans) cur = null;
+  }
+  const cells = items.filter(it => it.cells);
+  const need = Array.from({length: n}, (_, c) =>
+    Math.max(1, ...cells.map(it => glen(it.cells[c]))));
+  if (need.reduce((a, b) => a + b, 0) <= budget) return null;
+  const w = new Array(n);
+  let left = budget, open = need.map((_, c) => c);
+  while (open.length){
+    const share = Math.floor(left / open.length);
+    const fits = open.filter(c => need[c] <= share);
+    if (!fits.length){
+      open.forEach((c, k) => { w[c] = share + (k < left - share * open.length ? 1 : 0); });
+      break;
+    }
+    fits.forEach(c => { w[c] = need[c]; left -= need[c]; });
+    open = open.filter(c => need[c] > share);
+  }
+  const v = rows.find(r => !isRule(r))[at[0]];
+  const out = [];
+  for (const it of items){
+    if (it.rule){
+      const r = it.rule;
+      let s = indent + r[at[0]];
+      for (let c = 0; c < n; c++) s += r[at[c] + 1].repeat(w[c] + 2) + r[at[c + 1]];
+      out.push(s); continue;
+    }
+    const lines = it.cells.map((t, c) => wrapCell(t, w[c]));
+    const h = Math.max(...lines.map(x => x.length));
+    for (let y = 0; y < h; y++){
+      let s = indent + v;
+      for (let c = 0; c < n; c++){
+        const t = lines[c][y] || '', gap = w[c] - glen(t);
+        const lp = it.centre[c] ? Math.floor(gap / 2) : 0;
+        s += ' ' + ' '.repeat(lp) + t + ' '.repeat(gap - lp) + ' ' + v;
+      }
+      out.push(s);
+    }
+  }
+  return out;
+}
+// Word-wrap one cell's text to `w` characters; a word longer than that is broken.
+function wrapCell(t, w){
+  const out = [];
+  let line = '';
+  for (let word of t.split(/\s+/).filter(Boolean)){
+    while (glen(word) > w){
+      if (line){ out.push(line); line = ''; }
+      const a = Array.from(word);
+      out.push(a.slice(0, w).join('')); word = a.slice(w).join('');
+    }
+    if (!word) continue;
+    if (!line) line = word;
+    else if (glen(line) + 1 + glen(word) <= w) line += ' ' + word;
+    else { out.push(line); line = word; }
+  }
+  if (line || !out.length) out.push(line);
+  return out;
 }
 // Borders dim, cell text plain — the grid should recede behind the data.
 function colorizeTable(l){
@@ -2987,7 +3090,7 @@ function paint(force){
   const liveLines = (liveT || '').split('\n');
   const histLines = hist ? hist.split('\n') : [];
   const rawLines = histLines.length ? histLines.concat(liveLines) : liveLines;
-  const tbl = findTables(rawLines);           // may re-pad pipe tables in place
+  const tbl = findTables(rawLines, tableBudget(p));   // may re-pad or re-lay grids
   const lines = rawLines.map((l, i) => tbl.kind[i] ? colorizeTable(l) : colorizeLine(l, prov));
   // A running pane pushes a frame twice a second because its spinner glyph
   // moved — text the chrome stripper throws away. Rendering those frames is
@@ -3111,6 +3214,30 @@ const PANE_PAD = 22;                    // .pane padding both sides, +1px slack
                                         // each side so subpixel rounding can't
                                         // trip the scrollbar on
 const MIN_PX = 4;                       // tiny, but pinch-zoom can read it
+// Widest grid, in characters, the pane can show at a size still worth reading;
+// findTables lays wider ones out again narrower. Wrap mode reads at the phone's
+// own size, so a grid may shrink to 9px and no further. Fit mode already scales
+// everything to the terminal's width, so there only a grid that would bottom
+// out at MIN_PX (and run off the edge) is touched.
+const TABLE_READ_PX = 9;
+let chPerPx = 0, chFont = '';
+function tableBudget(p){
+  const avail = p.clientWidth - PANE_PAD;
+  if (avail <= 0) return 0;
+  const fam = getComputedStyle(p).fontFamily;
+  if (fam !== chFont){
+    const probe = document.createElement('span');
+    probe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;'
+      + 'font-family:' + fam + ';font-size:100px';
+    probe.textContent = '0'.repeat(10);
+    document.body.appendChild(probe);
+    chPerPx = probe.getBoundingClientRect().width / 1000;
+    probe.remove();
+    chFont = fam;
+  }
+  if (!chPerPx) return 0;
+  return Math.floor(avail / (chPerPx * (fitMode === 1 ? TABLE_READ_PX : MIN_PX)));
+}
 
 /* Scale the font so every line fits the viewport exactly — no soft wrap, no
    horizontal scroll. Measured, not guessed: glyph width varies by device and
