@@ -276,7 +276,8 @@ async def open_agent_pane(app, cmd):
 
     Stacks into the stackable tab that already holds the most agents. With no
     such tab (only side-by-side grids, or a tab of plain shells), it opens a new
-    tab in the fleet's window and stacking carries on there. None if no window.
+    tab in the fleet's window and stacking carries on there; with no window at all
+    it opens one.
     """
     best, best_n = None, 0
     for w in app.terminal_windows:
@@ -292,7 +293,11 @@ async def open_agent_pane(app, cmd):
             vertical=False, before=False, profile_customizations=custom)
     tab = fleet_tab(app)
     if tab is None:
-        return None
+        # No window the API can see (e.g. right after iTerm2 relaunched) — open
+        # one rather than refusing the spawn.
+        win = await iterm2.Window.async_create(
+            app.connection, profile_customizations=custom)
+        return win.current_tab.current_session if win else None
     new = await tab.window.async_create_tab(profile_customizations=custom)
     return new.current_session
 
