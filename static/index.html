@@ -240,6 +240,10 @@
   .pane .ln.tbl,.pane.wrap .ln.tbl{white-space:pre;overflow-wrap:normal;
     padding-inline-start:0;text-indent:0;overflow:visible}
   .pane .ln.th{font-weight:700}
+  /* bold box glyphs fall back to a wider font, so a bold header's │s drift right
+     and its last one pokes out past the grid like an extra column — keep the
+     borders at regular weight so every row is the same width */
+  .pane .ln.tbl .c-dim{font-weight:400}
   .pane .line-link{color:inherit;text-decoration:underline;pointer-events:auto;cursor:pointer}
   .pane .codex-divider,.pane .fitline{display:block;width:100%;max-width:100%;
     overflow:hidden;white-space:nowrap;overflow-wrap:normal}
