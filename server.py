@@ -1443,14 +1443,15 @@ _PROMPT_NOISE = ("Caveat:", "<command-name>", "<command-message>", "<local-comma
                  # harness-injected turns the other clients open a session with —
                  # same list cc-dashboard filters on, so the counts agree
                  "task-notification", "<environment_context", "<channel",
-                 "# AGENTS.md instructions", "<INSTRUCTIONS>")
+                 "# AGENTS.md instructions", "<INSTRUCTIONS>", "<user_info>")
 # The harness staples these onto ordinary user turns — CLAUDE.md context, memory
 # recalls, task nudges — so their presence says nothing about who typed the turn.
 # They come off before the noise test; what is left is what the human actually
 # sent. A Telegram-relayed prompt is likewise a real prompt, so its envelope is
 # stripped rather than treated as noise.
 _WRAPPERS = re.compile(
-    r"<system-reminder>.*?</system-reminder>|<channel\b[^>]*>|</channel>", re.S)
+    r"<system-reminder>.*?</system-reminder>|<channel\b[^>]*>|</channel>"
+    r"|</?user_query>", re.S)
 _USER_QUERY = re.compile(r"<user_query>\s*(.*?)\s*</user_query>", re.S)
 
 
@@ -5916,7 +5917,7 @@ def _kick_history():
 # the first history view can answer. Entries are keyed on mtime+size, so a
 # stale file is simply re-scanned.
 SCAN_CACHE_FILE = HERE / ".scan_cache.pkl"
-SCAN_CACHE_VERSION = 3          # 3: labeler sessions dropped from history
+SCAN_CACHE_VERSION = 4          # 4: labeler sessions dropped from history
 _scan_cache_loaded = [False]
 
 
