@@ -5916,7 +5916,7 @@ def _kick_history():
 # the first history view can answer. Entries are keyed on mtime+size, so a
 # stale file is simply re-scanned.
 SCAN_CACHE_FILE = HERE / ".scan_cache.pkl"
-SCAN_CACHE_VERSION = 2          # 2: codex packs keep closed limit windows
+SCAN_CACHE_VERSION = 3          # 3: labeler sessions dropped from history
 _scan_cache_loaded = [False]
 
 
