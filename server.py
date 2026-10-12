@@ -1454,10 +1454,17 @@ _WRAPPERS = re.compile(
 _USER_QUERY = re.compile(r"<user_query>\s*(.*?)\s*</user_query>", re.S)
 
 
+def _is_labeler(txt):
+    """Our own status-bar labeling request (_provider_summary), past or present
+    wording — saved as a session by `claude -p` and `grok --single`."""
+    txt = (txt or "").lstrip()
+    return txt.startswith("You are labeling a") and "coding session" in txt[:80]
+
+
 def human_prompt(txt):
     """The human-typed part of a user turn, or "" if the turn wasn't one."""
     txt = _WRAPPERS.sub("", txt or "").strip()
-    if not txt or any(s in txt for s in _PROMPT_NOISE):
+    if not txt or _is_labeler(txt) or any(s in txt for s in _PROMPT_NOISE):
         return ""
     return txt
 
@@ -5475,6 +5482,7 @@ def _scan_grok_session(sdir):
     prompts = 0
     blurb = []; blurb_len = 0
     last_prompt = ""
+    labeler = False
     try:
         with open(chat_path, errors="ignore") as fh:
             for line in fh:
@@ -5489,6 +5497,8 @@ def _scan_grok_session(sdir):
                 txt = " ".join(x.get("text", "") for x in (o.get("content") or [])
                                if isinstance(x, dict) and x.get("type") == "text")
                 clean = human_prompt(txt)
+                if _is_labeler(txt):
+                    labeler = True
                 if not clean:
                     continue
                 prompts += 1
@@ -5499,6 +5509,9 @@ def _scan_grok_session(sdir):
                     blurb.append(take); blurb_len += len(take)
     except OSError:
         pass
+    # `grok --single` saves each status-bar labeling run as its own session.
+    if labeler and not prompts:
+        return None
     if not title:
         title = last_prompt
     if last is None:
@@ -5746,6 +5759,7 @@ def _scan_history_file(path):
     cwd = None; model = None; first = last = None; prompts = 0
     itok = otok = cctok = crtok = 0; seen = set(); title = first_title = ""
     blurb = []; blurb_len = 0                # all user prompts, for search
+    labeler = False
     for ln in lines:
         try:
             o = json.loads(ln)
@@ -5764,6 +5778,8 @@ def _scan_history_file(path):
                 content = " ".join(c.get("text", "") for c in content
                                    if isinstance(c, dict) and c.get("type") == "text")
             clean = human_prompt(content) if isinstance(content, str) else ""
+            if isinstance(content, str) and _is_labeler(content):
+                labeler = True
             if clean:
                 prompts += 1
                 clean = clean.replace("\n", " ")
@@ -5795,7 +5811,7 @@ def _scan_history_file(path):
     if last is None:
         return None
     # Skip our own headless summariser runs (claude -p labeler) — not fleet agents.
-    if first_title.startswith("You are labeling a") and "coding session" in first_title:
+    if labeler and not prompts:
         return None
     cost = HIST.model_cost(model or "unknown", itok, otok, cctok, crtok) if model else 0.0
     return {
