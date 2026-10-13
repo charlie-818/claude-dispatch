@@ -660,27 +660,36 @@
     background:var(--red);transform:scale(1.14)}
 
   /* List view: the same panes as plain rows, newest message first — for when
-     the yard is too busy to scan. Rides on the .card row system (status edge,
-     state word) and covers the clawds rather than tearing them down, so
-     flipping back is instant and nobody loses their spot. */
+     the yard is too busy to scan. Same --bg as the header so the two read as
+     one surface; a dot carries state in the yard's colours (green working, red
+     needs you). It covers the clawds rather than tearing them down, so flipping
+     back is instant and nobody loses their spot. */
   #yard-list{position:absolute;inset:0;z-index:7;display:none;overflow-y:auto;
     overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
-    background:var(--bg);padding-bottom:86px;user-select:none;-webkit-user-select:none}
+    background:var(--bg);padding:0 0 86px;user-select:none;-webkit-user-select:none}
   #yard.listing #yard-list{display:block}
   #yard.listing > :not(#yard-list):not(#yard-status):not(.fab){visibility:hidden}
-  #yard-list .card{width:100%;border:none;border-bottom:1px solid var(--line);
-    text-align:left;color:var(--fg);font:inherit;-webkit-tap-highlight-color:transparent}
-  #yard-list .card.working .dot{background:var(--green)}
-  #yard-list .card.working .tag{background:rgba(61,220,92,.14);color:var(--green)}
-  #yard-list .card.working .row2{color:var(--fg2)}
-  #yard-list .name{font-size:15px}
-  #yard-list .when{flex:none;font:500 11px var(--mono);color:var(--dimmer)}
-  #yard-list .row2 .verb{color:var(--green)}
-  #yard-list .card.waiting .row2 .verb{color:var(--red)}
-  #yard-list .row1 .hm-brand{display:inline-flex;align-items:center;justify-content:center;
-    width:18px;height:18px;flex:none;border-radius:50%;background:#fff;overflow:hidden}
-  #yard-list .row1 .hm-brand img{width:13px;height:13px;object-fit:contain}
-  #yard-list .row1 .hm-brand-fallback{font:700 9px var(--ui);color:#222}
+  .yl{display:block;width:100%;background:var(--bg);border:none;text-align:left;
+    padding:12px 16px;color:var(--fg);font:inherit;cursor:pointer;
+    -webkit-tap-highlight-color:transparent;position:relative}
+  .yl + .yl::before{content:'';position:absolute;top:0;left:34px;right:16px;
+    border-top:1px solid var(--line)}
+  .yl:active{background:var(--panel)}
+  .yl-top{display:flex;align-items:center;gap:11px}
+  .yl-dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--line2)}
+  .yl.working .yl-dot{background:var(--green)}
+  .yl.waiting .yl-dot{background:var(--red);animation:pulse 1.3s infinite}
+  .yl-name{flex:1;min-width:0;font:600 14px/1.3 var(--ui);color:var(--fg);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .yl.idle .yl-name{color:var(--fg2)}
+  .yl.ended .yl-name{color:var(--dimmer)}
+  .yl-when{flex:none;font:500 11px var(--mono);color:var(--dimmer)}
+  .yl-act{margin:3px 0 0 18px;font:400 12.5px/1.35 var(--ui);color:var(--dim);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .yl-act:empty{display:none}
+  .yl-act .verb{color:var(--green)}
+  .yl.waiting .yl-act{color:var(--amber)}
+  .yl.waiting .yl-act .verb{color:var(--red)}
 
   .critter{position:absolute;left:0;top:0;width:80px;height:100px;z-index:4;
     transform:translate(-999px,-999px);cursor:pointer;touch-action:none;
@@ -1963,41 +1972,53 @@ function renderFleet(rows){
 }
 
 /* ── list view ─────────────────────────────────────────
-   The yard as rows, most recent message on top. "Last message" is the
-   transcript's mtime — it moves on every turn, from either side — with the
-   hook clock as a fallback for panes that have no statusline file yet. */
-const lastMsg = r => r.mtime || r.work_since || 0;
+   The yard as rows, most recent message on top. The sort key must only move
+   when a message actually goes in or comes out, or working rows shuffle on
+   every token: work_since is the .state file the UserPromptSubmit/Stop hooks
+   rewrite, so it is exactly that. Panes without hooks (codex, grok) fall back
+   to the moment this client saw their state flip. */
 const yardListing = () => document.getElementById('yard').classList.contains('listing');
+const SEEN_ST = new Map();          // uuid -> {st, t} for panes with no hook clock
+function lastMsg(r){
+  if (r.work_since) return r.work_since;
+  const st = stateOf(r), k = SEEN_ST.get(r.uuid);
+  if (!k) SEEN_ST.set(r.uuid, {st, t: r.mtime || Date.now()/1000});
+  else if (k.st !== st) SEEN_ST.set(r.uuid, {st, t: Date.now()/1000});
+  return SEEN_ST.get(r.uuid).t;
+}
 function agoShort(t){
   if (!t) return '';
   const s = Math.max(0, Math.round(Date.now()/1000 - t));
   return s < 60 ? 'now' : s < 3600 ? `${Math.floor(s/60)}m`
        : s < 86400 ? `${Math.floor(s/3600)}h` : `${Math.floor(s/86400)}d`;
 }
+/* Keyed reconcile, not innerHTML: rows keep their nodes across ticks, so a
+   repaint never flickers, and only a real change of order moves anything. */
 function renderYardList(rows){
   const el = document.getElementById('yard-list');
-  const keep = el.scrollTop;
-  el.innerHTML = [...(rows || SESSIONS)]
-    .sort((a, b) => lastMsg(b) - lastMsg(a) || a.name.localeCompare(b.name))
-    .map(r => {
-      const st = stateOf(r);
-      const word = st === 'waiting' ? 'NEEDS YOU' : st.toUpperCase();
-      const meta = [r.model ? `<span>${esc(r.model)}</span>` : '',
-        r.ctx != null ? `<span><b>${Math.round(r.ctx)}%</b> ctx</span>` : '',
-        r.cost ? `<span>${esc(fmtUsd(r.cost))}</span>` : '',
-        r.bg ? `<span>${r.bg} bg</span>` : ''].join('');
-      return `<button class="card ${st}" role="listitem" data-u="${esc(r.uuid)}">
-        <span class="dot"></span>
-        <div class="body">
-          <div class="row1">${r.provider ? agentLogo(r.provider) : ''}
-            <span class="name">${esc(r.name)}</span>
-            <span class="tag">${word}</span>
-            <span class="when">${esc(agoShort(lastMsg(r)))}</span></div>
-          ${st === 'working' || st === 'waiting' ? `<div class="row2">${bubbleHTML(r)}</div>` : ''}
-          ${meta ? `<div class="row3">${meta}</div>` : ''}
-        </div></button>`;
-    }).join('');
-  el.scrollTop = keep;
+  const list = [...(rows || SESSIONS)].map(r => ({r, t: lastMsg(r)}))
+    .sort((a, b) => b.t - a.t || a.r.name.localeCompare(b.r.name));
+  const have = new Map([...el.children].map(n => [n.dataset.u, n]));
+  list.forEach(({r, t}, i) => {
+    let n = have.get(r.uuid); have.delete(r.uuid);
+    if (!n){
+      n = document.createElement('button');
+      n.dataset.u = r.uuid; n.setAttribute('role', 'listitem');
+      n.innerHTML = '<div class="yl-top"><i class="yl-dot"></i><span class="yl-name"></span>'
+        + '<span class="yl-when"></span></div><div class="yl-act"></div>';
+    }
+    const st = stateOf(r);
+    n.className = 'yl ' + st;
+    n.querySelector('.yl-name').textContent = r.name;
+    n.querySelector('.yl-when').textContent = agoShort(t);
+    // Only say something the dot doesn't: the tool in hand, or the question.
+    const ac = st === 'working' || st === 'waiting' ? activity(r) : {};
+    const act = st === 'waiting' ? esc(ac.rest)
+      : ac.verb ? `<span class="verb">${esc(ac.verb)}</span> ${esc(ac.rest)}` : '';
+    const a = n.querySelector('.yl-act'); if (a.innerHTML !== act) a.innerHTML = act;
+    if (el.children[i] !== n) el.insertBefore(n, el.children[i] || null);
+  });
+  have.forEach(n => n.remove());
 }
 function setYardView(list){
   document.getElementById('yard').classList.toggle('listing', list);
@@ -2010,7 +2031,7 @@ function setYardView(list){
 }
 function toggleYardView(){ buzz(8); setYardView(!yardListing()); }
 document.getElementById('yard-list').addEventListener('click', e => {
-  const c = e.target.closest('.card'); if (c) openSession(c.dataset.u);
+  const c = e.target.closest('.yl'); if (c) openSession(c.dataset.u);
 });
 try { if (localStorage.getItem('yardView') === 'list') setYardView(true); } catch(e){}
 
@@ -3961,6 +3982,28 @@ function renderSheet(){
     title.textContent = 'keys';
     KEYSET.forEach(([k, label, desc]) => body.appendChild(opt(label, {
       desc, dis: !send, on: () => { key(k); closeSheet(); }})));
+  }
+
+  else if (openKind === 'rewind'){
+    title.textContent = 'rewind';
+    const note = (msg, warn) => {
+      const n = document.createElement('div');
+      n.className = 'sheet-note' + (warn ? ' warn' : ''); n.innerHTML = msg;
+      body.appendChild(n);
+    };
+    if (!REWIND) note('reading checkpoints' + DOTS);
+    else if (REWIND.error) note(esc(REWIND.error), true);
+    else {
+      // newest first: the turn you want back is nearly always a recent one
+      const rows = REWIND.items.filter(it => !it.current).reverse();
+      if (!rows.length) note('no checkpoints in this session yet');
+      rows.forEach(it => body.appendChild(opt(it.label || '(empty)', {
+        desc: it.meta, cls: 'rw', dis: !send,
+        on: () => pickRewind(it.i)})));
+      if (REWIND.draft) note('cleared from the composer: ' + esc(REWIND.draft));
+      if (REWIND.truncated) note('older checkpoints not listed');
+      if (rows.length) note('picking one asks the pane what to restore');
+    }
   }
 
   else if (openKind === 'cmd'){
