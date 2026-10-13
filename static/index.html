@@ -244,6 +244,10 @@
      and its last one pokes out past the grid like an extra column — keep the
      borders at regular weight so every row is the same width */
   .pane .ln.tbl .c-dim{font-weight:400}
+  /* phone monospace fonts often lack box-drawing glyphs, and the fallback font
+     draws them wider than a text cell — so ─ rules outgrow the text rows and the
+     junctions drift off the │s. Pin every box glyph to one text cell, centred. */
+  .pane .ln.tbl .bx{display:inline-flex;justify-content:center;width:1ch;overflow:hidden}
   .pane .line-link{color:inherit;text-decoration:underline;pointer-events:auto;cursor:pointer}
   .pane .codex-divider,.pane .fitline{display:block;width:100%;max-width:100%;
     overflow:hidden;white-space:nowrap;overflow-wrap:normal}
@@ -1632,6 +1636,7 @@ function findTables(lines, maxCols){
       let j = i;
       while (j < lines.length && isBoxRow(lines[j])) j++;
       if (j - i >= 2){
+        for (let k = i; k < j; k++) lines[k] = mendRule(lines[k]);
         compactBox(lines, i, j);
         grid(lines.slice(i, j));
       } else for (let k = i; k < Math.max(j, i + 1); k++){ out.push(lines[k]); kind.push(0); block.push(-1); }
@@ -1668,6 +1673,12 @@ function gridAt(rows){
   if (at.length < 2) return null;
   const last = at[at.length - 1];
   return rows.every(r => r.length === last + 1 && at.every(x => BOX_GLYPH.test(r[x]))) ? at : null;
+}
+// iTerm2 sometimes hands back one rule glyph as a pair of U+FFFDs, which makes
+// that rule a column longer than the rest of the grid — put the glyph back.
+function mendRule(l){
+  if (!l.includes('\ufffd') || /[^\s\ufffd─━═┌┐└┘├┤┬┴┼┏┓┗┛┣┫┳┻╋╭╮╰╯╔╗╚╝╞╡╤╧╪╟╢╒╕╘╛]/.test(l)) return l;
+  return l.replace(/\ufffd+/g, (_, at) => /[━═]/.test(l[at - 1]) ? l[at - 1] : '─');
 }
 function compactBox(lines, from, to){
   if (WIDE_CH.test(lines.slice(from, to).join(''))) return;
@@ -1809,7 +1820,7 @@ function wrapCell(t, w){
 // Borders dim, cell text plain — the grid should recede behind the data.
 function colorizeTable(l){
   return linkify(colorizeWords(esc(l)).replace(/[─━│┃║┌┐└┘├┤┬┴┼┏┓┗┛┣┫┳┻╋╭╮╰╯═╔╗╚╝╞╡╤╧╪╟╢╒╕╘╛]+/g,
-    g => `<span class="c-dim">${g}</span>`));
+    g => `<span class="c-dim">${Array.from(g, ch => `<span class="bx">${ch}</span>`).join('')}</span>`));
 }
 // Scale each table block's font (in em, so it rides the pane's own font) until
 // its widest row fits the pane. Reset first so a wider pane can grow it back.
