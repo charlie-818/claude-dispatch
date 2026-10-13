@@ -222,15 +222,18 @@
   /* overscroll-behavior:contain keeps a flick that runs past the end of the
      transcript inside the pane — without it the rubber band hands the gesture
      to the page and the scroll dies halfway. */
-  /* Wraps the pane so the optimistic send echo can float over its bottom edge
+  /* Wraps the pane so the optimistic send echo can sit under it
      without becoming a child paint() has to diff — paint() only ever touches
      #pane's own .ln rows. */
-  .panewrap{position:relative;flex:1;min-height:0;display:flex;flex-direction:column}
-  .paneecho{position:absolute;left:10px;right:10px;bottom:0;pointer-events:none;
-    display:flex;flex-direction:column;gap:2px;padding:0 0 4px;
+  .panewrap{flex:1;min-height:0;display:flex;flex-direction:column}
+  /* in flow under the pane, not floating over it — floating, it sat on top of
+     the newest output. The pane shrinks by its height and stays pinned. */
+  .paneecho{flex:none;pointer-events:none;background:var(--bg);
+    display:flex;flex-direction:column;gap:2px;padding:2px 10px 6px;
     font-family:var(--mono);font-size:11px;line-height:1.42}
   .paneecho .echoln{color:var(--fg);opacity:.5;white-space:pre-wrap;
     overflow-wrap:anywhere;animation:echopulse 1.5s ease-in-out infinite}
+  .paneecho:not(:has(.echoln:not([hidden]))){display:none}
   .paneecho .echoln .c-sel{font-weight:600}
   @keyframes echopulse{0%,100%{opacity:.5}50%{opacity:.25}}
   @media(prefers-reduced-motion:reduce){.paneecho .echoln{animation:none;opacity:.4}}
@@ -5183,7 +5186,7 @@ async function uploadFiles(files, btnId){
 
 /* ── optimistic send echo ──────────────────────────────
    Claude.ai/ChatGPT-style instant feedback: the moment you tap send, a dimmed
-   "❯ text" row appears floating over the pane's bottom edge (see .paneecho —
+   "❯ text" row appears just under the pane (see .paneecho —
    a sibling of #pane, never one of paint()'s diffed .ln rows). It's removed
    once the real frame catches up, on a 10s backstop, or immediately on error.
    Multiple quick sends stack top-to-bottom. */
@@ -5204,6 +5207,7 @@ function addPendingEcho(text){
   el.hidden = false;
   entry.timer = setTimeout(() => removePendingEcho(entry), 10000);
   pendingEchoes.push(entry);
+  echoRepin();
   return entry;
 }
 function removePendingEcho(entry){
@@ -5212,12 +5216,19 @@ function removePendingEcho(entry){
   pendingEchoes.splice(i, 1);
   clearTimeout(entry.timer);
   entry.el.remove();
+  echoRepin();
+}
+// The echo row takes height off the pane; keep a pinned view on the newest line.
+function echoRepin(){
+  const p = document.getElementById('pane');
+  if (pinBottom && p) p.scrollTop = p.scrollHeight;
 }
 // An echo belongs to the chat it was sent from: switching panes hides it (it
 // keeps its 10s backstop), and coming back shows it again if still pending.
 function showPendingEchoes(){
   const uuid = current && current.uuid;
   pendingEchoes.forEach(e => { e.el.hidden = e.uuid !== uuid; });
+  echoRepin();
 }
 function checkPendingEchoes(){
   if (!pendingEchoes.length) return;
