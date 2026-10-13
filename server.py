@@ -7661,6 +7661,28 @@ async def api_sysinfo(request):
 
 _PING_BAT = {"t": 0.0, "v": None}
 
+_BUILD_ID = {"mtime": None, "id": None}
+
+
+def _build_id():
+    """Short hash of static/index.html, recomputed only when its mtime moves —
+    so an open phone tab can poll /api/ping and notice a deploy without us
+    hashing the whole file on every ping."""
+    import hashlib
+    path = HERE / "static" / "index.html"
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return _BUILD_ID["id"] or ""
+    if _BUILD_ID["mtime"] != mtime:
+        try:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+        except OSError:
+            return _BUILD_ID["id"] or ""
+        _BUILD_ID["mtime"] = mtime
+        _BUILD_ID["id"] = digest
+    return _BUILD_ID["id"]
+
 
 def _ping_battery():
     """Charge level for the Devices list on every OTHER machine.
@@ -7691,7 +7713,7 @@ async def api_ping(request):
     return web.json_response(
         {"dispatch": True, "host": ts_self_host(),
          "url": self_origin(), "name": self_.get("name", ""),
-         "battery": _ping_battery()},
+         "battery": _ping_battery(), "build": _build_id()},
         headers={"Access-Control-Allow-Origin": "*"})
 
 

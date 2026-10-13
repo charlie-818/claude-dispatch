@@ -6692,9 +6692,52 @@ function start(){
   const dl = new URLSearchParams(location.search);
   if (dl.get('screen') === 'usage') showUsage();
   else if (dl.get('screen') === 'sys') showSys();
-  PENDING_PANE = dl.get('pane') || '';
+  let savedPane = '';
+  try {
+    savedPane = sessionStorage.getItem('dispatch-pane') || '';
+    sessionStorage.removeItem('dispatch-pane');
+  } catch {}
+  PENDING_PANE = savedPane || dl.get('pane') || '';
+  try {
+    const draft = sessionStorage.getItem('dispatch-draft');
+    if (draft){ sessionStorage.removeItem('dispatch-draft'); input.value = draft; autosize(); }
+  } catch {}
 }
 gate();
+
+/* Build-drift reload: an open phone tab outlives the server it's pointed at.
+   Poll /api/ping for a build id and, the moment it disagrees with the page's
+   own, reload — but only when it's safe to yank the DOM out from under the
+   user (no open sheet, not mid-scroll/gesture, not typing), and never twice
+   for the same target build inside 30s. */
+let MY_BUILD = null;
+async function checkBuild(){
+  let d;
+  try {
+    const r = await fetch('/api/ping', {cache: 'no-store'});
+    d = await r.json();
+  } catch { return; }
+  if (!d || !d.build) return;
+  if (MY_BUILD === null){ MY_BUILD = d.build; return; }   // first ping: that's "us"
+  if (d.build === MY_BUILD) return;
+  const safe = openKind === null && !userScrolling &&
+               document.activeElement !== input;
+  if (!safe) return;                 // retried on the next check, no harm done
+  let last = {};
+  try { last = JSON.parse(sessionStorage.getItem('dispatch-reload') || '{}'); } catch {}
+  if (last.build === d.build && Date.now() - (last.t || 0) < 30000) return;
+  try {
+    sessionStorage.setItem('dispatch-reload', JSON.stringify({build: d.build, t: Date.now()}));
+    sessionStorage.setItem('dispatch-draft', input.value || '');
+    sessionStorage.setItem('dispatch-pane', (current && current.uuid) || '');
+  } catch {}
+  location.reload();
+}
+setInterval(() => { if (document.visibilityState === 'visible') checkBuild(); }, 60000);
+window.addEventListener('online', checkBuild);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') checkBuild();
+});
 </script>
 
 <div id="lock">
