@@ -176,6 +176,15 @@
   header .bell:active{transform:scale(.92)}
   header .bell.on{color:var(--blue);border-color:var(--blue)}
   header .bell.busy{opacity:.5}
+  /* yard ⇄ list toggle: the bell's square, and it shows where a tap takes you */
+  header .vtog{flex:none;background:var(--panel3);border:1px solid var(--line2);
+    border-radius:var(--r);color:var(--dim);width:32px;height:32px;cursor:pointer;
+    padding:0;display:flex;align-items:center;justify-content:center}
+  header .vtog svg{width:17px;height:17px;display:block}
+  header .vtog:active{transform:scale(.92)}
+  header .vtog .i-yard{display:none}
+  header .vtog[aria-pressed="true"] .i-list{display:none}
+  header .vtog[aria-pressed="true"] .i-yard{display:block}
   /* Socket liveness lives on the logo: greyed mark = not connected. One less
      piece of chrome in a header that is mostly brand. */
   #brand{opacity:.5;filter:grayscale(.9);transition:opacity .2s,filter .2s}
@@ -649,6 +658,29 @@
   .trash.on{opacity:1;transform:scale(1)}
   .trash.hot{border-color:var(--red);border-style:solid;color:#2a0606;
     background:var(--red);transform:scale(1.14)}
+
+  /* List view: the same panes as plain rows, newest message first — for when
+     the yard is too busy to scan. Rides on the .card row system (status edge,
+     state word) and covers the clawds rather than tearing them down, so
+     flipping back is instant and nobody loses their spot. */
+  #yard-list{position:absolute;inset:0;z-index:7;display:none;overflow-y:auto;
+    overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+    background:var(--bg);padding-bottom:86px;user-select:none;-webkit-user-select:none}
+  #yard.listing #yard-list{display:block}
+  #yard.listing > :not(#yard-list):not(#yard-status):not(.fab){visibility:hidden}
+  #yard-list .card{width:100%;border:none;border-bottom:1px solid var(--line);
+    text-align:left;color:var(--fg);font:inherit;-webkit-tap-highlight-color:transparent}
+  #yard-list .card.working .dot{background:var(--green)}
+  #yard-list .card.working .tag{background:rgba(61,220,92,.14);color:var(--green)}
+  #yard-list .card.working .row2{color:var(--fg2)}
+  #yard-list .name{font-size:15px}
+  #yard-list .when{flex:none;font:500 11px var(--mono);color:var(--dimmer)}
+  #yard-list .row2 .verb{color:var(--green)}
+  #yard-list .card.waiting .row2 .verb{color:var(--red)}
+  #yard-list .row1 .hm-brand{display:inline-flex;align-items:center;justify-content:center;
+    width:18px;height:18px;flex:none;border-radius:50%;background:#fff;overflow:hidden}
+  #yard-list .row1 .hm-brand img{width:13px;height:13px;object-fit:contain}
+  #yard-list .row1 .hm-brand-fallback{font:700 9px var(--ui);color:#222}
 
   .critter{position:absolute;left:0;top:0;width:80px;height:100px;z-index:4;
     transform:translate(-999px,-999px);cursor:pointer;touch-action:none;
@@ -1227,8 +1259,14 @@
     <button class="bell" id="bell" onclick="toggleNotify()" aria-label="notifications" title="notifications">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
     </button>
+    <button class="vtog" id="vtog" onclick="toggleYardView()" aria-pressed="false"
+            aria-label="list view" title="list view">
+      <svg class="i-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
+      <svg class="i-yard" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+    </button>
   </header>
   <div id="yard">
+    <div id="yard-list" role="list"></div>
     <div id="yard-status" class="quiet"><span class="dots"><i></i><i></i><i></i></span></div>
     <div class="trash" id="trash" aria-hidden="true">✕</div>
     <button class="fab" id="fab" onclick="spawnSession()" title="new session"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>
@@ -1921,7 +1959,60 @@ function renderFleet(rows){
   if (!rows.length){ st.textContent = 'no agent panes found'; st.style.display = 'flex'; }
   else { st.style.display = 'none'; }
   syncCritters(rows);
+  if (yardListing()) renderYardList(rows);
 }
+
+/* ── list view ─────────────────────────────────────────
+   The yard as rows, most recent message on top. "Last message" is the
+   transcript's mtime — it moves on every turn, from either side — with the
+   hook clock as a fallback for panes that have no statusline file yet. */
+const lastMsg = r => r.mtime || r.work_since || 0;
+const yardListing = () => document.getElementById('yard').classList.contains('listing');
+function agoShort(t){
+  if (!t) return '';
+  const s = Math.max(0, Math.round(Date.now()/1000 - t));
+  return s < 60 ? 'now' : s < 3600 ? `${Math.floor(s/60)}m`
+       : s < 86400 ? `${Math.floor(s/3600)}h` : `${Math.floor(s/86400)}d`;
+}
+function renderYardList(rows){
+  const el = document.getElementById('yard-list');
+  const keep = el.scrollTop;
+  el.innerHTML = [...(rows || SESSIONS)]
+    .sort((a, b) => lastMsg(b) - lastMsg(a) || a.name.localeCompare(b.name))
+    .map(r => {
+      const st = stateOf(r);
+      const word = st === 'waiting' ? 'NEEDS YOU' : st.toUpperCase();
+      const meta = [r.model ? `<span>${esc(r.model)}</span>` : '',
+        r.ctx != null ? `<span><b>${Math.round(r.ctx)}%</b> ctx</span>` : '',
+        r.cost ? `<span>${esc(fmtUsd(r.cost))}</span>` : '',
+        r.bg ? `<span>${r.bg} bg</span>` : ''].join('');
+      return `<button class="card ${st}" role="listitem" data-u="${esc(r.uuid)}">
+        <span class="dot"></span>
+        <div class="body">
+          <div class="row1">${r.provider ? agentLogo(r.provider) : ''}
+            <span class="name">${esc(r.name)}</span>
+            <span class="tag">${word}</span>
+            <span class="when">${esc(agoShort(lastMsg(r)))}</span></div>
+          ${st === 'working' || st === 'waiting' ? `<div class="row2">${bubbleHTML(r)}</div>` : ''}
+          ${meta ? `<div class="row3">${meta}</div>` : ''}
+        </div></button>`;
+    }).join('');
+  el.scrollTop = keep;
+}
+function setYardView(list){
+  document.getElementById('yard').classList.toggle('listing', list);
+  const b = document.getElementById('vtog');
+  b.setAttribute('aria-pressed', list);
+  b.title = list ? 'yard view' : 'list view';
+  b.setAttribute('aria-label', b.title);
+  try { localStorage.setItem('yardView', list ? 'list' : 'yard'); } catch(e){}
+  if (list) renderYardList();
+}
+function toggleYardView(){ buzz(8); setYardView(!yardListing()); }
+document.getElementById('yard-list').addEventListener('click', e => {
+  const c = e.target.closest('.card'); if (c) openSession(c.dataset.u);
+});
+try { if (localStorage.getItem('yardView') === 'list') setYardView(true); } catch(e){}
 
 let tries = 0, fleetWS = null, fleetT = null;
 let lastContact = 0;          // last time the server answered anything at all
