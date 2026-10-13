@@ -243,8 +243,8 @@
     mask-image:linear-gradient(to bottom,rgba(0,0,0,.08) 0,rgba(0,0,0,.42) 38px,#000 104px)}
   .pane.wrap{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px}
   /* tool bullet: fixed 1ch so the ⏺ / dim-⏺ blink never shifts the command */
-  .pane .dot{display:inline-block;width:1ch;text-align:center;text-indent:0}
-  .pane .dot.off{opacity:.3}
+  .pane .tdot{display:inline-block;width:1ch;text-align:center;text-indent:0}
+  .pane .tdot.off{opacity:.3}
   .pane.wrap .ln.hang{padding-inline-start:calc(var(--logical-indent) + var(--marker-indent));
     text-indent:calc(0ch - var(--logical-indent) - var(--marker-indent))}
   /* one terminal row per line, diffed individually (see paint()). min-height keeps
@@ -1598,7 +1598,7 @@ function colorizeLine(l, p){
     ? (/^\s*[│▌]\s*\+/.test(l) ? 'c-add' : 'c-del') : '';
   let e = colorizeWords(esc(l));
   if (p === 'claude') e = e.replace(/^(\s*)([⏺●\uE000])/, (_, sp, d) =>
-    `${sp}<span class="dot${d === '\uE000' ? ' off' : ''}">${d === '\uE000' ? '⏺' : d}</span>`);
+    `${sp}<span class="tdot${d === '\uE000' ? ' off' : ''}">${d === '\uE000' ? '⏺' : d}</span>`);
   if (diff) return linkify(`<span class="${diff}">${e}</span>`);
   for (const [re, cls] of rules)
     if (re.test(l)) return linkify(`<span class="${cls}">${e}</span>`);
@@ -2837,6 +2837,7 @@ function openSession(uuid){
   document.querySelectorAll('.chips button:not(.ghost)').forEach(b => b.disabled = !current.sendable);
   document.getElementById('sendbtn').disabled = !current.sendable;
   clearSuggest();
+  showPendingEchoes();
   applyBasePlaceholder();
   hideScreens();
   document.getElementById('s-session').classList.add('on');
@@ -4398,6 +4399,7 @@ function showFleet(){
   if (paneWS) { try { paneWS.onclose = null; paneWS.close(); } catch(e){} paneWS = null; }
   current = null;
   hideScreens();
+  showPendingEchoes();
   document.getElementById('s-fleet').classList.add('on');
   setThemeColor('#14171b');
   replaceNav({v: 'fleet'});   // fleet is home — collapse, don't stack
@@ -5197,7 +5199,9 @@ function addPendingEcho(text){
   el.appendChild(mark);
   el.appendChild(document.createTextNode(text));
   box.appendChild(el);
-  const entry = { norm: normEcho(text).slice(0, 30), el, timer: null };
+  const entry = { norm: normEcho(text).slice(0, 30), el, timer: null,
+    uuid: current && current.uuid };
+  el.hidden = false;
   entry.timer = setTimeout(() => removePendingEcho(entry), 10000);
   pendingEchoes.push(entry);
   return entry;
@@ -5209,10 +5213,17 @@ function removePendingEcho(entry){
   clearTimeout(entry.timer);
   entry.el.remove();
 }
+// An echo belongs to the chat it was sent from: switching panes hides it (it
+// keeps its 10s backstop), and coming back shows it again if still pending.
+function showPendingEchoes(){
+  const uuid = current && current.uuid;
+  pendingEchoes.forEach(e => { e.el.hidden = e.uuid !== uuid; });
+}
 function checkPendingEchoes(){
   if (!pendingEchoes.length) return;
+  const uuid = current && current.uuid;
   const hay = normEcho(history.join('\n') + '\n' + live);
-  pendingEchoes.slice().forEach(entry => {
+  pendingEchoes.filter(e => e.uuid === uuid).forEach(entry => {
     if (entry.norm && hay.includes(entry.norm)) removePendingEcho(entry);
   });
 }
