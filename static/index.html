@@ -246,7 +246,12 @@
     mask-image:linear-gradient(to bottom,rgba(0,0,0,.08) 0,rgba(0,0,0,.42) 38px,#000 104px)}
   .pane.wrap{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px}
   /* tool bullet: fixed 1ch so the ⏺ / dim-⏺ blink never shifts the command */
-  .pane .tdot{display:inline-block;width:1ch;text-align:center;text-indent:0}
+  /* the ⏺ glyph is wider than a text cell in phone fonts, so it ran into the
+     space after it — hide the glyph and draw the bullet as a dot that fits */
+  .pane .tdot{display:inline-block;width:1ch;text-indent:0;position:relative;
+    -webkit-text-fill-color:transparent}
+  .pane .tdot::before{content:"";position:absolute;left:50%;top:50%;
+    width:.6em;height:.6em;margin:-.3em 0 0 -.3em;border-radius:50%;background:currentColor}
   .pane .tdot.off{opacity:.3}
   .pane.wrap .ln.hang{padding-inline-start:calc(var(--logical-indent) + var(--marker-indent));
     text-indent:calc(0ch - var(--logical-indent) - var(--marker-indent))}
