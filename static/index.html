@@ -230,6 +230,9 @@
     -webkit-mask-image:linear-gradient(to bottom,rgba(0,0,0,.08) 0,rgba(0,0,0,.42) 38px,#000 104px);
     mask-image:linear-gradient(to bottom,rgba(0,0,0,.08) 0,rgba(0,0,0,.42) 38px,#000 104px)}
   .pane.wrap{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px}
+  /* tool bullet: fixed 1ch so the ⏺ / dim-⏺ blink never shifts the command */
+  .pane .dot{display:inline-block;width:1ch;text-align:center;text-indent:0}
+  .pane .dot.off{opacity:.3}
   .pane.wrap .ln.hang{padding-inline-start:calc(var(--logical-indent) + var(--marker-indent));
     text-indent:calc(0ch - var(--logical-indent) - var(--marker-indent))}
   /* one terminal row per line, diffed individually (see paint()). min-height keeps
@@ -1530,7 +1533,7 @@ const DOTS = '<span class="dots"><i></i><i></i><i></i></span>';
    from. */
 const LINE_RULES = {
   claude: [
-    [/^\s*[●⏺]/,            'c-violet'],   // tool call
+    [/^\s*[●⏺\uE000]/,      'c-violet'],   // tool call (\uE000: blink-off, see BLINK_OFF)
     [/^\s*⎿/,                'c-dim'],      // tool result
     [/^\s*[✻✽*]/,            'c-amber'],    // spinner / status
     [/^\s*❯/,                'c-sel'],      // prompt
@@ -1570,7 +1573,9 @@ function colorizeLine(l, p){
   // gutter is important: a bare `- item` is ordinary Markdown, not a deletion.
   const diff = p === 'codex' && /^\s*[│▌]\s*[+-](?![+-])/.test(l)
     ? (/^\s*[│▌]\s*\+/.test(l) ? 'c-add' : 'c-del') : '';
-  const e = colorizeWords(esc(l));
+  let e = colorizeWords(esc(l));
+  if (p === 'claude') e = e.replace(/^(\s*)([⏺●\uE000])/, (_, sp, d) =>
+    `${sp}<span class="dot${d === '\uE000' ? ' off' : ''}">${d === '\uE000' ? '⏺' : d}</span>`);
   if (diff) return linkify(`<span class="${diff}">${e}</span>`);
   for (const [re, cls] of rules)
     if (re.test(l)) return linkify(`<span class="${cls}">${e}</span>`);
@@ -1590,7 +1595,7 @@ function lineLayoutStyle(l){
   const m = l.match(/^[ \t]*/)[0];
   const indent = m.replace(/\t/g, '    ').length;
   const rest = l.slice(m.length);
-  const marker = rest.match(/^(?:[-*•]\s+|\d+\.\s+|#{1,6}\s+|[╭╮╰╯┌┐└┘│▌█][─━╴╶╾╼-]*\s+|[❯›>⏺✻⎿⏵]\s+)/);
+  const marker = rest.match(/^(?:[-*•]\s+|\d+\.\s+|#{1,6}\s+|[╭╮╰╯┌┐└┘│▌█][─━╴╶╾╼-]*\s+|[❯›>⏺✻⎿⏵\uE000]\s+)/);
   const markerWidth = marker ? Array.from(marker[0]).length : 0;
   return `--logical-indent:${indent}ch;--marker-indent:${markerWidth}ch`;
 }
@@ -3083,6 +3088,7 @@ function trimChrome(text, prov){
   return lines.join('\n').replace(/\n+$/, '');
 }
 
+const BLINK_OFF = /^ {2}[A-Z][A-Za-z]*\(/;   // "⏺ Bash(…)" with the ⏺ blinked off
 let paintPending = false, lastSig = null;
 function paint(force){
   const p = document.getElementById('pane');
@@ -3100,7 +3106,11 @@ function paint(force){
   const hist = history.join('\n').replace(/\n+$/, '');
   const liveLines = (liveT || '').split('\n');
   const histLines = hist ? hist.split('\n') : [];
-  const rawLines = histLines.length ? histLines.concat(liveLines) : liveLines;
+  let rawLines = histLines.length ? histLines.concat(liveLines) : liveLines;
+  // Claude blinks a running tool's ⏺ off to blank. The glyph isn't 1ch in the
+  // phone's font, so the command slid left and right every frame; draw the off
+  // beat as a dim ⏺ instead (\uE000 marks it for colorizeLine/lineLayoutStyle).
+  if (prov === 'claude') rawLines = rawLines.map(l => BLINK_OFF.test(l) ? '\uE000' + l.slice(1) : l);
   const tbl = findTables(rawLines, tableBudget(p));   // may re-pad or re-lay grids
   const lines = rawLines.map((l, i) => tbl.kind[i] ? colorizeTable(l) : colorizeLine(l, prov));
   // A running pane pushes a frame twice a second because its spinner glyph
