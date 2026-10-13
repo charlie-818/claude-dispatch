@@ -222,6 +222,18 @@
   /* overscroll-behavior:contain keeps a flick that runs past the end of the
      transcript inside the pane — without it the rubber band hands the gesture
      to the page and the scroll dies halfway. */
+  /* Wraps the pane so the optimistic send echo can float over its bottom edge
+     without becoming a child paint() has to diff — paint() only ever touches
+     #pane's own .ln rows. */
+  .panewrap{position:relative;flex:1;min-height:0;display:flex;flex-direction:column}
+  .paneecho{position:absolute;left:10px;right:10px;bottom:0;pointer-events:none;
+    display:flex;flex-direction:column;gap:2px;padding:0 0 4px;
+    font-family:var(--mono);font-size:11px;line-height:1.42}
+  .paneecho .echoln{color:var(--fg);opacity:.5;white-space:pre-wrap;
+    overflow-wrap:anywhere;animation:echopulse 1.5s ease-in-out infinite}
+  .paneecho .echoln .c-sel{font-weight:600}
+  @keyframes echopulse{0%,100%{opacity:.5}50%{opacity:.25}}
+  @media(prefers-reduced-motion:reduce){.paneecho .echoln{animation:none;opacity:.4}}
   .pane{flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch;
     overscroll-behavior:contain;
     margin:0;padding:12px 10px;font-family:var(--mono);background:var(--bg);
@@ -498,8 +510,16 @@
   #micbtn{display:none}
   .send svg{width:17px;height:17px;display:block}
   #sendbtn{width:34px;height:34px}
-  .send{border:none;background:var(--blue);color:#06172e}
+  .send{border:none;background:var(--blue);color:#06172e;position:relative}
   .send:disabled{background:var(--line);color:var(--dimmer)}
+  /* Busy = in-flight post. The arrow hides, a ring spins in its place. */
+  .send.busy svg{visibility:hidden}
+  .send.busy::after{content:'';position:absolute;width:14px;height:14px;
+    border-radius:50%;border:2px solid currentColor;border-top-color:transparent;
+    animation:sendspin .7s linear infinite}
+  @keyframes sendspin{to{transform:rotate(360deg)}}
+  @media(prefers-reduced-motion:reduce){
+    .send.busy::after{animation:none;opacity:.6}}
   .mic{border:none;background:transparent;color:var(--dim)}
   .mic:active{background:var(--panel3);color:var(--fg)}
   .mic:disabled{opacity:.55;cursor:default}
@@ -1400,7 +1420,10 @@
     </button>
   </div>
   </div>
-  <pre class="pane" id="pane"></pre>
+  <div class="panewrap">
+    <pre class="pane" id="pane"></pre>
+    <div class="paneecho" id="paneecho" aria-hidden="true"></div>
+  </div>
   <div class="actionbar" id="actionbar"></div>
   <div class="composer">
     <input type="file" id="fileinput" accept="image/*,video/*" multiple hidden
@@ -2733,6 +2756,7 @@ function connectPane(uuid){
     if (d.prompt !== undefined) applyPanePrompt(d.prompt);
     if (d.prompt !== undefined || d.queued_questions !== undefined) renderActions();
     if ('suggest' in d) applySuggest(d.suggest);
+    checkPendingEchoes();
     paint();
     // Reveal only once the LIVE screen has landed. The server ships history in
     // its own frame first, then text; revealing on the history-only frame shows
@@ -5155,6 +5179,44 @@ async function uploadFiles(files, btnId){
   }
 }
 
+/* ── optimistic send echo ──────────────────────────────
+   Claude.ai/ChatGPT-style instant feedback: the moment you tap send, a dimmed
+   "❯ text" row appears floating over the pane's bottom edge (see .paneecho —
+   a sibling of #pane, never one of paint()'s diffed .ln rows). It's removed
+   once the real frame catches up, on a 10s backstop, or immediately on error.
+   Multiple quick sends stack top-to-bottom. */
+let pendingEchoes = [];
+function normEcho(s){ return (s || '').replace(/\s+/g, ' ').trim().toLowerCase(); }
+function addPendingEcho(text){
+  const box = document.getElementById('paneecho');
+  const el = document.createElement('div');
+  el.className = 'echoln';
+  const mark = document.createElement('span');
+  mark.className = 'c-sel';
+  mark.textContent = '❯ ';
+  el.appendChild(mark);
+  el.appendChild(document.createTextNode(text));
+  box.appendChild(el);
+  const entry = { norm: normEcho(text).slice(0, 30), el, timer: null };
+  entry.timer = setTimeout(() => removePendingEcho(entry), 10000);
+  pendingEchoes.push(entry);
+  return entry;
+}
+function removePendingEcho(entry){
+  const i = pendingEchoes.indexOf(entry);
+  if (i === -1) return;
+  pendingEchoes.splice(i, 1);
+  clearTimeout(entry.timer);
+  entry.el.remove();
+}
+function checkPendingEchoes(){
+  if (!pendingEchoes.length) return;
+  const hay = normEcho(history.join('\n') + '\n' + live);
+  pendingEchoes.slice().forEach(entry => {
+    if (entry.norm && hay.includes(entry.norm)) removePendingEcho(entry);
+  });
+}
+
 async function send(){
   if (!current) return;
   if (livePrompt && livePrompt.provider === 'codex'){
@@ -5174,17 +5236,26 @@ async function send(){
   const t = input.value.trim();
   buzz(12);
   ensurePaneLive();          // dead socket → the sent prompt would never show
+  // Clear + echo BEFORE the await — the pause is the whole bug this fixes.
+  if (t){ input.value = ''; autosize(); }
+  const echo = t ? addPendingEcho(t) : null;
+  sendbtn.classList.add('busy'); sendbtn.disabled = true;
   try {
     if (t){
       await post('/api/send', {uuid: current.uuid, text: t, submit: true});
-      input.value = ''; autosize();
     } else {
       // Empty box: let the server "just send it" — retype Claude's ghost
       // suggestion and submit, or press Enter on already-typed text.
       await post('/api/submit', {uuid: current.uuid});
     }
+  } catch(e){
+    if (echo) removePendingEcho(echo);
+    if (t && !input.value) { input.value = t; autosize(); }   // give the text back
+    toast(String(e.message), true);
+  } finally {
+    sendbtn.classList.remove('busy');
     sendbtn.disabled = !(current && current.sendable);
-  } catch(e){ toast(String(e.message), true); }
+  }
 }
 
 /* ── push notifications ────────────────────────────────
