@@ -684,6 +684,11 @@
   .yl.idle .yl-name{color:var(--fg2)}
   .yl.ended .yl-name{color:var(--dimmer)}
   .yl-when{flex:none;font:500 11px var(--mono);color:var(--dimmer)}
+  /* What the chat has done, in a few words — one line, never wraps. */
+  .yl-sum{margin:2px 0 0 18px;font:400 12.5px/1.35 var(--ui);color:var(--fg2);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .yl-sum:empty{display:none}
+  .yl.ended .yl-sum{color:var(--dimmer)}
   .yl-act{margin:3px 0 0 18px;font:400 12.5px/1.35 var(--ui);color:var(--dim);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .yl-act:empty{display:none}
@@ -1992,6 +1997,29 @@ function agoShort(t){
   return s < 60 ? 'now' : s < 3600 ? `${Math.floor(s/60)}m`
        : s < 86400 ? `${Math.floor(s/3600)}h` : `${Math.floor(s/86400)}d`;
 }
+/* Row gists: the few-word "what this chat has done" line under each name. They
+   ride the same per-prompt summary cache as the chat brief, so a pane only costs
+   a model call when it has a prompt the cache hasn't described. Fetched only
+   while the list is showing, never mid-run (a gist of half a turn), refetched
+   when the hook clock moves, two at a time so a busy yard can't fan out. */
+const GIST = new Map();             // uuid -> {k: lastMsg at fetch, g: text}
+const gistQ = []; let gistBusy = 0;
+function wantGist(r, k){
+  const have = GIST.get(r.uuid);
+  if (stateOf(r) === 'working' || (have && have.k === k)) return;
+  if (gistQ.some(q => q.u === r.uuid)) return;
+  gistQ.push({u: r.uuid, k}); pumpGist();
+}
+function pumpGist(){
+  while (gistBusy < 2 && gistQ.length){
+    const {u, k} = gistQ.shift(); gistBusy++;
+    GIST.set(u, {k, g: (GIST.get(u) || {}).g || ''});   // claim: no double fetch
+    fetch('/api/summary?uuid=' + encodeURIComponent(u)).then(r => r.json())
+      .then(d => { GIST.set(u, {k, g: d.gist || ''}); if (yardListing()) renderYardList(); })
+      .catch(() => GIST.delete(u))
+      .finally(() => { gistBusy--; pumpGist(); });
+  }
+}
 /* Keyed reconcile, not innerHTML: rows keep their nodes across ticks, so a
    repaint never flickers, and only a real change of order moves anything. */
 function renderYardList(rows){
@@ -2005,12 +2033,15 @@ function renderYardList(rows){
       n = document.createElement('button');
       n.dataset.u = r.uuid; n.setAttribute('role', 'listitem');
       n.innerHTML = '<div class="yl-top"><i class="yl-dot"></i><span class="yl-name"></span>'
-        + '<span class="yl-when"></span></div><div class="yl-act"></div>';
+        + '<span class="yl-when"></span></div><div class="yl-sum"></div><div class="yl-act"></div>';
     }
     const st = stateOf(r);
     n.className = 'yl ' + st;
     n.querySelector('.yl-name').textContent = r.name;
     n.querySelector('.yl-when').textContent = agoShort(t);
+    wantGist(r, t);
+    const g = (GIST.get(r.uuid) || {}).g || '', s = n.querySelector('.yl-sum');
+    if (s.textContent !== g) s.textContent = g;
     // Only say something the dot doesn't: the tool in hand, or the question.
     const ac = st === 'working' || st === 'waiting' ? activity(r) : {};
     const act = st === 'waiting' ? esc(ac.rest)
