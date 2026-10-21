@@ -16,10 +16,18 @@
      else; the system stack still backs it up if the network is gone. -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- media=print+onload trick: fetch without blocking first paint, then
+     swap to all once loaded. noscript covers clients with JS disabled. -->
+<link rel="stylesheet" media="print" onload="this.media='all'"
+  href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&display=swap">
+<link rel="stylesheet" media="print" onload="this.media='all'"
+  href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20,300..700,0,-25&amp;icon_names=attach_file,ink_eraser,mic,photo_camera,stop&amp;display=block">
+<noscript>
 <link rel="stylesheet"
   href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&display=swap">
 <link rel="stylesheet"
   href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20,300..700,0,-25&amp;icon_names=attach_file,ink_eraser,mic,photo_camera,stop&amp;display=block">
+</noscript>
 <title>The Yard — CC Dispatch</title>
 <style>
   :root{
@@ -1549,6 +1557,16 @@ window.addEventListener('unhandledrejection', e =>
    cookie rides along automatically — including on the websockets. */
 const Q = '';
 let SESSIONS = [], current = null, paneWS = null;
+// Per-pane {history, live, cols} so re-opening a recently-viewed chat paints
+// instantly from cache while the socket reconnects in the background. LRU,
+// capped small — this is a paint shortcut, not a real cache of truth.
+const PANE_CACHE = new Map();
+const PANE_CACHE_CAP = 6;
+function paneCacheSet(uuid, entry){
+  PANE_CACHE.delete(uuid);           // re-insert to mark as most-recently-used
+  PANE_CACHE.set(uuid, entry);
+  while (PANE_CACHE.size > PANE_CACHE_CAP) PANE_CACHE.delete(PANE_CACHE.keys().next().value);
+}
 const codexConfirmedSettings = new Map();
 const hasCodexSettingsIdentity = row => row && row.provider === 'codex' &&
   typeof row.sid === 'string' && row.sid.length > 0 &&
@@ -2077,6 +2095,7 @@ document.getElementById('yard-list').addEventListener('click', e => {
 try { if (localStorage.getItem('yardView') === 'list') setYardView(true); } catch(e){}
 
 let tries = 0, fleetWS = null, fleetT = null;
+let lastFleetSnapSave = 0;    // throttle for the localStorage fleet snapshot
 let lastContact = 0;          // last time the server answered anything at all
 let statusT = null;
 function status(msg){
@@ -2892,12 +2911,20 @@ function connectFleet(){
   };
   ws.onmessage = e => {
     lastContact = Date.now();
+    document.dispatchEvent(new Event('fleet-first-message'));
     let d;
     try { d = JSON.parse(e.data); }
     catch(err){ status('bad JSON from server: ' + err.message); return; }
     try { if (d.sessions) renderFleet(d.sessions); }
     catch(err){ status('render failed: ' + err.message); return; }
     if (d.limits && (d.limits.five_hour || d.limits.seven_day || d.limits.weekly || d.limits.monthly || d.limits.session)) LIMITS = d.limits;
+    // Snapshot for instant paint on next cold load — throttled, best-effort.
+    if (d.sessions && Date.now() - lastFleetSnapSave > 5000){
+      try {
+        localStorage.setItem('fleetSnap', JSON.stringify({ sessions: d.sessions, limits: d.limits, at: Date.now() }));
+        lastFleetSnapSave = Date.now();
+      } catch(e){}
+    }
     const fh = d.limits && d.limits.five_hour;
     if (fh && fh.used_percentage != null){
       document.querySelectorAll('.sb-lim-fill').forEach(e => e.style.width = fh.used_percentage + '%');
@@ -2951,6 +2978,7 @@ function connectPane(uuid){
     if ('suggest' in d) applySuggest(d.suggest);
     checkPendingEchoes();
     paint();
+    paneCacheSet(uuid, { history, live, cols });
     // Reveal only once the LIVE screen has landed. The server ships history in
     // its own frame first, then text; revealing on the history-only frame shows
     // one size, then the wider text frame shrinks it — the visible resize. Wait
@@ -3059,6 +3087,17 @@ function openSession(uuid){
   // couple of seconds, so kicking it off on open means the text is already there
   // by the time anyone asks for it. Hidden until the eye toggles it on.
   loadSummary(uuid);
+  // Instant repaint from the last frame we saw for this pane, if we have one —
+  // the live socket (below) still lands and overwrites as normal; this just
+  // avoids the blank-then-pop while it reconnects.
+  const cached = PANE_CACHE.get(uuid);
+  if (cached){
+    history = cached.history; live = cached.live; cols = cached.cols;
+    fitFont(cols);
+    paint();
+    pane.style.visibility = '';
+    pinBottom = true; pane.scrollTop = pane.scrollHeight;
+  }
   connectPane(uuid);
 }
 
@@ -6917,9 +6956,35 @@ function start(){
   window.history.replaceState({v:"fleet"}, "");   // base of the in-app back stack
   loadCommands();
   initPush();
+  // Cold-paint from the last fleet snapshot before the socket even opens, so
+  // a reload shows the previous state instantly instead of an empty skeleton.
+  try {
+    const snap = JSON.parse(localStorage.getItem('fleetSnap') || 'null');
+    if (snap && Date.now() - snap.at < 24 * 60 * 60 * 1000){
+      if (snap.sessions) renderFleet(snap.sessions);
+      if (snap.limits && (snap.limits.five_hour || snap.limits.seven_day || snap.limits.weekly || snap.limits.monthly || snap.limits.session)){
+        LIMITS = snap.limits;
+        const fh = snap.limits.five_hour;
+        if (fh && fh.used_percentage != null){
+          document.querySelectorAll('.sb-lim-fill').forEach(e => e.style.width = fh.used_percentage + '%');
+          document.querySelectorAll('.sb-lim-t').forEach(e => e.textContent = pct(fh.used_percentage));
+        }
+      }
+    }
+  } catch(e){}
   connectFleet();
-  loadUsage();          // warm the usage cache now so the first open never flashes '—'
-  USAGE_PROVIDERS.forEach(p => { if (p !== USAGE_PROVIDER) loadUsage(p); });
+  // Warm usage once the fleet socket answers (or after a
+  // short timeout so a slow/dead socket never blocks the rest of the UI from
+  // ever warming).
+  let warmed = false;
+  const warm = () => {
+    if (warmed) return;
+    warmed = true;
+    loadUsage();          // warm the usage cache now so the first open never flashes '—'
+    USAGE_PROVIDERS.forEach(p => { if (p !== USAGE_PROVIDER) loadUsage(p); });
+  };
+  document.addEventListener('fleet-first-message', warm, { once: true });
+  setTimeout(warm, 1500);
   // deep links, for per-target home-screen shortcuts:
   //   ?screen=usage  → the dashboard
   //   ?pane=<uuid>   → straight into one session, once the fleet list arrives

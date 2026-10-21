@@ -21,6 +21,7 @@ Run:  .venv/bin/python server.py
 import asyncio
 import errno
 import glob
+import gzip
 import json
 import math
 import os
@@ -2501,25 +2502,38 @@ async def _yield_to_opening_chat():
             pass
 
 
-async def build_fleet():
-    sessions = await all_sessions()
-    files = read_fleet_files()
-    rows = []
-    for uuid, s in sessions.items():
-        await _yield_to_opening_chat()
-        try:
-            job = await s.async_get_variable("jobName") or ""
-            cwd = await s.async_get_variable("path") or ""
-            tty = await s.async_get_variable("tty") or ""
-        except Exception:
-            job, cwd, tty = "", "", ""
+# Bounds how many panes build_fleet() interrogates at once — iTerm2's API
+# answers one call at a time per connection, so unbounded concurrency here
+# would just queue behind itself; 6 is enough to overlap the per-pane RPC
+# latency without flooding the socket.
+_FLEET_SEM = asyncio.Semaphore(6)
+
+
+async def _fleet_row(uuid, s, files):
+    """One pane's fleet row, or None if it's a scratch shell to hide entirely."""
+    async with _FLEET_SEM:
         # A Codex/Grok hook child can lose ITERM_SESSION_ID, leaving a record that
-        # knows only the tty it ran on. That still names this pane exactly.
+        # knows only the tty it ran on. That still names this pane exactly — but
+        # we don't know the tty until the variable reads land, so look it up
+        # for real below; `tty` here is just what this pane itself reports.
+        job_r, cwd_r, tty_r, txt_r = await asyncio.gather(
+            s.async_get_variable("jobName"),
+            s.async_get_variable("path"),
+            s.async_get_variable("tty"),
+            pane_text(s),
+            return_exceptions=True,
+        )
+        if isinstance(txt_r, Exception):
+            raise txt_r
+        txt = txt_r
+        if isinstance(job_r, Exception) or isinstance(cwd_r, Exception) or isinstance(tty_r, Exception):
+            job, cwd, tty = "", "", ""
+        else:
+            job, cwd, tty = job_r or "", cwd_r or "", tty_r or ""
         f = files.get(uuid) or _FLEET_BY_TTY.get(tty)
-        txt = await pane_text(s)
         provider = (f or {}).get("provider") or pane_provider(uuid, job, txt)
         if not provider:
-            continue                      # hide scratch shells entirely
+            return None                   # hide scratch shells entirely
         KNOWN_AGENTS.setdefault(uuid, provider)
         lines = [l for l in txt.splitlines() if l.strip()]
         grok_st = detect_grok_status(txt) if provider == "grok" else {}
@@ -2551,7 +2565,7 @@ async def build_fleet():
         # something move.
         if ch and not (ch["add"] or ch["del"] or ch["files"]):
             ch = None
-        rows.append({
+        return {
             "uuid": uuid,
             "sid": (f or {}).get("sid"),
             "job": job,
@@ -2587,7 +2601,17 @@ async def build_fleet():
             # result, the spinner and the prompt box. The bubble distiller scans
             # this backwards for the newest tool call to show what Claude's doing.
             "tail": lines[-14:],
-        })
+        }
+
+
+async def build_fleet():
+    sessions = await all_sessions()
+    files = read_fleet_files()
+    # Chat sockets still waiting on their first frame get priority over the
+    # whole rebuild, not just one pane of it — ask once, up front.
+    await _yield_to_opening_chat()
+    rows = [r for r in await asyncio.gather(
+        *(_fleet_row(uuid, s, files) for uuid, s in sessions.items())) if r]
     # Maximizing a watched pane (grow_pane) hides its tab-mates from iTerm's API,
     # which would empty the yard for everyone else while one phone reads a chat.
     # Serve the last full picture for the panes that are merely out of view.
@@ -2988,6 +3012,23 @@ async def icon(request):
 
 
 
+_INDEX_CACHE = {"mtime": None, "raw": None, "gz": None}
+
+
+def _index_bytes():
+    """index.html's bytes, raw and pre-gzipped, recomputed only when its
+    mtime moves — so a hot deploy is picked up but every other request
+    reuses the same compressed blob instead of gzipping on the fly."""
+    path = HERE / "static" / "index.html"
+    mtime = path.stat().st_mtime
+    if _INDEX_CACHE["mtime"] != mtime:
+        raw = path.read_bytes()
+        _INDEX_CACHE["mtime"] = mtime
+        _INDEX_CACHE["raw"] = raw
+        _INDEX_CACHE["gz"] = gzip.compress(raw, 6)
+    return _INDEX_CACHE["raw"], _INDEX_CACHE["gz"]
+
+
 async def index(request):
     """Bootstrap, then serve the shell.
 
@@ -3064,10 +3105,30 @@ document.getElementById('t').addEventListener('keydown', e => {
 });
 </script></body>""")
 
-    body = (HERE / "static" / "index.html").read_text()
-    resp = web.Response(text=body, content_type="text/html")
-    # served straight off disk and edited often — never let the phone cache it
-    resp.headers["Cache-Control"] = "no-store, must-revalidate"
+    # Edited often, so never served stale blind — but a plain no-store forces
+    # a full re-fetch on every nav. Use an ETag (the same hash /api/ping already
+    # exposes as "build") so an unchanged shell comes back as a bare 304 and a
+    # changed one is caught immediately; no-cache (not no-store) lets the
+    # browser keep bytes around to revalidate instead of re-downloading blind.
+    etag = f'"{_build_id()}"'
+    if request.headers.get("If-None-Match") == etag:
+        resp = web.Response(status=304, headers={"ETag": etag,
+                                                  "Cache-Control": "no-cache"})
+        if authed(request):
+            resp.set_cookie("t", TOKEN, max_age=60 * 60 * 24 * 365,
+                            samesite="Lax", httponly=False)
+        return resp
+
+    raw, gz = _index_bytes()
+    headers = {"ETag": etag, "Cache-Control": "no-cache"}
+    if "gzip" in request.headers.get("Accept-Encoding", ""):
+        body = gz
+        headers["Content-Encoding"] = "gzip"
+        headers["Vary"] = "Accept-Encoding"
+    else:
+        body = raw
+    resp = web.Response(body=body, content_type="text/html", charset="utf-8",
+                        headers=headers)
     if authed(request):
         resp.set_cookie("t", TOKEN, max_age=60 * 60 * 24 * 365,
                         samesite="Lax", httponly=False)
@@ -3076,7 +3137,10 @@ document.getElementById('t').addEventListener('keydown', e => {
 
 @guard
 async def api_fleet(request):
-    rows, limits = await build_fleet()
+    if time.time() - _fleet_last.get("at", 0) < 10 and "rows" in _fleet_last:
+        rows, limits = _fleet_last["rows"], _fleet_last["limits"]
+    else:
+        rows, limits = await build_fleet()
     return web.json_response({"sessions": rows, "limits": limits})
 
 
@@ -5713,7 +5777,10 @@ async def api_usage(request):
                                      status=500)
 
     try:
-        rows, fleet_lim = await build_fleet()
+        if time.time() - _fleet_last.get("at", 0) < 10 and "rows" in _fleet_last:
+            rows, fleet_lim = _fleet_last["rows"], _fleet_last["limits"]
+        else:
+            rows, fleet_lim = await build_fleet()
     except Exception as e:
         print(f"  [usage] fleet ({provider}): {type(e).__name__}: {e}",
               flush=True)
@@ -6658,7 +6725,6 @@ _FLEET_SENT = {}          # ws -> blob last sent to it (None until its first fra
 _FLEET_SINCE = {}         # ws -> (peer, connect time) until its first frame lands
 _fleet_last = {"blob": None, "msg": None, "at": 0.0}
 _fleet_pump_task = None
-FLEET_CACHE_OK = 30       # s: a cached frame this fresh is fine for first paint
 
 
 async def _fleet_send(ws, blob, msg):
@@ -6693,6 +6759,11 @@ async def _fleet_pump():
             _fleet_last["msg"] = json.dumps({"sessions": rows, "limits": limits,
                                              "pending": pending})
         _fleet_last["at"] = time.time()
+        # Short-lived cache for the plain HTTP handlers (api_usage, api_fleet) —
+        # they'd otherwise each pay their own build_fleet() even while the pump
+        # is already refreshing the same picture every second.
+        _fleet_last["rows"] = rows
+        _fleet_last["limits"] = limits
         stale = [ws for ws in list(_WS_FLEET)
                  if not ws.closed and _FLEET_SENT.get(ws) != blob]
         if stale:
@@ -6721,7 +6792,7 @@ async def ws_fleet(request):
     _FLEET_SENT[ws] = None
     _WS_FLEET.add(ws)
     try:
-        if _fleet_last["msg"] and time.time() - _fleet_last["at"] < FLEET_CACHE_OK:
+        if _fleet_last["msg"]:        # any frame beats none, however stale
             await _fleet_send(ws, _fleet_last["blob"], _fleet_last["msg"])
         _ensure_fleet_pump()
         async for _ in ws:                 # nothing to read; just hold until close
@@ -7003,23 +7074,40 @@ _TAILSCALE = _ts_bin()
 # probe timeout so a live peer reads "offline". status/serve state barely moves, so
 # cache each arg-set briefly: the first call pays the cost, the rest are instant.
 _TS_CACHE = {}          # args tuple -> (expiry, value)
-_TS_TTL = 15
+_TS_TTL = 60
+_TS_REFRESHING = set()  # args tuples with a background refresh already in flight
 
 
-def _ts_json(*args):
-    import shlex
-    now = time.time()
-    hit = _TS_CACHE.get(args)
-    if hit and hit[0] > now:
-        return hit[1]
-    cmd = " ".join(shlex.quote(a) for a in (_TAILSCALE, *args))
+def _ts_refresh(args, cmd):
+    """Run the shell-out and repin the cache. Off the event loop (a thread),
+    so a slow tailscale CLI never blocks a request."""
     try:
         val = json.loads(os.popen(f"{cmd} 2>/dev/null").read())
     except Exception:
         val = {}
     if val:             # cache only real answers — never pin an empty/failed read
-        _TS_CACHE[args] = (now + _TS_TTL, val)
-    return val
+        _TS_CACHE[args] = (time.time() + _TS_TTL, val)
+    _TS_REFRESHING.discard(args)
+
+
+def _ts_json(*args):
+    """Stale-while-revalidate. A cached answer — even one past its TTL — is
+    handed back immediately, with a single background thread kicked off to
+    repin it (single-flight per arg-set via _TS_REFRESHING, so a hammered
+    endpoint doesn't spawn a thread per request). Only a never-cached arg-set
+    blocks, paying the tailscale CLI's multi-second latency once."""
+    import shlex
+    import threading
+    now = time.time()
+    hit = _TS_CACHE.get(args)
+    cmd = " ".join(shlex.quote(a) for a in (_TAILSCALE, *args))
+    if hit:
+        if hit[0] <= now and args not in _TS_REFRESHING:
+            _TS_REFRESHING.add(args)
+            threading.Thread(target=_ts_refresh, args=(args, cmd), daemon=True).start()
+        return hit[1]
+    _ts_refresh(args, cmd)                 # nothing cached yet — block once
+    return _TS_CACHE.get(args, (0, {}))[1]
 
 
 def ts_name():
@@ -7554,117 +7642,124 @@ async def api_sysinfo(request):
     if not authed(request):
         return web.json_response({"error": "locked"}, status=401)
 
-    try:
-        macos = platform.mac_ver()[0] or None
-    except Exception:
-        macos = None
-    try:
-        hostname = socket.gethostname()
-    except Exception:
-        hostname = None
-    try:
-        tailnet = ts_self_host()
-    except Exception:
-        tailnet = None
-    try:
-        origin = self_origin()
-    except Exception:
-        origin = None
+    def run():
+        # All of this is blocking (shell-outs, sysctl/pmset reads via the
+        # _sysinfo_* helpers, ts_self_host/self_origin) — run it off the
+        # event loop so one slow diagnostics poll can't stall every request.
+        try:
+            macos = platform.mac_ver()[0] or None
+        except Exception:
+            macos = None
+        try:
+            hostname = socket.gethostname()
+        except Exception:
+            hostname = None
+        try:
+            tailnet = ts_self_host()
+        except Exception:
+            tailnet = None
+        try:
+            origin = self_origin()
+        except Exception:
+            origin = None
 
-    try:
-        py_version = platform.python_version()
-    except Exception:
-        py_version = None
+        try:
+            py_version = platform.python_version()
+        except Exception:
+            py_version = None
 
-    try:
-        tailscale_present = bool(shutil.which("tailscale") or
-                                  os.path.exists(_TAILSCALE) or
-                                  os.path.exists(
-                                      "/Applications/Tailscale.app/Contents/MacOS/Tailscale"))
-    except Exception:
-        tailscale_present = False
+        try:
+            tailscale_present = bool(shutil.which("tailscale") or
+                                      os.path.exists(_TAILSCALE) or
+                                      os.path.exists(
+                                          "/Applications/Tailscale.app/Contents/MacOS/Tailscale"))
+        except Exception:
+            tailscale_present = False
 
-    try:
-        vapid_configured = os.path.exists(_VAPID_PRIV)
-    except Exception:
-        vapid_configured = False
-    try:
-        subscribers = len(_load_subs())
-    except Exception:
-        subscribers = 0
+        try:
+            vapid_configured = os.path.exists(_VAPID_PRIV)
+        except Exception:
+            vapid_configured = False
+        try:
+            subscribers = len(_load_subs())
+        except Exception:
+            subscribers = 0
 
-    try:
-        peers = tailnet_macs()
-    except Exception:
-        peers = []
+        try:
+            peers = tailnet_macs()
+        except Exception:
+            peers = []
 
-    try:
-        load1, load5, load15 = os.getloadavg()
-    except Exception:
-        load1 = load5 = load15 = None
+        try:
+            load1, load5, load15 = os.getloadavg()
+        except Exception:
+            load1 = load5 = load15 = None
 
-    return web.json_response({
-        "battery": _sysinfo_battery(),
-        "disk": _sysinfo_disk(),
-        "memory": _sysinfo_memory(),
-        "cpu": _sysinfo_cpu(),
-        "host": {
-            "hostname": hostname,
-            "tailnet": tailnet,
-            "origin": origin,
-            "macos": macos,
-            "uptime": _sysinfo_uptime(),
-        },
-        "server": {
-            "pid": os.getpid(),
-            "started": _STARTED,
-            "uptime": int(time.time() - _STARTED),
-            "sha": _sysinfo_sha(),
-            "bind": BIND,
-            "port": PORT,
-            "fleet_dir": FLEET_DIR,
-            "iterm": CONN is not None,
-            # who has a pane maximized right now, and for whom — the state
-            # behind a "pane closed" that should not have been
-            "grown": _GROWN[0][:8] if _GROWN else None,
-            "watchers": {u[:8]: n for u, n in _WATCHERS.items()},
-            "python": py_version,
-            "panes": len(_FLEET_CACHE),
-        },
-        "deps": {
-            "claude": _sysinfo_dep("claude"),
-            "codex": _sysinfo_dep("codex"),
-            "grok": _sysinfo_dep("grok"),
-            "whisper": WHISPER_BIN or None,
-            "ffmpeg": FFMPEG_BIN or None,
-            "whisper_model": os.path.exists(WHISPER_MODEL),
-            "tailscale": tailscale_present,
-        },
-        "push": {
-            "configured": vapid_configured,
-            "subscribers": subscribers,
-        },
-        "peers": peers,
-        "load": {
-            "cpu_pct": _LOAD.get("cpu_pct"),
-            "cpu_user": _LOAD.get("cpu_user"),
-            "cpu_sys": _LOAD.get("cpu_sys"),
-            "gpu_pct": _LOAD.get("gpu_pct"),
-            "mem_free_pct": _LOAD.get("mem_free_pct"),
-            "swap_used": _LOAD.get("swap_used"),
-            "swap_total": _LOAD.get("swap_total"),
-            "thermal": _LOAD.get("thermal"),
-            "temp_c": _LOAD.get("temp_c"),
-            "temp_cell_c": _LOAD.get("temp_cell_c"),
-            "bat_cycles": _LOAD.get("bat_cycles"),
-            "bat_health": _LOAD.get("bat_health"),
-            "cpu_limit": _LOAD.get("cpu_limit"),
-            "load1": load1, "load5": load5, "load15": load15,
-            "cores": os.cpu_count(),
-            "sampled": _LOAD.get("sampled"),
-        },
-        "agents": _sysinfo_agents(),
-    })
+        return {
+            "battery": _sysinfo_battery(),
+            "disk": _sysinfo_disk(),
+            "memory": _sysinfo_memory(),
+            "cpu": _sysinfo_cpu(),
+            "host": {
+                "hostname": hostname,
+                "tailnet": tailnet,
+                "origin": origin,
+                "macos": macos,
+                "uptime": _sysinfo_uptime(),
+            },
+            "server": {
+                "pid": os.getpid(),
+                "started": _STARTED,
+                "uptime": int(time.time() - _STARTED),
+                "sha": _sysinfo_sha(),
+                "bind": BIND,
+                "port": PORT,
+                "fleet_dir": FLEET_DIR,
+                "iterm": CONN is not None,
+                # who has a pane maximized right now, and for whom — the state
+                # behind a "pane closed" that should not have been
+                "grown": _GROWN[0][:8] if _GROWN else None,
+                "watchers": {u[:8]: n for u, n in _WATCHERS.items()},
+                "python": py_version,
+                "panes": len(_FLEET_CACHE),
+            },
+            "deps": {
+                "claude": _sysinfo_dep("claude"),
+                "codex": _sysinfo_dep("codex"),
+                "grok": _sysinfo_dep("grok"),
+                "whisper": WHISPER_BIN or None,
+                "ffmpeg": FFMPEG_BIN or None,
+                "whisper_model": os.path.exists(WHISPER_MODEL),
+                "tailscale": tailscale_present,
+            },
+            "push": {
+                "configured": vapid_configured,
+                "subscribers": subscribers,
+            },
+            "peers": peers,
+            "load": {
+                "cpu_pct": _LOAD.get("cpu_pct"),
+                "cpu_user": _LOAD.get("cpu_user"),
+                "cpu_sys": _LOAD.get("cpu_sys"),
+                "gpu_pct": _LOAD.get("gpu_pct"),
+                "mem_free_pct": _LOAD.get("mem_free_pct"),
+                "swap_used": _LOAD.get("swap_used"),
+                "swap_total": _LOAD.get("swap_total"),
+                "thermal": _LOAD.get("thermal"),
+                "temp_c": _LOAD.get("temp_c"),
+                "temp_cell_c": _LOAD.get("temp_cell_c"),
+                "bat_cycles": _LOAD.get("bat_cycles"),
+                "bat_health": _LOAD.get("bat_health"),
+                "cpu_limit": _LOAD.get("cpu_limit"),
+                "load1": load1, "load5": load5, "load15": load15,
+                "cores": os.cpu_count(),
+                "sampled": _LOAD.get("sampled"),
+            },
+            "agents": _sysinfo_agents(),
+        }
+
+    data = await asyncio.to_thread(run)
+    return web.json_response(data)
 
 
 _PING_BAT = {"t": 0.0, "v": None}
@@ -7860,6 +7955,12 @@ async def main(connection):
     app.router.add_post("/auth/logout", auth.logout)
     app.router.add_get("/ws/fleet", ws_fleet)
     app.router.add_get("/ws/pane/{uuid}", ws_pane)
+
+    # Warm the tailscale status/serve caches off the event loop so the first
+    # /api/ping or /api/sysinfo after boot doesn't pay the CLI's cold latency.
+    # Fire-and-forget: nothing here blocks startup.
+    asyncio.create_task(asyncio.to_thread(_ts_json, "status", "--json"))
+    asyncio.create_task(asyncio.to_thread(_ts_json, "serve", "status", "--json"))
 
     runner = web.AppRunner(app)
     await runner.setup()
