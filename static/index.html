@@ -684,6 +684,11 @@
   .yl.idle .yl-name{color:var(--fg2)}
   .yl.ended .yl-name{color:var(--dimmer)}
   .yl-when{flex:none;font:500 11px var(--mono);color:var(--dimmer)}
+  /* "waiting on a background agent/shell" — shown independent of the main dot
+     and of state: a backgrounded Task or shell can still be running after the
+     main turn looks done, or even while it's idle. */
+  .yl-bg{flex:none;display:none;font:600 10px var(--mono);color:var(--amber)}
+  .yl-bg.on{display:inline-block}
   /* What the chat has done, in a few words — one line, never wraps. */
   .yl-sum{margin:2px 0 0 18px;font:400 12.5px/1.35 var(--ui);color:var(--fg2);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -781,6 +786,14 @@
     color:#04121f;background:var(--blue);padding:1px 6px;border-radius:4px;
     text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.4)}
   .bgtag.on{display:inline-block}
+
+  /* "waiting on a background agent/shell" badge — amber, worn on the sprite,
+     shown in any state (idle included): a backgrounded Task or shell can
+     still be running after the main turn looks done. */
+  .cwait{display:none;margin-top:2px;font:700 10px var(--mono);letter-spacing:.02em;
+    color:#2a1206;background:var(--amber);padding:1px 6px;border-radius:4px;
+    text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.4);animation:pulse 1.6s infinite}
+  .cwait.on{display:inline-block}
 
   /* --bdx: horizontal nudge (set per-frame in JS) that keeps a bubble on-screen
      when its clawd walks to the far edge. The tail counters it so it still points
@@ -2033,7 +2046,8 @@ function renderYardList(rows){
       n = document.createElement('button');
       n.dataset.u = r.uuid; n.setAttribute('role', 'listitem');
       n.innerHTML = '<div class="yl-top"><i class="yl-dot"></i><span class="yl-name"></span>'
-        + '<span class="yl-when"></span></div><div class="yl-sum"></div><div class="yl-act"></div>';
+        + '<span class="yl-bg"></span><span class="yl-when"></span></div>'
+        + '<div class="yl-sum"></div><div class="yl-act"></div>';
     }
     const st = stateOf(r);
     n.className = 'yl ' + st;
@@ -2047,6 +2061,12 @@ function renderYardList(rows){
     const act = st === 'waiting' ? esc(ac.rest)
       : ac.verb ? `<span class="verb">${esc(ac.verb)}</span> ${esc(ac.rest)}` : '';
     const a = n.querySelector('.yl-act'); if (a.innerHTML !== act) a.innerHTML = act;
+    // Amber badge: a backgrounded agent and/or shell is still going, shown in
+    // every state — idle included — since that's exactly when it's easy to
+    // miss that something's still running behind a chat that looks done.
+    const w = bgWait(r), bgTxt = bgWaitLabel(w), bgEl = n.querySelector('.yl-bg');
+    if (bgEl.textContent !== bgTxt) bgEl.textContent = bgTxt;
+    bgEl.classList.toggle('on', !!bgTxt);
     if (el.children[i] !== n) el.insertBefore(n, el.children[i] || null);
   });
   have.forEach(n => n.remove());
@@ -2213,6 +2233,38 @@ function bubbleHTML(s){
   return (a.verb ? `<span class="verb">${esc(a.verb)}</span> ` : '') + esc(a.rest);
 }
 
+/* ── background-agent / background-shell wait indicator ──────────────────
+   Provider-agnostic: Claude, Codex and Grok all print SOME footer like this
+   when a backgrounded agent/task/shell is still going, so a regex over the
+   screen tail catches all three without knowing their formats. Agents and
+   shells are counted separately — s.bg (server-counted, from the transcript's
+   own "running in background with ID" announcements) is the authoritative
+   shell count, the tail regex is a fallback/extra for whichever of the two
+   it names, and a finished main turn with a still-writing subagent
+   transcript (s.subs) counts as a waiting agent too. Shown in every state,
+   including idle — the whole point is to catch what looks like "done". */
+const BG_WAIT_RE = /waiting (?:for|on) (\d+) background (agent|task|shell|job)s?/i;
+const BG_STILL_RE = /(\d+) background (agent|task|shell|job)s?\s*(?:still running|running in background)/i;
+function bgWait(s){
+  let agents = 0, shells = Math.max(0, s.bg || 0);
+  const tail = (s.tail || []).join('\n');
+  const m = BG_WAIT_RE.exec(tail) || BG_STILL_RE.exec(tail);
+  if (m){
+    const n = parseInt(m[1], 10) || 0;
+    if (/shell/i.test(m[2])) shells = Math.max(shells, n);
+    else agents = n;
+  }
+  if (stateOf(s) !== 'working' && (s.subs || []).length) agents = Math.max(agents, s.subs.length);
+  return {agents, shells};
+}
+function bgWaitLabel(w){
+  if (!w.agents && !w.shells) return '';
+  if (w.agents && w.shells)
+    return `⧗ ${w.agents} agent${w.agents > 1 ? 's' : ''} · ${w.shells} shell${w.shells > 1 ? 's' : ''}`;
+  if (w.agents) return `⧗ ${w.agents} bg agent${w.agents > 1 ? 's' : ''}`;
+  return `⧗ ${w.shells} shell${w.shells > 1 ? 's' : ''}`;
+}
+
 /* reconcile live rows into the troupe: add new, drop gone, update the rest */
 function syncCritters(rows){
   const seen = new Set();
@@ -2233,6 +2285,15 @@ function syncCritters(rows){
                                 : `${nbg} background shells still running`;
       c.bgtag.classList.toggle('on', nbg > 0);
       c._bg = nbg;
+    }
+    // Amber "waiting on a background agent/shell" badge — same fact as the
+    // yard list's chip, just worn on the sprite instead. Shown in any state.
+    const w = bgWait(s), waitTxt = bgWaitLabel(w);
+    if (waitTxt !== c._cwait){
+      c.cwait.textContent = waitTxt;
+      c.cwait.title = waitTxt ? waitTxt.replace('⧗ ', '') + ' still running' : '';
+      c.cwait.classList.toggle('on', !!waitTxt);
+      c._cwait = waitTxt;
     }
     paintIdentity(c);
     syncPups(c);
@@ -2399,7 +2460,8 @@ function spawnCritter(s){
      <div class="bubble"></div>
      <div class="ctag"><span class="nm"></span></div>
      <div class="wtimer"></div>
-     <div class="bgtag"></div>`;
+     <div class="bgtag"></div>
+     <div class="cwait"></div>`;
   el.onclick = () => tapClawd(CRITTERS.get(s.uuid));
   document.getElementById('yard').appendChild(el);
   const c = {
@@ -2408,6 +2470,7 @@ function spawnCritter(s){
     fill:el.querySelector('.fill'), nm:el.querySelector('.nm'),
     wtimer:el.querySelector('.wtimer'), _wt:'',
     bgtag:el.querySelector('.bgtag'), _bg:-1,
+    cwait:el.querySelector('.cwait'), _cwait:'',
     x:null, y:0, vx:0, vy:0, facing:1, next:0, tx:null, ty:null, bubbleOn:false, _cls:'', _sc:'',
     _bhtml:'', _bat:0,          // last announced command + when, for the bubble
     _fling:false, gkey:groupKey(s),
