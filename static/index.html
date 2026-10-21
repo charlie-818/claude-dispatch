@@ -777,16 +777,6 @@
      as "resting", not "running". */
   .idle .wtimer{color:#9fb0c4;background:#2b3440;box-shadow:none}
 
-  /* A chat can leave a shell running behind it — a dev server, a long build —
-     and nothing else in the yard would say so: the clawd drops back to idle and
-     reads as finished. This chip is that fact, the same pill as the state timer
-     above it in blue. The colour and the word carry it; a pulsing dot on a yard
-     full of already-animated clawds was one more thing blinking for nothing. */
-  .bgtag{display:none;margin-top:2px;font:600 10px var(--mono);letter-spacing:.04em;
-    color:#04121f;background:var(--blue);padding:1px 6px;border-radius:4px;
-    text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.4)}
-  .bgtag.on{display:inline-block}
-
   /* "waiting on a background agent/shell" badge — amber, worn on the sprite,
      shown in any state (idle included): a backgrounded Task or shell can
      still be running after the main turn looks done. */
@@ -2276,18 +2266,9 @@ function syncCritters(rows){
     c.fill.setAttribute('stroke-dasharray', `${dash} 300`);
     c.fill.setAttribute('stroke', ctxColor(s.ctx || 0));
     c.nm.textContent = s.name;
-    // only touched when the count MOVES — the fleet broadcasts every second and
-    // writing an unchanged chip would restart its pulse animation each frame
-    const nbg = s.bg || 0;
-    if (nbg !== c._bg){
-      c.bgtag.textContent = nbg > 1 ? `bg ${nbg}` : 'bg';
-      c.bgtag.title = nbg === 1 ? '1 background shell still running'
-                                : `${nbg} background shells still running`;
-      c.bgtag.classList.toggle('on', nbg > 0);
-      c._bg = nbg;
-    }
     // Amber "waiting on a background agent/shell" badge — same fact as the
-    // yard list's chip, just worn on the sprite instead. Shown in any state.
+    // yard list's chip, worn on the sprite. Shown in any state; only touched
+    // when the text moves so its pulse doesn't restart every fleet frame.
     const w = bgWait(s), waitTxt = bgWaitLabel(w);
     if (waitTxt !== c._cwait){
       c.cwait.textContent = waitTxt;
@@ -2460,7 +2441,6 @@ function spawnCritter(s){
      <div class="bubble"></div>
      <div class="ctag"><span class="nm"></span></div>
      <div class="wtimer"></div>
-     <div class="bgtag"></div>
      <div class="cwait"></div>`;
   el.onclick = () => tapClawd(CRITTERS.get(s.uuid));
   document.getElementById('yard').appendChild(el);
@@ -2469,7 +2449,6 @@ function spawnCritter(s){
     stage:el.querySelector('.stage'), bubble:el.querySelector('.bubble'),
     fill:el.querySelector('.fill'), nm:el.querySelector('.nm'),
     wtimer:el.querySelector('.wtimer'), _wt:'',
-    bgtag:el.querySelector('.bgtag'), _bg:-1,
     cwait:el.querySelector('.cwait'), _cwait:'',
     x:null, y:0, vx:0, vy:0, facing:1, next:0, tx:null, ty:null, bubbleOn:false, _cls:'', _sc:'',
     _bhtml:'', _bat:0,          // last announced command + when, for the bubble
