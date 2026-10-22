@@ -697,8 +697,12 @@
   /* "waiting on a background agent/shell" — shown independent of the main dot
      and of state: a backgrounded Task or shell can still be running after the
      main turn looks done, or even while it's idle. */
-  .yl-bg{flex:none;display:none;font:600 10px var(--mono);color:var(--amber)}
+  .yl-bg{flex:none;display:none;margin-left:auto;font:500 11px var(--ui);color:var(--amber)}
   .yl-bg.on{display:inline-block}
+  /* gist on the left, the background note right-aligned under icon + time */
+  .yl-mid{display:flex;align-items:baseline;gap:10px;margin:2px 0 0 18px}
+  .yl-mid .yl-sum{flex:1;min-width:0;margin:0}
+  .yl-mid:has(.yl-sum:empty):not(:has(.yl-bg.on)){display:none}
   /* deliverable: a small open-it button, tappable without disturbing the
      row's own tap target even though the icon itself stays tiny. */
   .yl-deliv{flex:none;display:none;align-items:center;justify-content:center;
@@ -2068,11 +2072,11 @@ function renderYardList(rows){
       n = document.createElement('button');
       n.dataset.u = r.uuid; n.setAttribute('role', 'listitem');
       n.innerHTML = '<div class="yl-top"><i class="yl-dot"></i><span class="yl-name"></span>'
-        + '<span class="yl-bg"></span>'
         + '<span class="yl-deliv" role="button" tabindex="0">'
         + '<span class="material-symbols-rounded" aria-hidden="true"></span></span>'
         + '<span class="yl-when"></span></div>'
-        + '<div class="yl-sum"></div><div class="yl-act"></div>';
+        + '<div class="yl-mid"><div class="yl-sum"></div><span class="yl-bg"></span></div>'
+        + '<div class="yl-act"></div>';
     }
     const st = stateOf(r);
     n.className = 'yl ' + st;
@@ -2089,7 +2093,7 @@ function renderYardList(rows){
     // Amber badge: a backgrounded agent and/or shell is still going, shown in
     // every state — idle included — since that's exactly when it's easy to
     // miss that something's still running behind a chat that looks done.
-    const w = bgWait(r), bgTxt = bgWaitLabel(w), bgEl = n.querySelector('.yl-bg');
+    const w = bgWait(r), bgTxt = bgWaitWords(w), bgEl = n.querySelector('.yl-bg');
     if (bgEl.textContent !== bgTxt) bgEl.textContent = bgTxt;
     bgEl.classList.toggle('on', !!bgTxt);
     // Deliverable icon: only touched when it actually changes, so a row that
@@ -2334,6 +2338,16 @@ function bgWaitLabel(w){
     return `⧗ ${w.agents} agent${w.agents > 1 ? 's' : ''} · ${w.shells} shell${w.shells > 1 ? 's' : ''}`;
   if (w.agents) return `⧗ ${w.agents} bg agent${w.agents > 1 ? 's' : ''}`;
   return `⧗ ${w.shells} shell${w.shells > 1 ? 's' : ''}`;
+}
+
+/* the list row has room for words: "background agent still running" */
+function bgWaitWords(w){
+  const n = (k, one) => (k > 1 ? `${k} ${one}s` : one);
+  const parts = [];
+  if (w.agents) parts.push(n(w.agents, 'background agent'));
+  if (w.shells) parts.push(n(w.shells, 'shell'));
+  if (!parts.length) return '';
+  return parts.join(' + ') + ' still running';
 }
 
 /* reconcile live rows into the troupe: add new, drop gone, update the rest */
