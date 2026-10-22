@@ -21,12 +21,12 @@
 <link rel="stylesheet" media="print" onload="this.media='all'"
   href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&display=swap">
 <link rel="stylesheet" media="print" onload="this.media='all'"
-  href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20,300..700,0,-25&amp;icon_names=attach_file,description,image,ink_eraser,merge,mic,open_in_new,photo_camera,stop&amp;display=block">
+  href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20,300..700,0,-25&amp;icon_names=attach_file,description,image,ink_eraser,language,merge,mic,open_in_new,photo_camera,stop&amp;display=block">
 <noscript>
 <link rel="stylesheet"
   href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&display=swap">
 <link rel="stylesheet"
-  href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20,300..700,0,-25&amp;icon_names=attach_file,description,image,ink_eraser,merge,mic,open_in_new,photo_camera,stop&amp;display=block">
+  href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20,300..700,0,-25&amp;icon_names=attach_file,description,image,ink_eraser,language,merge,mic,open_in_new,photo_camera,stop&amp;display=block">
 </noscript>
 <title>The Yard — CC Dispatch</title>
 <style>
@@ -706,6 +706,9 @@
   /* clip to one glyph: if the icon font is late or missing, the ligature name
      must not spill out as a word across the row */
   .yl-deliv .material-symbols-rounded{font-size:15px;width:1em;overflow:hidden}
+  /* image deliverables show a tiny live thumbnail instead of a glyph */
+  .yl-deliv-thumb{width:20px;height:20px;border-radius:5px;object-fit:cover}
+  .yl-deliv:has(.yl-deliv-thumb) .material-symbols-rounded{display:none}
   /* What the chat has done, in a few words — one line, never wraps. */
   .yl-sum{margin:2px 0 0 18px;font:400 12.5px/1.35 var(--ui);color:var(--fg2);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -2098,9 +2101,21 @@ function renderYardList(rows){
         dvEl.dataset.href = dv.href;
         dvEl.title = dv.label; dvEl.setAttribute('aria-label', dv.label);
         dvEl.querySelector('.material-symbols-rounded').textContent = delivIcon(dv);
+        let th = dvEl.querySelector('.yl-deliv-thumb');
+        if (dv.kind === 'image'){
+          if (!th){
+            th = document.createElement('img');
+            th.className = 'yl-deliv-thumb'; th.loading = 'lazy'; th.alt = '';
+            dvEl.appendChild(th);
+          }
+          th.src = dv.href;
+        } else if (th){
+          th.remove();
+        }
       } else {
         delete dvEl.dataset.href;
         dvEl.removeAttribute('title'); dvEl.removeAttribute('aria-label');
+        const th = dvEl.querySelector('.yl-deliv-thumb'); if (th) th.remove();
       }
     }
     if (el.children[i] !== n) el.insertBefore(n, el.children[i] || null);
@@ -2108,11 +2123,8 @@ function renderYardList(rows){
   have.forEach(n => n.remove());
 }
 function delivIcon(d){
-  if (d.kind === 'file'){
-    const ext = (d.label.split('.').pop() || '').toLowerCase();
-    return ['png','jpg','jpeg','gif','webp','svg'].includes(ext) ? 'image' : 'description';
-  }
-  return /^PR #/.test(d.label) ? 'merge' : 'open_in_new';
+  return {page: 'language', image: 'image', link: 'open_in_new',
+          file: 'description', pr: 'merge'}[d.kind] || 'open_in_new';
 }
 function openDeliverable(dv){
   const href = dv.dataset.href;

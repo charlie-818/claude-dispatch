@@ -39,6 +39,7 @@ import sys
 import tempfile
 import time
 import traceback
+import urllib.parse
 
 import iterm2
 from aiohttp import web
@@ -1557,42 +1558,78 @@ def session_ops(path):
 
 
 # ── deliverables ─────────────────────────────────────────────────────────────
-# The newest thing a chat has handed back: a claude.ai artifact / GitHub PR /
-# deploy link it posted, or (Claude only, whose transcript is structured) a
-# file it Wrote with a shareable extension that still exists on disk. "Newest"
-# falls out for free here — lines are scanned strictly in append order, so the
-# last match found simply overwrites the one before it.
-_DELIV = {}          # transcript path -> {"off", "cur", "checked_at"}
-_DELIV_BY_UUID = {}  # pane uuid -> absolute path of its current file deliverable
-_DELIV_EXTS = {"html", "htm", "pdf", "png", "jpg", "jpeg", "gif", "webp", "svg",
+# The actual thing a chat changed, ranked by how directly it shows that: the
+# page it navigated/curled/fetched (best — "here's the site I touched"), an
+# image it wrote or screenshotted, a claude.ai artifact, a deploy URL, a
+# written doc file, and a GitHub PR link last (a PR is a diff, not the thing
+# itself). Each tier keeps only its own newest candidate — lines are scanned
+# strictly in append order, so a later match in the same tier simply
+# overwrites the one before it — and the highest tier with a live candidate
+# wins at resolve time.
+_DELIV = {}          # transcript path -> incremental scan state (see _deliv_fresh)
+_DELIV_BY_UUID = {}  # pane uuid -> absolute path of its current file/image deliverable
+_DELIV_EXTS = {"html", "htm", "pdf", "png", "jpg", "jpeg", "gif", "webp", "svg", "ico",
                "md", "docx", "pptx", "xlsx", "csv"}
+_DELIV_IMG_EXTS = {"png", "jpg", "jpeg", "gif", "webp", "svg", "ico"}
 _DELIV_CTYPE = {
     "html": "text/html; charset=utf-8", "htm": "text/html; charset=utf-8",
     "pdf": "application/pdf", "png": "image/png", "jpg": "image/jpeg",
     "jpeg": "image/jpeg", "gif": "image/gif", "webp": "image/webp",
-    "svg": "image/svg+xml", "md": "text/plain; charset=utf-8",
+    "svg": "image/svg+xml", "ico": "image/x-icon", "md": "text/plain; charset=utf-8",
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "csv": "text/csv",
 }
 _DELIV_ATTACH = {"docx", "pptx", "xlsx", "csv"}
-_DELIV_URL_RE = re.compile(
-    r'https?://(?:www\.)?(?:'
-    r'claude\.ai/(?:code/)?artifact/[\w./?=&%#-]+'
-    r'|github\.com/[\w.-]+/[\w.-]+/pull/\d+'
-    r'|[\w-]+(?:\.[\w-]+)*\.(?:vercel\.app|netlify\.app|pages\.dev|fly\.dev'
-    r'|railway\.app|onrender\.com|herokuapp\.com)(?:/[\w./?=&%#-]*)?'
-    r')'
+_DELIV_ARTIFACT_RE = re.compile(r'https?://(?:www\.)?claude\.ai/(?:code/)?artifact/[\w./?=&%#-]+')
+_DELIV_DEPLOY_RE = re.compile(
+    r'https?://(?:www\.)?[\w-]+(?:\.[\w-]+)*\.(?:vercel\.app|netlify\.app|pages\.dev'
+    r'|fly\.dev|railway\.app|onrender\.com|herokuapp\.com)(?:/[\w./?=&%#-]*)?'
 )
-_DELIV_PR_RE = re.compile(r'github\.com/[\w.-]+/[\w.-]+/pull/(\d+)')
+_DELIV_PR_RE = re.compile(r'https?://(?:www\.)?github\.com/[\w.-]+/[\w.-]+/pull/\d+')
+_DELIV_PR_NUM_RE = re.compile(r'/pull/(\d+)')
+_DELIV_URL_RE = re.compile(r'https?://[\w.-]+(?::\d+)?(?:/[\w./?=&%#-]*)?')
+_DELIV_NAV_TOOLS = ("navigate",)  # substring match on tool name, case-insensitive
+_DELIV_SHOT_RE = re.compile(r'screenshot', re.I)
+_DELIV_CURL_OPEN_RE = re.compile(r'\b(?:curl|open)\b')
+_PAGE_EXCLUDE_DOMAINS = {
+    "github.com", "claude.ai", "claude.com", "npmjs.com", "pypi.org", "stackoverflow.com",
+    "google.com", "fonts.googleapis.com", "developer.mozilla.org", "readthedocs.io",
+}
+# Dev-docs subdomains vary too much to list by name (developers.circle.com,
+# docs.stripe.com, ...) — a "docs"/"developer(s)" subdomain is reference
+# material, not a page the chat actually changed.
+_PAGE_DOCS_HOST_RE = re.compile(r'^(?:docs?|developers?)\.')
 
 
-def _deliv_label(url):
-    m = _DELIV_PR_RE.search(url)
-    if m:
-        return f"PR #{m.group(1)}"
-    return "artifact" if "claude.ai" in url else "deploy"
+def _page_excluded(url):
+    """Localhost/LAN noise, docs/vendor sites, and bare API/asset paths never
+    count as "the page" — they're not something Charlie would tap to look at."""
+    try:
+        u = urllib.parse.urlsplit(url)
+    except Exception:
+        return True
+    host = (u.hostname or "").lower()
+    if not host or host in ("localhost", "127.0.0.1", "0.0.0.0"):
+        return True
+    if host.endswith(".local"):
+        return True
+    if not host.endswith(".ts.net"):
+        if any(host == d or host.endswith("." + d) for d in _PAGE_EXCLUDE_DOMAINS):
+            return True
+        if _PAGE_DOCS_HOST_RE.match(host):
+            return True
+    path = u.path or ""
+    if path.startswith("/api/") or path.endswith((".json", ".js", ".css")):
+        return True
+    return False
+
+
+def _page_label(url):
+    u = urllib.parse.urlsplit(url)
+    s = ((u.hostname or "") + (u.path or "")).rstrip("/") or (u.hostname or url)
+    return s if len(s) <= 32 else s[:31] + "…"
 
 
 def _deliv_excluded(path):
@@ -1611,22 +1648,48 @@ def _deliv_excluded(path):
     return False
 
 
+def _deliv_fresh():
+    return {"off": 0, "checked_at": 0.0,
+            "last_edit_off": 0,          # position of the newest Edit/Write seen
+            "page_pre": None, "page_post": None,   # tier 1, before/after last edit
+            "visual": None,              # tier 2: image written or screenshotted
+            "artifact": None,            # tier 3
+            "deploy": None,              # tier 4
+            "file": None,                # tier 5: written doc
+            "pr": None}                  # tier 6
+
+
+def _deliv_page_seen(st, url, off):
+    """Record a PAGE candidate, preferring ones seen after the chat's last
+    Edit/Write (that's what the edit actually produced) but keeping the newest
+    pre-edit one around in case no post-edit mention ever shows up."""
+    if _page_excluded(url):
+        return
+    cand = {"url": url, "label": _page_label(url)}
+    if off > st["last_edit_off"]:
+        st["page_post"] = cand
+    else:
+        st["page_pre"] = cand
+
+
 def _deliv_scan(path, provider=DEFAULT_PROVIDER):
     """This transcript's current deliverable, or None.
 
     Incremental like session_ops: only newly appended whole lines are parsed,
-    reset when the file shrinks (a /clear starts a new session file). Links are
-    found with a plain regex over every new line, Claude- or client-agnostic.
-    File deliverables need the transcript's JSON structure, which only Claude
-    writes, so that half is skipped for codex/grok — a generic link scan is
-    all they get, per spec, rather than new per-client plumbing."""
-    st = _DELIV.setdefault(path, {"off": 0, "cur": None, "checked_at": 0.0})
+    reset when the file shrinks (a /clear starts a new session file). Link
+    tiers (artifact/deploy/pr) are found with a plain regex over every new
+    line, Claude- or client-agnostic. The richer tiers — navigated/fetched
+    pages, written or screenshotted images, written doc files — need the
+    transcript's JSON structure, which only Claude writes, so that half is
+    skipped for codex/grok — the link-tier scan is all they get, per spec,
+    rather than new per-client plumbing."""
+    st = _DELIV.setdefault(path, _deliv_fresh())
     try:
         size = os.path.getsize(path)
     except OSError:
-        return st["cur"]
+        return _deliv_resolve(st)
     if size < st["off"]:
-        st["off"], st["cur"] = 0, None
+        st.update(_deliv_fresh())
     if size > st["off"]:
         try:
             with open(path, "rb") as fh:
@@ -1637,15 +1700,23 @@ def _deliv_scan(path, provider=DEFAULT_PROVIDER):
         cut = data.rfind(b"\n") + 1
         if cut:
             chunk = data[:cut].decode("utf-8", "ignore")
-            st["off"] += cut
             for line in chunk.splitlines():
-                for m in _DELIV_URL_RE.finditer(line):
+                st["off"] += len(line.encode("utf-8", "ignore")) + 1
+                m = _DELIV_ARTIFACT_RE.search(line)
+                if m:
+                    st["artifact"] = {"url": m.group(0)}
+                m = _DELIV_DEPLOY_RE.search(line)
+                if m:
+                    url = m.group(0).split("?", 1)[0]
+                    root = urllib.parse.urlsplit(url)
+                    url = f"{root.scheme}://{root.netloc}/"
+                    st["deploy"] = {"url": url, "label": _page_label(url)}
+                m = _DELIV_PR_RE.search(line)
+                if m:
                     url = m.group(0)
-                    st["cur"] = {"kind": "link", "url": url,
-                                 "label": _deliv_label(url), "t": st["off"]}
-                if provider != DEFAULT_PROVIDER:
-                    continue
-                if '"tool_use"' not in line or '"Write"' not in line:
+                    n = _DELIV_PR_NUM_RE.search(url)
+                    st["pr"] = {"url": url, "label": f"PR #{n.group(1)}" if n else "PR"}
+                if provider != DEFAULT_PROVIDER or '"tool_use"' not in line:
                     continue
                 try:
                     o = json.loads(line)
@@ -1655,24 +1726,73 @@ def _deliv_scan(path, provider=DEFAULT_PROVIDER):
                 if not isinstance(msg, dict):
                     continue
                 for b in (msg.get("content") or []):
-                    if not (isinstance(b, dict) and b.get("type") == "tool_use"
-                            and b.get("name") == "Write"):
+                    if not (isinstance(b, dict) and b.get("type") == "tool_use"):
                         continue
-                    fp = (b.get("input") or {}).get("file_path") or ""
-                    ext = fp.rsplit(".", 1)[-1].lower() if "." in fp else ""
-                    if ext in _DELIV_EXTS and fp and not _deliv_excluded(fp):
-                        st["cur"] = {"kind": "file", "path": fp,
-                                     "label": os.path.basename(fp), "t": st["off"]}
-    cur = st["cur"]
-    # A written file can vanish later (moved, cleaned up) — re-check existence
-    # at most every 30s, never on every fleet frame.
-    if cur and cur["kind"] == "file":
-        now = time.time()
-        if now - st["checked_at"] > 30:
-            st["checked_at"] = now
-            if not os.path.isfile(cur["path"]):
-                st["cur"] = cur = None
-    return cur
+                    name = b.get("name") or ""
+                    inp = b.get("input") or {}
+                    lname = name.lower()
+                    if name in _EDIT_TOOLS:
+                        st["last_edit_off"] = st["off"]
+                        fp = inp.get("file_path") or inp.get("notebook_path") or ""
+                        ext = fp.rsplit(".", 1)[-1].lower() if "." in fp else ""
+                        if fp and not _deliv_excluded(fp):
+                            if ext in _DELIV_IMG_EXTS:
+                                st["visual"] = {"path": fp, "label": os.path.basename(fp)}
+                            elif ext in _DELIV_EXTS:
+                                st["file"] = {"path": fp, "label": os.path.basename(fp)}
+                    elif any(t in lname for t in _DELIV_NAV_TOOLS):
+                        url = inp.get("url")
+                        if url:
+                            _deliv_page_seen(st, url, st["off"])
+                    elif name == "WebFetch":
+                        url = inp.get("url")
+                        if url:
+                            _deliv_page_seen(st, url, st["off"])
+                    elif name == "Bash":
+                        cmd = inp.get("command") or ""
+                        if _DELIV_CURL_OPEN_RE.search(cmd):
+                            u = _DELIV_URL_RE.search(cmd)
+                            if u:
+                                _deliv_page_seen(st, u.group(0), st["off"])
+                    elif _DELIV_SHOT_RE.search(lname):
+                        fp = inp.get("filename") or inp.get("path") or ""
+                        ext = fp.rsplit(".", 1)[-1].lower() if "." in fp else ""
+                        if fp and ext in _DELIV_IMG_EXTS and not _deliv_excluded(fp):
+                            st["visual"] = {"path": fp, "label": os.path.basename(fp)}
+    return _deliv_resolve(st)
+
+
+def _deliv_resolve(st):
+    """Highest tier with a candidate still alive wins. Written files can
+    vanish later (moved, cleaned up) — re-checked at most every 30s, never on
+    every fleet frame."""
+    now = time.time()
+    if now - st["checked_at"] > 30:
+        st["checked_at"] = now
+        v = st["visual"]
+        if v and not os.path.isfile(v["path"]):
+            st["visual"] = None
+        f = st["file"]
+        if f and not os.path.isfile(f["path"]):
+            st["file"] = None
+    page = st["page_post"] or st["page_pre"]
+    if page:
+        return {"kind": "page", "label": page["label"], "url": page["url"]}
+    if st["visual"]:
+        v = st["visual"]
+        return {"kind": "image", "label": v["label"], "path": v["path"]}
+    if st["artifact"]:
+        return {"kind": "link", "label": "artifact", "url": st["artifact"]["url"]}
+    if st["deploy"]:
+        d = st["deploy"]
+        return {"kind": "page", "label": d["label"], "url": d["url"]}
+    if st["file"]:
+        f = st["file"]
+        return {"kind": "file", "label": f["label"], "path": f["path"]}
+    if st["pr"]:
+        p = st["pr"]
+        return {"kind": "pr", "label": p["label"], "url": p["url"]}
+    return None
 
 
 # ── Codex / Grok journals ───────────────────────────────────────────────────
@@ -2686,13 +2806,13 @@ async def _fleet_row(uuid, s, files):
             ch = None
         tp = (f or {}).get("transcript") or ""
         dv = _deliv_scan(tp, provider) if tp else None
-        if dv and dv["kind"] == "file":
+        if dv and dv["kind"] in ("file", "image"):
             _DELIV_BY_UUID[uuid] = dv["path"]
-            deliv = {"kind": "file", "label": dv["label"],
+            deliv = {"kind": dv["kind"], "label": dv["label"],
                       "href": f"/api/deliverable?uuid={uuid}"}
         elif dv:
             _DELIV_BY_UUID.pop(uuid, None)
-            deliv = {"kind": "link", "label": dv["label"], "href": dv["url"]}
+            deliv = {"kind": dv["kind"], "label": dv["label"], "href": dv["url"]}
         else:
             _DELIV_BY_UUID.pop(uuid, None)
             deliv = None
