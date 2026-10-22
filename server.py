@@ -1556,6 +1556,125 @@ def session_ops(path):
     return st["fn"], st["pn"]
 
 
+# ── deliverables ─────────────────────────────────────────────────────────────
+# The newest thing a chat has handed back: a claude.ai artifact / GitHub PR /
+# deploy link it posted, or (Claude only, whose transcript is structured) a
+# file it Wrote with a shareable extension that still exists on disk. "Newest"
+# falls out for free here — lines are scanned strictly in append order, so the
+# last match found simply overwrites the one before it.
+_DELIV = {}          # transcript path -> {"off", "cur", "checked_at"}
+_DELIV_BY_UUID = {}  # pane uuid -> absolute path of its current file deliverable
+_DELIV_EXTS = {"html", "htm", "pdf", "png", "jpg", "jpeg", "gif", "webp", "svg",
+               "md", "docx", "pptx", "xlsx", "csv"}
+_DELIV_CTYPE = {
+    "html": "text/html; charset=utf-8", "htm": "text/html; charset=utf-8",
+    "pdf": "application/pdf", "png": "image/png", "jpg": "image/jpeg",
+    "jpeg": "image/jpeg", "gif": "image/gif", "webp": "image/webp",
+    "svg": "image/svg+xml", "md": "text/plain; charset=utf-8",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "csv": "text/csv",
+}
+_DELIV_ATTACH = {"docx", "pptx", "xlsx", "csv"}
+_DELIV_URL_RE = re.compile(
+    r'https?://(?:www\.)?(?:'
+    r'claude\.ai/(?:code/)?artifact/[\w./?=&%#-]+'
+    r'|github\.com/[\w.-]+/[\w.-]+/pull/\d+'
+    r'|[\w-]+(?:\.[\w-]+)*\.(?:vercel\.app|netlify\.app|pages\.dev|fly\.dev'
+    r'|railway\.app|onrender\.com|herokuapp\.com)(?:/[\w./?=&%#-]*)?'
+    r')'
+)
+_DELIV_PR_RE = re.compile(r'github\.com/[\w.-]+/[\w.-]+/pull/(\d+)')
+
+
+def _deliv_label(url):
+    m = _DELIV_PR_RE.search(url)
+    if m:
+        return f"PR #{m.group(1)}"
+    return "artifact" if "claude.ai" in url else "deploy"
+
+
+def _deliv_excluded(path):
+    """~/.claude/, node_modules, .git, and this repo's own static/ never count
+    — those are the harness's own files, not something the chat made for someone."""
+    try:
+        rp = os.path.realpath(path)
+    except OSError:
+        rp = path
+    if "/node_modules/" in rp or "/.git/" in rp:
+        return True
+    if rp.startswith(os.path.realpath(os.path.expanduser("~/.claude")) + os.sep):
+        return True
+    if rp.startswith(os.path.realpath(HERE / "static") + os.sep):
+        return True
+    return False
+
+
+def _deliv_scan(path, provider=DEFAULT_PROVIDER):
+    """This transcript's current deliverable, or None.
+
+    Incremental like session_ops: only newly appended whole lines are parsed,
+    reset when the file shrinks (a /clear starts a new session file). Links are
+    found with a plain regex over every new line, Claude- or client-agnostic.
+    File deliverables need the transcript's JSON structure, which only Claude
+    writes, so that half is skipped for codex/grok — a generic link scan is
+    all they get, per spec, rather than new per-client plumbing."""
+    st = _DELIV.setdefault(path, {"off": 0, "cur": None, "checked_at": 0.0})
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return st["cur"]
+    if size < st["off"]:
+        st["off"], st["cur"] = 0, None
+    if size > st["off"]:
+        try:
+            with open(path, "rb") as fh:
+                fh.seek(st["off"])
+                data = fh.read()
+        except OSError:
+            data = b""
+        cut = data.rfind(b"\n") + 1
+        if cut:
+            chunk = data[:cut].decode("utf-8", "ignore")
+            st["off"] += cut
+            for line in chunk.splitlines():
+                for m in _DELIV_URL_RE.finditer(line):
+                    url = m.group(0)
+                    st["cur"] = {"kind": "link", "url": url,
+                                 "label": _deliv_label(url), "t": st["off"]}
+                if provider != DEFAULT_PROVIDER:
+                    continue
+                if '"tool_use"' not in line or '"Write"' not in line:
+                    continue
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                msg = o.get("message")
+                if not isinstance(msg, dict):
+                    continue
+                for b in (msg.get("content") or []):
+                    if not (isinstance(b, dict) and b.get("type") == "tool_use"
+                            and b.get("name") == "Write"):
+                        continue
+                    fp = (b.get("input") or {}).get("file_path") or ""
+                    ext = fp.rsplit(".", 1)[-1].lower() if "." in fp else ""
+                    if ext in _DELIV_EXTS and fp and not _deliv_excluded(fp):
+                        st["cur"] = {"kind": "file", "path": fp,
+                                     "label": os.path.basename(fp), "t": st["off"]}
+    cur = st["cur"]
+    # A written file can vanish later (moved, cleaned up) — re-check existence
+    # at most every 30s, never on every fleet frame.
+    if cur and cur["kind"] == "file":
+        now = time.time()
+        if now - st["checked_at"] > 30:
+            st["checked_at"] = now
+            if not os.path.isfile(cur["path"]):
+                st["cur"] = cur = None
+    return cur
+
+
 # ── Codex / Grok journals ───────────────────────────────────────────────────
 # Neither client writes a Claude-shaped transcript, and the fleet record their
 # hooks leave carries no counters at all — the numbers live in the client's own
@@ -2565,8 +2684,21 @@ async def _fleet_row(uuid, s, files):
         # something move.
         if ch and not (ch["add"] or ch["del"] or ch["files"]):
             ch = None
+        tp = (f or {}).get("transcript") or ""
+        dv = _deliv_scan(tp, provider) if tp else None
+        if dv and dv["kind"] == "file":
+            _DELIV_BY_UUID[uuid] = dv["path"]
+            deliv = {"kind": "file", "label": dv["label"],
+                      "href": f"/api/deliverable?uuid={uuid}"}
+        elif dv:
+            _DELIV_BY_UUID.pop(uuid, None)
+            deliv = {"kind": "link", "label": dv["label"], "href": dv["url"]}
+        else:
+            _DELIV_BY_UUID.pop(uuid, None)
+            deliv = None
         return {
             "uuid": uuid,
+            "deliv": deliv,
             "sid": (f or {}).get("sid"),
             "job": job,
             "provider": provider,          # claude | codex | grok — picks the sprite
@@ -3009,6 +3141,29 @@ async def icon(request):
     if not path.exists():
         return web.Response(status=404)
     return web.FileResponse(path, headers={"Cache-Control": "public, max-age=86400"})
+
+
+@guard
+async def api_deliverable(request):
+    """Serve the file a chat Wrote, keyed by its pane uuid rather than a raw
+    path — the client never gets to name a path on disk."""
+    uuid = (request.query.get("uuid") or "").upper()
+    fp = _DELIV_BY_UUID.get(uuid)
+    if not fp:
+        return web.Response(status=404)
+    rp = os.path.realpath(fp)
+    if not os.path.isfile(rp):
+        return web.Response(status=404)
+    ext = rp.rsplit(".", 1)[-1].lower() if "." in rp else ""
+    ctype = _DELIV_CTYPE.get(ext, "application/octet-stream")
+    headers = {"Content-Type": ctype, "X-Content-Type-Options": "nosniff"}
+    if ext in _DELIV_ATTACH:
+        headers["Content-Disposition"] = f'attachment; filename="{os.path.basename(rp)}"'
+    if ext in ("html", "htm", "svg"):
+        # served on the dispatch origin — sandbox it so it can't script against
+        # us (an SVG runs <script> as readily as HTML does)
+        headers["Content-Security-Policy"] = "sandbox"
+    return web.FileResponse(rp, headers=headers)
 
 
 
@@ -7920,6 +8075,7 @@ async def main(connection):
     app.router.add_get("/api/sysinfo", api_sysinfo)
     app.router.add_get("/api/ping", api_ping)
     app.router.add_get("/api/history", api_history)
+    app.router.add_get("/api/deliverable", api_deliverable)
     app.router.add_post("/api/resume", api_resume)
     app.router.add_get("/api/vapid", api_vapid)
     app.router.add_post("/api/push/subscribe", api_push_subscribe)

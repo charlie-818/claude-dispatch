@@ -697,6 +697,13 @@
      main turn looks done, or even while it's idle. */
   .yl-bg{flex:none;display:none;font:600 10px var(--mono);color:var(--amber)}
   .yl-bg.on{display:inline-block}
+  /* deliverable: a small open-it button, tappable without disturbing the
+     row's own tap target even though the icon itself stays tiny. */
+  .yl-deliv{flex:none;display:none;align-items:center;justify-content:center;
+    width:32px;height:32px;margin:-9px -4px;border-radius:50%;color:var(--dimmer)}
+  .yl-deliv.on{display:flex}
+  .yl-deliv:active{color:var(--green)}
+  .yl-deliv .material-symbols-rounded{font-size:15px}
   /* What the chat has done, in a few words — one line, never wraps. */
   .yl-sum{margin:2px 0 0 18px;font:400 12.5px/1.35 var(--ui);color:var(--fg2);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -2054,7 +2061,10 @@ function renderYardList(rows){
       n = document.createElement('button');
       n.dataset.u = r.uuid; n.setAttribute('role', 'listitem');
       n.innerHTML = '<div class="yl-top"><i class="yl-dot"></i><span class="yl-name"></span>'
-        + '<span class="yl-bg"></span><span class="yl-when"></span></div>'
+        + '<span class="yl-bg"></span>'
+        + '<span class="yl-deliv" role="button" tabindex="0">'
+        + '<span class="material-symbols-rounded" aria-hidden="true"></span></span>'
+        + '<span class="yl-when"></span></div>'
         + '<div class="yl-sum"></div><div class="yl-act"></div>';
     }
     const st = stateOf(r);
@@ -2075,9 +2085,36 @@ function renderYardList(rows){
     const w = bgWait(r), bgTxt = bgWaitLabel(w), bgEl = n.querySelector('.yl-bg');
     if (bgEl.textContent !== bgTxt) bgEl.textContent = bgTxt;
     bgEl.classList.toggle('on', !!bgTxt);
+    // Deliverable icon: only touched when it actually changes, so a row that
+    // never gets one never flickers on a fleet poll.
+    const dv = r.deliv, dvEl = n.querySelector('.yl-deliv');
+    const dvKey = dv ? `${dv.kind}|${dv.label}|${dv.href}` : '';
+    if (dvEl.dataset.key !== dvKey){
+      dvEl.dataset.key = dvKey;
+      dvEl.classList.toggle('on', !!dv);
+      if (dv){
+        dvEl.dataset.href = dv.href;
+        dvEl.title = dv.label; dvEl.setAttribute('aria-label', dv.label);
+        dvEl.querySelector('.material-symbols-rounded').textContent = delivIcon(dv);
+      } else {
+        delete dvEl.dataset.href;
+        dvEl.removeAttribute('title'); dvEl.removeAttribute('aria-label');
+      }
+    }
     if (el.children[i] !== n) el.insertBefore(n, el.children[i] || null);
   });
   have.forEach(n => n.remove());
+}
+function delivIcon(d){
+  if (d.kind === 'file'){
+    const ext = (d.label.split('.').pop() || '').toLowerCase();
+    return ['png','jpg','jpeg','gif','webp','svg'].includes(ext) ? 'image' : 'description';
+  }
+  return /^PR #/.test(d.label) ? 'merge' : 'open_in_new';
+}
+function openDeliverable(dv){
+  const href = dv.dataset.href;
+  if (href) window.open(href, '_blank', 'noopener');
 }
 function setYardView(list){
   document.getElementById('yard').classList.toggle('listing', list);
@@ -2090,7 +2127,16 @@ function setYardView(list){
 }
 function toggleYardView(){ buzz(8); setYardView(!yardListing()); }
 document.getElementById('yard-list').addEventListener('click', e => {
+  const dv = e.target.closest('.yl-deliv');
+  if (dv){ e.stopPropagation(); openDeliverable(dv); return; }
   const c = e.target.closest('.yl'); if (c) openSession(c.dataset.u);
+});
+document.getElementById('yard-list').addEventListener('keydown', e => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const dv = e.target.closest('.yl-deliv');
+  if (!dv) return;
+  e.preventDefault(); e.stopPropagation();
+  openDeliverable(dv);
 });
 try { if (localStorage.getItem('yardView') === 'list') setYardView(true); } catch(e){}
 
