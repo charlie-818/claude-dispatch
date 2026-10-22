@@ -426,6 +426,13 @@
   .dp-start{flex:1;background:#d77757;border-color:#d77757;color:#2a1206}
   .dp-start:active{background:#c56b4a}
   .dp-start:disabled{opacity:.4}
+  /* reaper sheet: one row per stale session — name truncates, age stays put —
+     over the same pinned cancel / confirm bar the folder picker uses */
+  .rp-row{cursor:default;padding:11px 13px}
+  .rp-age{flex:none;font:500 12px var(--mono);color:var(--dim);white-space:nowrap}
+  .rp-go{flex:1;white-space:nowrap;background:rgba(255,107,97,.18);
+    border-color:var(--red);color:var(--red)}
+  .rp-go:active{background:rgba(255,107,97,.28)}
   /* Agent picker — which client the new pane boots into. It lives in the same
      sheet as the folder choice so starting an agent stays one decision, one tap:
      pick who, click through to where, Start here. The tiles wear the same block
@@ -4149,16 +4156,37 @@ function renderSheet(){
   }
 
   else if (openKind === 'reap'){
-    const old = staleRows(SESSIONS);
-    title.textContent = `end sessions idle over ${REAP_H}h`;
-    if (!old.length) body.appendChild(opt('nothing that old', {dis: true}));
-    else {
-      const now = Date.now()/1000;
-      body.appendChild(opt(`end ${old.length} session${old.length===1?'':'s'}`, {
-        desc: old.map(r => `${r.name} ${fmtAge(Math.round(now - reapClock(r)))}`).join(', '),
-        cls: 'confirm', on: reapStale}));
-    }
-    body.appendChild(opt('cancel', {on: closeSheet}));
+    // oldest first, one row each — a comma-joined list wrapped into a paragraph
+    const old = staleRows(SESSIONS).sort((x, y) => reapClock(x) - reapClock(y));
+    const now = Date.now()/1000;
+    title.textContent = `idle over ${REAP_H}h`;
+    document.getElementById('sheet').classList.add('dp');   // flush-bottom bar
+    const list = document.createElement('div');
+    list.className = 'dp-list';
+    if (!old.length) list.innerHTML = '<div class="dp-empty">nothing idle that long</div>';
+    old.forEach(r => {
+      const row = document.createElement('div');
+      row.className = 'dp-row rp-row';
+      row.innerHTML = `<span class="dp-name">${esc(r.name || 'session')}</span>` +
+        `<span class="rp-age">${esc(fmtAge(Math.round(now - reapClock(r))))}</span>`;
+      list.appendChild(row);
+    });
+    body.appendChild(list);
+    const foot = document.createElement('div');
+    foot.className = 'dp-foot';
+    const cancel = document.createElement('button');
+    cancel.className = 'dp-btn dp-back';
+    cancel.textContent = 'cancel';
+    cancel.onclick = closeSheet;
+    foot.appendChild(cancel);
+    if (old.length){
+      const go = document.createElement('button');
+      go.className = 'dp-btn rp-go';
+      go.textContent = `end ${old.length} session${old.length===1?'':'s'}`;
+      go.onclick = reapStale;
+      foot.appendChild(go);
+    } else cancel.style.flex = '1';
+    body.appendChild(foot);
   }
 
   else if (openKind === 'keys'){
