@@ -693,7 +693,7 @@
   .yl.ended .yl-name{color:var(--dimmer)}
   /* fixed-width, right-aligned: "now"/"5m"/"12h"/"100d" differ in length, and
      anything left of this column (the deliverable icon) must not drift */
-  .yl-when{flex:none;width:4ch;text-align:right;font:500 11px var(--mono);color:var(--dimmer)}
+  .yl-when{flex:none;min-width:3ch;text-align:right;font:500 11px var(--mono);color:var(--dimmer)}
   /* "waiting on a background agent/shell" — shown independent of the main dot
      and of state: a backgrounded Task or shell can still be running after the
      main turn looks done, or even while it's idle. */
@@ -706,7 +706,7 @@
   /* deliverable: a small open-it button, tappable without disturbing the
      row's own tap target even though the icon itself stays tiny. */
   .yl-deliv{flex:none;display:none;align-items:center;justify-content:center;
-    width:32px;height:32px;margin:-9px -10px -9px -4px;border-radius:50%;color:var(--dimmer)}
+    width:32px;height:32px;margin:-9px -14px -9px -4px;border-radius:50%;color:var(--dimmer)}
   .yl-deliv.on{display:flex}
   .yl-deliv:active{color:var(--green)}
   /* clip to one glyph: if the icon font is late or missing, the ligature name
