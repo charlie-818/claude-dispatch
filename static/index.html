@@ -1328,11 +1328,6 @@
       <span class="wm">NOW</span></div>
     <div class="meta" id="usage-age"></div>
   </header>
-  <div class="usorts" id="usage-tabs" role="tablist" aria-label="usage source">
-    <button class="hs" data-p="grok" onclick="setUsageProvider('grok')">Grok usage</button>
-    <button class="hs" data-p="claude" onclick="setUsageProvider('claude')">Claude usage</button>
-    <button class="hs" data-p="codex" onclick="setUsageProvider('codex')">Codex usage</button>
-  </div>
   <div id="usage-body"><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div><div class="sk"><span class="sk-edge"></span><div class="sk-body"><div class="sk-line tall w60"></div><div class="sk-line w90"></div><div class="sk-line w40"></div></div><span class="sk-tag"></span></div></div>
   <div class="tabbar">
     <button onclick="showFleet()" aria-label="yard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9.5 12 3l9 6.5"/><path d="M5 10.5V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-9.5"/><path d="M9.5 21v-6h5v6"/></svg></button>
@@ -5769,11 +5764,10 @@ function usageCharts(daily, hasCost){
 }
 
 let USAGE_D = null, usageTimer = null, USAGE_SIG = '';
-const USAGE_PROVIDERS = ['grok', 'claude', 'codex'];
-let USAGE_PROVIDER = localStorage.getItem('usageProvider') || 'grok';
-if (!USAGE_PROVIDERS.includes(USAGE_PROVIDER)) USAGE_PROVIDER = 'grok';
-// Per-provider snapshot so swiping Grok ↔ Claude ↔ Codex paints instantly
-// instead of blanking and refetching. TTL matches the server's 120s usage cache.
+// Usage shows Claude only; the Grok/Codex tabs and swipe were removed.
+const USAGE_PROVIDERS = ['claude'];
+let USAGE_PROVIDER = 'claude';
+// Per-provider snapshot cache. TTL matches the server's 120s usage cache.
 const USAGE_TTL_MS = 120000;
 const USAGE_CACHE = {};            // provider -> {d, at, sig, fetchedAt}
 // Absolute server epoch (unix seconds) the usage data was computed at. Same idea
@@ -6299,7 +6293,7 @@ function hideScreens(){
     if (!engaged) return;
     engaged = false;
     const dx = e.changedTouches[0].clientX - sx;
-    if (Math.abs(dx) < 72) return;
+    if (Math.abs(dx) < 72 || USAGE_PROVIDERS.length < 2) return;
     const i = USAGE_PROVIDERS.indexOf(USAGE_PROVIDER);
     const next = USAGE_PROVIDERS[(i + (dx < 0 ? 1 : -1) + USAGE_PROVIDERS.length) % USAGE_PROVIDERS.length];
     swallowClick = true;
