@@ -691,7 +691,9 @@
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .yl.idle .yl-name{color:var(--fg2)}
   .yl.ended .yl-name{color:var(--dimmer)}
-  .yl-when{flex:none;font:500 11px var(--mono);color:var(--dimmer)}
+  /* fixed-width, right-aligned: "now"/"5m"/"12h"/"100d" differ in length, and
+     anything left of this column (the deliverable icon) must not drift */
+  .yl-when{flex:none;width:4ch;text-align:right;font:500 11px var(--mono);color:var(--dimmer)}
   /* "waiting on a background agent/shell" — shown independent of the main dot
      and of state: a backgrounded Task or shell can still be running after the
      main turn looks done, or even while it's idle. */
