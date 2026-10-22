@@ -21,12 +21,12 @@
 <link rel="stylesheet" media="print" onload="this.media='all'"
   href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&display=swap">
 <link rel="stylesheet" media="print" onload="this.media='all'"
-  href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20,300..700,0,-25&amp;icon_names=attach_file,ink_eraser,mic,photo_camera,stop&amp;display=block">
+  href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20,300..700,0,-25&amp;icon_names=attach_file,description,image,ink_eraser,merge,mic,open_in_new,photo_camera,stop&amp;display=block">
 <noscript>
 <link rel="stylesheet"
   href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&display=swap">
 <link rel="stylesheet"
-  href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20,300..700,0,-25&amp;icon_names=attach_file,ink_eraser,mic,photo_camera,stop&amp;display=block">
+  href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20,300..700,0,-25&amp;icon_names=attach_file,description,image,ink_eraser,merge,mic,open_in_new,photo_camera,stop&amp;display=block">
 </noscript>
 <title>The Yard — CC Dispatch</title>
 <style>
@@ -703,7 +703,9 @@
     width:32px;height:32px;margin:-9px -4px;border-radius:50%;color:var(--dimmer)}
   .yl-deliv.on{display:flex}
   .yl-deliv:active{color:var(--green)}
-  .yl-deliv .material-symbols-rounded{font-size:15px}
+  /* clip to one glyph: if the icon font is late or missing, the ligature name
+     must not spill out as a word across the row */
+  .yl-deliv .material-symbols-rounded{font-size:15px;width:1em;overflow:hidden}
   /* What the chat has done, in a few words — one line, never wraps. */
   .yl-sum{margin:2px 0 0 18px;font:400 12.5px/1.35 var(--ui);color:var(--fg2);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
