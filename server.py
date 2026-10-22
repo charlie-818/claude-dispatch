@@ -1620,6 +1620,10 @@ def _page_excluded(url):
             return True
         if _PAGE_DOCS_HOST_RE.match(host):
             return True
+        # api.hyperliquid.xyz, eth.merkle.io-style RPC: data the chat queried,
+        # never a page that shows what it changed
+        if host.startswith("api.") or "rpc" in host.split(".")[0]:
+            return True
     path = u.path or ""
     if path.startswith("/api/") or path.endswith((".json", ".js", ".css")):
         return True
@@ -1659,11 +1663,24 @@ def _deliv_fresh():
             "pr": None}                  # tier 6
 
 
-def _deliv_page_seen(st, url, off):
+_OWN_SITE_RE = re.compile(
+    r'\.(?:vercel\.app|netlify\.app|pages\.dev|fly\.dev|railway\.app'
+    r'|onrender\.com|herokuapp\.com|github\.io|ts\.net)$')
+
+
+def _deliv_page_seen(st, url, off, own_only=False):
     """Record a PAGE candidate, preferring ones seen after the chat's last
     Edit/Write (that's what the edit actually produced) but keeping the newest
-    pre-edit one around in case no post-edit mention ever shows up."""
+    pre-edit one around in case no post-edit mention ever shows up.
+
+    own_only: a URL the chat merely curl'd or fetched is usually a vendor API
+    or dashboard it was reading, not its own work. Only trust those when the
+    host is somewhere the chat could have deployed to. A browser navigation
+    is a page someone looks at, so it counts on any host."""
     if _page_excluded(url):
+        return
+    if own_only and not _OWN_SITE_RE.search(
+            (urllib.parse.urlsplit(url).hostname or "").lower()):
         return
     cand = {"url": url, "label": _page_label(url)}
     if off > st["last_edit_off"]:
@@ -1747,13 +1764,13 @@ def _deliv_scan(path, provider=DEFAULT_PROVIDER):
                     elif name == "WebFetch":
                         url = inp.get("url")
                         if url:
-                            _deliv_page_seen(st, url, st["off"])
+                            _deliv_page_seen(st, url, st["off"], own_only=True)
                     elif name == "Bash":
                         cmd = inp.get("command") or ""
                         if _DELIV_CURL_OPEN_RE.search(cmd):
                             u = _DELIV_URL_RE.search(cmd)
                             if u:
-                                _deliv_page_seen(st, u.group(0), st["off"])
+                                _deliv_page_seen(st, u.group(0), st["off"], own_only=True)
                     elif _DELIV_SHOT_RE.search(lname):
                         fp = inp.get("filename") or inp.get("path") or ""
                         ext = fp.rsplit(".", 1)[-1].lower() if "." in fp else ""
