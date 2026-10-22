@@ -7684,6 +7684,84 @@ async def _bg_sampler():
         await asyncio.sleep(10)
 
 
+# macOS 27 dropped "Temperature"/"VirtualTemperature" from AppleSmartBattery's
+# IO-registry entry, so that read now comes back empty. The same gas-gauge
+# sensor is still published as a HID temperature service ("gas gauge battery"),
+# which a plain user process can read through IOKit's HID event system — the
+# path tools like macmon use. ctypes keeps it dependency-free; the client is
+# built once, each call only copies the services and their current events.
+_HID = {}
+
+
+def _hid_temps():
+    """{sensor name: °C} from the HID temperature services, {} on any failure."""
+    import ctypes
+    import ctypes.util
+    vp = ctypes.c_void_p
+    try:
+        if "cl" not in _HID:
+            cf = ctypes.CDLL(ctypes.util.find_library("CoreFoundation"))
+            iok = ctypes.CDLL(ctypes.util.find_library("IOKit"))
+            for fn, res, args in (
+                    (cf.CFStringCreateWithCString, vp, [vp, ctypes.c_char_p, ctypes.c_uint32]),
+                    (cf.CFNumberCreate, vp, [vp, ctypes.c_int, vp]),
+                    (cf.CFDictionaryCreate, vp, [vp, vp, vp, ctypes.c_long, vp, vp]),
+                    (cf.CFArrayGetCount, ctypes.c_long, [vp]),
+                    (cf.CFArrayGetValueAtIndex, vp, [vp, ctypes.c_long]),
+                    (cf.CFStringGetCString, ctypes.c_bool, [vp, ctypes.c_char_p, ctypes.c_long, ctypes.c_uint32]),
+                    (cf.CFRelease, None, [vp]),
+                    (iok.IOHIDEventSystemClientCreate, vp, [vp]),
+                    (iok.IOHIDEventSystemClientSetMatching, None, [vp, vp]),
+                    (iok.IOHIDEventSystemClientCopyServices, vp, [vp]),
+                    (iok.IOHIDServiceClientCopyProperty, vp, [vp, vp]),
+                    (iok.IOHIDServiceClientCopyEvent, vp, [vp, ctypes.c_int64, ctypes.c_int32, ctypes.c_int64]),
+                    (iok.IOHIDEventGetFloatValue, ctypes.c_double, [vp, ctypes.c_int32])):
+                fn.restype, fn.argtypes = res, args
+            utf8 = 0x08000100
+            cfs = lambda s: cf.CFStringCreateWithCString(None, s.encode(), utf8)
+
+            def cfn(i):
+                v = ctypes.c_int32(i)
+                return cf.CFNumberCreate(None, 3, ctypes.byref(v))   # kCFNumberSInt32Type
+            # temperature sensors: vendor usage page 0xff00, usage 5
+            keys = (vp * 2)(cfs("PrimaryUsagePage"), cfs("PrimaryUsage"))
+            vals = (vp * 2)(cfn(0xFF00), cfn(5))
+            kcb = vp.in_dll(cf, "kCFTypeDictionaryKeyCallBacks")
+            vcb = vp.in_dll(cf, "kCFTypeDictionaryValueCallBacks")
+            match = cf.CFDictionaryCreate(None, keys, vals, 2,
+                                          ctypes.addressof(kcb), ctypes.addressof(vcb))
+            cl = iok.IOHIDEventSystemClientCreate(None)
+            if not cl:
+                return {}
+            iok.IOHIDEventSystemClientSetMatching(cl, match)
+            _HID.update(cf=cf, iok=iok, cl=cl, prod=cfs("Product"), utf8=utf8)
+        cf, iok, h = _HID["cf"], _HID["iok"], _HID
+        svcs = iok.IOHIDEventSystemClientCopyServices(h["cl"])
+        if not svcs:
+            return {}
+        out, buf = {}, ctypes.create_string_buffer(256)
+        try:
+            for i in range(cf.CFArrayGetCount(svcs)):
+                sc = cf.CFArrayGetValueAtIndex(svcs, i)
+                nm = iok.IOHIDServiceClientCopyProperty(sc, h["prod"])
+                if not nm:
+                    continue
+                ok = cf.CFStringGetCString(nm, buf, 256, h["utf8"])
+                cf.CFRelease(nm)
+                ev = iok.IOHIDServiceClientCopyEvent(sc, 15, 0, 0)   # 15 = temperature
+                if not ev:
+                    continue
+                v = iok.IOHIDEventGetFloatValue(ev, 15 << 16)
+                cf.CFRelease(ev)
+                if ok and -40 < v < 150:          # unwired channels read ~-9200
+                    out[buf.value.decode(errors="ignore")] = v
+        finally:
+            cf.CFRelease(svcs)
+        return out
+    except Exception:
+        return {}
+
+
 async def _load_sampler():
     while True:
         try:
@@ -7760,6 +7838,9 @@ async def _load_sampler():
 
             t = _ioreg_int("Temperature")
             _LOAD["temp_c"] = round(t / 100, 1) if t is not None else None
+            if t is None:                 # macOS 27+: only the HID sensor has it
+                hb = (await asyncio.to_thread(_hid_temps)).get("gas gauge battery")
+                _LOAD["temp_c"] = round(hb, 1) if hb is not None else None
             tv = _ioreg_int("VirtualTemperature")
             _LOAD["temp_cell_c"] = round(tv / 100, 1) if tv is not None else None
             _LOAD["bat_cycles"] = _ioreg_int("CycleCount")
