@@ -1593,6 +1593,11 @@ _DELIV_URL_RE = re.compile(r'https?://[\w.-]+(?::\d+)?(?:/[\w./?=&%#-]*)?')
 _DELIV_NAV_TOOLS = ("navigate",)  # substring match on tool name, case-insensitive
 _DELIV_SHOT_RE = re.compile(r'screenshot', re.I)
 _DELIV_CURL_OPEN_RE = re.compile(r'\b(?:curl|open)\b')
+# `open path/to/brief.pdf` — a file a script built and then showed Charlie.
+# Generated docs (PDFs from a Python script, decks from a converter) never go
+# through Write, so this is the only sign the chat made them.
+_DELIV_OPEN_FILE_RE = re.compile(
+    r'\bopen\s+(?:-[a-zA-Z]\s+(?:"[^"]*"|\S+)\s+)*(["\']?)([^\s"\'&|;]+\.(\w+))\1(?=[\s&|;]|$)')
 _PAGE_EXCLUDE_DOMAINS = {
     "github.com", "claude.ai", "claude.com", "npmjs.com", "pypi.org", "stackoverflow.com",
     "google.com", "fonts.googleapis.com", "developer.mozilla.org", "readthedocs.io",
@@ -1658,6 +1663,7 @@ def _deliv_fresh():
             "page_pre": None, "page_post": None,   # tier 1, before/after last edit
             "visual": None,              # tier 2: image written or screenshotted
             "artifact": None,            # tier 3
+            "artifact_ids": set(),       # Artifact tool_use ids awaiting their result
             "deploy": None,              # tier 4
             "file": None,                # tier 5: written doc
             "pr": None}                  # tier 6
@@ -1687,6 +1693,57 @@ def _deliv_page_seen(st, url, off, own_only=False):
         st["page_post"] = cand
     else:
         st["page_pre"] = cand
+
+
+def _deliv_own_artifact(st, line):
+    """Whether an artifact link on this Claude transcript line is one the chat
+    itself made: in its own reply text, or in the result of its own Artifact
+    call. A link inside anything else — a memory file it cat'd, a prompt
+    pasting an old deck, a tool description — is a reference, not this chat's
+    output (a PDF chat that read a note mentioning the pitch deck must not
+    link the deck)."""
+    try:
+        o = json.loads(line)
+    except Exception:
+        return False
+    msg = o.get("message")
+    if not isinstance(msg, dict):
+        return False
+    content = msg.get("content")
+    if not isinstance(content, list):
+        return False
+    for b in content:
+        if not isinstance(b, dict):
+            continue
+        if o.get("type") == "assistant" and b.get("type") == "text":
+            if _DELIV_ARTIFACT_RE.search(b.get("text") or ""):
+                return True
+        elif b.get("type") == "tool_result" and b.get("tool_use_id") in st["artifact_ids"]:
+            st["artifact_ids"].discard(b["tool_use_id"])
+            if _DELIV_ARTIFACT_RE.search(json.dumps(b.get("content"))):
+                return True
+    return False
+
+
+def _deliv_opened_files(st, cmd, cwd):
+    """Files a Bash command `open`ed: docs or images a script generated and
+    then put in front of Charlie."""
+    for m in _DELIV_OPEN_FILE_RE.finditer(cmd):
+        fp, ext = m.group(2), m.group(3).lower()
+        if ext not in _DELIV_EXTS:
+            continue
+        fp = os.path.expanduser(fp)
+        if not os.path.isabs(fp):
+            if not cwd:
+                continue
+            fp = os.path.normpath(os.path.join(cwd, fp))
+        if _deliv_excluded(fp):
+            continue
+        cand = {"path": fp, "label": os.path.basename(fp), "at": st["off"]}
+        if ext in _DELIV_IMG_EXTS:
+            st["visual"] = cand
+        else:
+            st["file"] = cand
 
 
 def _deliv_scan(path, provider=DEFAULT_PROVIDER):
@@ -1720,14 +1777,14 @@ def _deliv_scan(path, provider=DEFAULT_PROVIDER):
             for line in chunk.splitlines():
                 st["off"] += len(line.encode("utf-8", "ignore")) + 1
                 m = _DELIV_ARTIFACT_RE.search(line)
-                if m:
-                    st["artifact"] = {"url": m.group(0)}
+                if m and (provider != DEFAULT_PROVIDER or _deliv_own_artifact(st, line)):
+                    st["artifact"] = {"url": m.group(0).rstrip(".,"), "at": st["off"]}
                 m = _DELIV_DEPLOY_RE.search(line)
                 if m:
                     url = m.group(0).split("?", 1)[0]
                     root = urllib.parse.urlsplit(url)
                     url = f"{root.scheme}://{root.netloc}/"
-                    st["deploy"] = {"url": url, "label": _page_label(url)}
+                    st["deploy"] = {"url": url, "label": _page_label(url), "at": st["off"]}
                 m = _DELIV_PR_RE.search(line)
                 if m:
                     url = m.group(0)
@@ -1748,7 +1805,10 @@ def _deliv_scan(path, provider=DEFAULT_PROVIDER):
                     name = b.get("name") or ""
                     inp = b.get("input") or {}
                     lname = name.lower()
-                    if name in _EDIT_TOOLS:
+                    if name == "Artifact":
+                        if b.get("id"):
+                            st["artifact_ids"].add(b["id"])
+                    elif name in _EDIT_TOOLS:
                         st["last_edit_off"] = st["off"]
                         fp = inp.get("file_path") or inp.get("notebook_path") or ""
                         ext = fp.rsplit(".", 1)[-1].lower() if "." in fp else ""
@@ -1756,7 +1816,8 @@ def _deliv_scan(path, provider=DEFAULT_PROVIDER):
                             if ext in _DELIV_IMG_EXTS:
                                 st["visual"] = {"path": fp, "label": os.path.basename(fp)}
                             elif ext in _DELIV_EXTS:
-                                st["file"] = {"path": fp, "label": os.path.basename(fp)}
+                                st["file"] = {"path": fp, "label": os.path.basename(fp),
+                                              "at": st["off"]}
                     elif any(t in lname for t in _DELIV_NAV_TOOLS):
                         url = inp.get("url")
                         if url:
@@ -1767,6 +1828,7 @@ def _deliv_scan(path, provider=DEFAULT_PROVIDER):
                             _deliv_page_seen(st, url, st["off"], own_only=True)
                     elif name == "Bash":
                         cmd = inp.get("command") or ""
+                        _deliv_opened_files(st, cmd, o.get("cwd") or "")
                         if _DELIV_CURL_OPEN_RE.search(cmd):
                             u = _DELIV_URL_RE.search(cmd)
                             if u:
@@ -1798,12 +1860,17 @@ def _deliv_resolve(st):
     if st["visual"]:
         v = st["visual"]
         return {"kind": "image", "label": v["label"], "path": v["path"]}
-    if st["artifact"]:
+    # An artifact, a deploy and a written doc are all "the thing itself" —
+    # whichever the chat made last is what it's working on now (a deck
+    # published early, then a PDF built from it, means the PDF).
+    newest = max((k for k in ("artifact", "deploy", "file") if st[k]),
+                 key=lambda k: st[k].get("at", 0), default=None)
+    if newest == "artifact":
         return {"kind": "link", "label": "artifact", "url": st["artifact"]["url"]}
-    if st["deploy"]:
+    if newest == "deploy":
         d = st["deploy"]
         return {"kind": "page", "label": d["label"], "url": d["url"]}
-    if st["file"]:
+    if newest == "file":
         f = st["file"]
         return {"kind": "file", "label": f["label"], "path": f["path"]}
     if st["pr"]:
