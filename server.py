@@ -7573,6 +7573,28 @@ async def api_sleep(request):
     return await _drive_wake_script(request, "--sleep", 90)
 
 
+async def _osascript(script):
+    proc = await asyncio.create_subprocess_exec(
+        "osascript", "-e", script,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    out, err = await asyncio.wait_for(proc.communicate(), timeout=5)
+    if proc.returncode != 0:
+        raise RuntimeError((err or b"").decode("utf-8", "replace").strip() or "osascript failed")
+    return out.decode("utf-8", "replace").strip()
+
+
+async def api_mute(request):
+    """Read (GET) or set (POST {"muted": bool}) this Mac's output mute."""
+    try:
+        if request.method == "POST":
+            muted = bool((await request.json()).get("muted"))
+            await _osascript(f"set volume output muted {'true' if muted else 'false'}")
+        state = await _osascript("output muted of (get volume settings)")
+    except (RuntimeError, asyncio.TimeoutError) as e:
+        return web.json_response({"error": str(e) or "osascript timed out"}, status=502)
+    return web.json_response({"muted": state == "true"})
+
+
 # ── background load sampler ─────────────────────────────────────────────────
 # `top -l 2 -n 0 -s 1` takes ~2 s to settle on a real (non-instantaneous) CPU
 # reading, far too slow to run per /api/sysinfo request. Sample it — plus GPU,
@@ -8290,6 +8312,8 @@ async def main(connection):
     app.router.add_get("/api/devices", api_devices)
     app.router.add_post("/api/wake", api_wake)
     app.router.add_post("/api/sleep", api_sleep)
+    app.router.add_get("/api/mute", api_mute)
+    app.router.add_post("/api/mute", api_mute)
     app.router.add_get("/api/sysinfo", api_sysinfo)
     app.router.add_get("/api/ping", api_ping)
     app.router.add_get("/api/history", api_history)

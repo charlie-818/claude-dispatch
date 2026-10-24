@@ -6208,6 +6208,8 @@ function renderSys(){
         <div class="sys-sw" id="sys-sw-chips" onclick="toggleSysChips()"><i></i></div></div>
       <div class="sys-toggle"><span>haptics</span>
         <div class="sys-sw" id="sys-sw-haptics" onclick="toggleSysHaptics()"><i></i></div></div>
+      <div class="sys-toggle"><span>mute Mac</span>
+        <div class="sys-sw" id="sys-sw-mute" onclick="toggleSysMute()"><i></i></div></div>
         </div>
       </div>
     </div>
@@ -6218,6 +6220,7 @@ function renderSys(){
       <button class="sys-btn danger" onclick="sysLogout()">Log out</button>
     </div>`;
   paintSysSettings();
+  syncSysMute();
 }
 
 /* Settings widgets reflect the same localStorage keys the rest of the app
@@ -6233,6 +6236,27 @@ function paintSysSettings(){
   if (swHaptics) swHaptics.classList.toggle('on', localStorage.getItem('haptics') !== '0');
   const swPush = document.getElementById('sys-sw-push');
   if (swPush) swPush.classList.toggle('on', document.getElementById('bell')?.classList.contains('on'));
+  const swMute = document.getElementById('sys-sw-mute');
+  if (swMute) swMute.classList.toggle('on', !!sysMuted);
+}
+
+/* Mac output mute lives on the server's machine, not in localStorage — read it
+   when the sheet paints, flip it optimistically, then trust the server's word. */
+let sysMuted = null;
+async function syncSysMute(body){
+  try {
+    const r = await fetch('/api/mute', body ? {method: 'POST',
+      headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)} : {});
+    const d = await r.json();
+    if (r.ok) sysMuted = d.muted;
+  } catch(_){}
+  paintSysSettings();
+}
+function toggleSysMute(){
+  const want = !sysMuted;
+  sysMuted = want;
+  buzz(8); paintSysSettings();
+  syncSysMute({muted: want});
 }
 
 function setSysAgent(a){
