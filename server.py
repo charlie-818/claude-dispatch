@@ -294,14 +294,33 @@ async def open_agent_pane(app, cmd):
         return await _stack_slot(best).async_split_pane(
             vertical=False, before=False, profile_customizations=custom)
     tab = fleet_tab(app)
-    if tab is None:
-        # No window the API can see (e.g. right after iTerm2 relaunched) — open
-        # one rather than refusing the spawn.
+    if tab is None or not any(s.session_id.upper() in KNOWN_AGENTS
+                              for s in tab.all_sessions):
+        # No agent window yet (fresh boot, iTerm2 relaunch). Don't borrow
+        # whatever window is current — on Big Mac that is the 80-col launch
+        # window, and its 570pt width became every chat's width on the phone.
+        # Open the fleet its own window, zoomed to the screen like the MacBook's.
         win = await iterm2.Window.async_create(
             app.connection, profile_customizations=custom)
-        return win.current_tab.current_session if win else None
+        if win is None:
+            return None
+        await _zoom_window(win)
+        return win.current_tab.current_session
     new = await tab.window.async_create_tab(profile_customizations=custom)
     return new.current_session
+
+
+async def _zoom_window(win):
+    """Fill the screen's visible frame (Window > Zoom, not native full screen —
+    a full-screen window can't be re-tiled). Only called on a window dispatch
+    just opened, so it never resizes a window the user arranged."""
+    try:
+        await win.async_activate()
+        await iterm2.MainMenu.async_select_menu_item(
+            CONN, iterm2.MainMenu.Window.ZOOM.value.identifier)
+        await asyncio.sleep(0.4)        # let the frame land before the pane runs
+    except Exception as e:
+        print(f"  [spawn] zoom failed: {type(e).__name__}: {e}", flush=True)
 
 
 def fleet_tab(app):
