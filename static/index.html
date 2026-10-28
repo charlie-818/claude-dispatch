@@ -727,6 +727,12 @@
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .yl-sum:empty{display:none}
   .yl.ended .yl-sum{color:var(--dimmer)}
+  /* What the chat needs from Charlie, if anything — one line, never wraps. */
+  .yl-need{margin:2px 0 0 18px;font:500 12.5px/1.35 var(--ui);color:var(--amber);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .yl-need::before{content:"→ "}
+  .yl-need:empty{display:none}
+  .yl.ended .yl-need{display:none}
   .yl-act{margin:3px 0 0 18px;font:400 12.5px/1.35 var(--ui);color:var(--dim);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .yl-act:empty{display:none}
@@ -2043,7 +2049,7 @@ function agoShort(t){
    a model call when it has a prompt the cache hasn't described. Fetched only
    while the list is showing, never mid-run (a gist of half a turn), refetched
    when the hook clock moves, two at a time so a busy yard can't fan out. */
-const GIST = new Map();             // uuid -> {k: lastMsg at fetch, g: text}
+const GIST = new Map();             // uuid -> {k: lastMsg at fetch, g: text, n: need}
 const gistQ = []; let gistBusy = 0;
 function wantGist(r, k){
   const have = GIST.get(r.uuid);
@@ -2054,9 +2060,10 @@ function wantGist(r, k){
 function pumpGist(){
   while (gistBusy < 2 && gistQ.length){
     const {u, k} = gistQ.shift(); gistBusy++;
-    GIST.set(u, {k, g: (GIST.get(u) || {}).g || ''});   // claim: no double fetch
+    const old = GIST.get(u) || {};
+    GIST.set(u, {k, g: old.g || '', n: old.n || ''});   // claim: no double fetch
     fetch('/api/summary?uuid=' + encodeURIComponent(u)).then(r => r.json())
-      .then(d => { GIST.set(u, {k, g: d.gist || ''}); if (yardListing()) renderYardList(); })
+      .then(d => { GIST.set(u, {k, g: d.gist || '', n: d.need || ''}); if (yardListing()) renderYardList(); })
       .catch(() => GIST.delete(u))
       .finally(() => { gistBusy--; pumpGist(); });
   }
@@ -2078,6 +2085,7 @@ function renderYardList(rows){
         + '<span class="material-symbols-rounded" aria-hidden="true"></span></span>'
         + '<span class="yl-when"></span></div>'
         + '<div class="yl-mid"><div class="yl-sum"></div><span class="yl-bg"></span></div>'
+        + '<div class="yl-need"></div>'
         + '<div class="yl-act"></div>';
     }
     const st = stateOf(r);
@@ -2087,6 +2095,9 @@ function renderYardList(rows){
     wantGist(r, t);
     const g = (GIST.get(r.uuid) || {}).g || '', s = n.querySelector('.yl-sum');
     if (s.textContent !== g) s.textContent = g;
+    // Mid-run the cached need is from before this turn — hide it until it's redescribed.
+    const nd = st === 'working' ? '' : (GIST.get(r.uuid) || {}).n || '', ne = n.querySelector('.yl-need');
+    if (ne.textContent !== nd) ne.textContent = nd;
     // Only say something the dot doesn't: the tool in hand, or the question.
     const ac = st === 'working' || st === 'waiting' ? activity(r) : {};
     const act = st === 'waiting' ? esc(ac.rest)

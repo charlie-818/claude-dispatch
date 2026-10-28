@@ -3134,13 +3134,17 @@ async def _provider_summary(provider, digest, running, cwd=None):
     ask = (
         "You are labeling a coding session for a phone status bar. "
         "Below is a transcript digest (first prompt, then recent messages). "
-        "Reply with EXACTLY three lines and nothing else:\n"
+        "Reply with EXACTLY four lines and nothing else:\n"
         "SUMMARY: <one sentence, <=110 chars, what this session has been doing overall>\n"
         "GIST: <a 3-7 word fragment, <=40 chars, no trailing period, what this "
         "session has done so far, e.g. 'Fixed login redirect loop'>\n"
         "SUCCESS: <" + (
             "one sentence, <=110 chars, the concrete condition that will make the "
-            "current task stop/finish>" if running else "the word NONE") + "\n\n"
+            "current task stop/finish>" if running else "the word NONE") + "\n"
+        "NEED: <a 2-6 word imperative fragment, <=45 chars, no trailing period, "
+        "what the session is waiting on the user for right now, e.g. 'Approve "
+        "the migration plan' or 'Send the API key'; the word NONE if it needs "
+        "nothing from the user>\n\n"
         "Transcript digest:\n" + digest)
     try:
         if provider == "codex":
@@ -3159,9 +3163,9 @@ async def _provider_summary(provider, digest, running, cwd=None):
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=45)
     except Exception as e:
         print(f"  [summary] {provider} summary failed: {type(e).__name__}: {e}", flush=True)
-        return None, None, None
+        return None, None, None, None
     text = out.decode(errors="replace")
-    summary, success, gist = None, None, None
+    summary, success, gist, need = None, None, None, None
     for line in text.splitlines():
         s = line.strip()
         if s.upper().startswith("SUMMARY:"):
@@ -3171,7 +3175,10 @@ async def _provider_summary(provider, digest, running, cwd=None):
         elif s.upper().startswith("SUCCESS:"):
             v = s.split(":", 1)[1].strip()
             success = None if v.upper() in ("NONE", "N/A", "") else v[:140]
-    return summary, success, gist
+        elif s.upper().startswith("NEED:"):
+            v = s.split(":", 1)[1].strip().strip("'\"").rstrip(".")
+            need = None if v.upper() in ("NONE", "N/A", "") else v[:60]
+    return summary, success, gist, need
 
 
 # What the model writes when there is nothing to describe yet ("No summary to
@@ -3190,8 +3197,8 @@ def _real_summary(text):
 async def _ensure_summary(uuid, path, pcount, running, provider=DEFAULT_PROVIDER, cwd=None):
     """Return this run's stored summary, computing it once if the prompt count
     moved (a new prompt = a new run to describe). One claude call per pane.
-    Entries from before the list-view gist line count as stale, once."""
-    fresh = lambda e: e and e.get("prompts") == pcount and "gist" in e
+    Entries from before the list-view gist/need lines count as stale, once."""
+    fresh = lambda e: e and e.get("prompts") == pcount and "need" in e
     entry = _summaries.get(uuid)
     if fresh(entry):
         return entry
@@ -3203,14 +3210,14 @@ async def _ensure_summary(uuid, path, pcount, running, provider=DEFAULT_PROVIDER
         digest = await asyncio.to_thread(_transcript_digest, path)
         if not digest:
             return entry
-        summary, success, gist = await _provider_summary(provider, digest, running, cwd)
+        summary, success, gist, need = await _provider_summary(provider, digest, running, cwd)
         if summary is None and success is None:
             # The claude call itself failed (timeout, not installed). Don't cache
             # the blank — it would stick for the whole run; leave the slot stale
             # so the next open retries.
             return entry
         entry = {"prompts": pcount, "summary": summary, "success": success,
-                 "gist": gist, "at": time.time()}
+                 "gist": gist, "need": need, "at": time.time()}
         _summaries[uuid] = entry
         await asyncio.to_thread(_save_summaries)
         print(f"  [summary] {uuid[:8]} summarised at prompt #{pcount}", flush=True)
@@ -3229,6 +3236,7 @@ async def api_summary(request):
         e = _summaries.get(uuid) or {}
         return web.json_response({"summary": _real_summary(e.get("summary")),
                                   "gist": _real_summary(e.get("gist")),
+                                  "need": e.get("need"),
                                   "success": e.get("success"), "running": False})
     provider = f.get("provider") or DEFAULT_PROVIDER
     pcount = (session_ops(path)[1] if provider == DEFAULT_PROVIDER
@@ -3237,6 +3245,7 @@ async def api_summary(request):
                                   f.get("cwd")) or {}
     return web.json_response({"summary": _real_summary(entry.get("summary")),
                               "gist": _real_summary(entry.get("gist")),
+                              "need": entry.get("need"),
                               "success": entry.get("success"),
                               "running": running, "prompts": pcount})
 
