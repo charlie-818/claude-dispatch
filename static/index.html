@@ -705,7 +705,12 @@
      and of state: a backgrounded Task or shell can still be running after the
      main turn looks done, or even while it's idle. */
   .yl-bg{flex:none;display:none;margin-left:auto;font:500 11px var(--ui);color:var(--amber)}
-  .yl-bg.on{display:inline-block}
+  .yl-bg.on{display:inline-flex;align-items:center;gap:5px}
+  /* small spinning ring: something is still working behind this row */
+  .yl-bg.on::before{content:"";width:8px;height:8px;border-radius:50%;
+    border:1.5px solid currentColor;border-right-color:transparent;
+    animation:sendspin .9s linear infinite}
+  @media (prefers-reduced-motion:reduce){.yl-bg.on::before{animation:none}}
   /* gist on the left, the background note right-aligned under icon + time */
   .yl-mid{display:flex;align-items:baseline;gap:10px;margin:2px 0 0 18px}
   .yl-mid .yl-sum{flex:1;min-width:0;margin:0}
@@ -2352,14 +2357,15 @@ function bgWaitLabel(w){
   return `⧗ ${w.shells} shell${w.shells > 1 ? 's' : ''}`;
 }
 
-/* the list row has room for words: "background agent still running" */
+/* the list row's note: "1 shell", "2 background agents + 1 shell" — the
+   spinner beside it already says "still running" */
 function bgWaitWords(w){
-  const n = (k, one) => (k > 1 ? `${k} ${one}s` : one);
+  const n = (k, one) => `${k} ${one}${k > 1 ? 's' : ''}`;
   const parts = [];
   if (w.agents) parts.push(n(w.agents, 'background agent'));
   if (w.shells) parts.push(n(w.shells, 'shell'));
   if (!parts.length) return '';
-  return parts.join(' + ') + ' still running';
+  return parts.join(' + ');
 }
 
 /* reconcile live rows into the troupe: add new, drop gone, update the rest */
