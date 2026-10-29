@@ -2246,6 +2246,20 @@ def _codex_turn_kind(obj):
     return None
 
 
+def _claude_turn_kind(obj):
+    """Turn edges in a Claude transcript. Every finished turn logs
+    `system/turn_duration` — including one that died on an API error, which
+    never fires the Stop hook and so leaves the .state file latched on
+    "working". Any user/assistant entry after it is a new turn (a prompt, or a
+    background shell's task-notification waking the model)."""
+    typ = (obj or {}).get("type")
+    if typ == "system" and obj.get("subtype") in ("turn_duration", "stop_hook_summary"):
+        return "end"
+    if typ in ("user", "assistant"):
+        return "start"
+    return None
+
+
 def _grok_turn_kind(obj):
     typ = (obj or {}).get("type")
     if typ == "turn_started":
@@ -2331,6 +2345,11 @@ def detect_running(provider, text, transcript=""):
         if journal is False:
             return False
         return None
+    if provider == DEFAULT_PROVIDER and transcript:
+        # The hooks own "working"; the transcript only vetoes it once the turn
+        # has visibly ended, so a missed Stop can't hold the row green forever.
+        if _turn_busy_scan(transcript, _claude_turn_kind) is False:
+            return False
     return None
 
 
@@ -7678,6 +7697,7 @@ async def _osascript(script):
     return out.decode("utf-8", "replace").strip()
 
 
+@guard
 async def api_mute(request):
     """Read (GET) or set (POST {"muted": bool}) this Mac's output mute."""
     try:
