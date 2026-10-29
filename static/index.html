@@ -334,6 +334,14 @@
     padding:8px 10px 9px;background:var(--bg);border:0;
     overflow-x:auto;scrollbar-width:none}
   .chips.on{display:flex}
+  /* Claude's own spinner line ("✳ Skedaddling… (1m · ↓ 2k tokens)"), lifted
+     out of the transcript to sit above it. Slides under the chips when they're
+     open — transform, not margin, so opening them still never reflows the pane. */
+  .panestatus{flex:none;position:relative;z-index:34;padding:4px 14px 5px;
+    background:var(--bg);font:12px/1.35 var(--mono);color:var(--amber);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    transform:translateY(var(--chips-h,0px))}
+  .panestatus[hidden]{display:none}
   .chips::-webkit-scrollbar{display:none}
   .chips button{flex:0 0 auto;font:600 12px var(--ui);color:var(--fg);
     background:var(--panel3);border:1px solid var(--line2);border-radius:var(--r);
@@ -1521,6 +1529,7 @@
     </button>
   </div>
   </div>
+  <div class="panestatus" id="panestatus" hidden></div>
   <div class="panewrap">
     <pre class="pane" id="pane"></pre>
     <div class="paneecho" id="paneecho" aria-hidden="true"></div>
@@ -3387,6 +3396,27 @@ function stripGrokPrompt(lines){
   return lines.slice(0, start).concat(lines.slice(end + 1));
 }
 
+/* Claude's spinner/status line: a cycling glyph, a verb, then "…" while it
+   works ("✳ Skedaddling… (1m 3s · ↓ 2.1k tokens)") or "for <time>" once done
+   ("✻ Cooked for 14s"). It lives in the strip above the pane, not in the
+   transcript. Only the screen's last few lines are searched — the same glyph
+   in old scrollback is history. */
+const STATUS_LINE = /^\s*[·✢✳✶✻✽*]\s+[A-Z][\w'-]*(?:…|\s+for\s+\d)/;
+function liftStatus(text, prov){
+  let found = '';
+  if (prov === 'claude' && text){
+    const lines = text.split('\n');
+    for (let i = lines.length - 1; i >= Math.max(0, lines.length - 12); i--){
+      if (STATUS_LINE.test(lines[i])){ found = lines[i].trim(); lines.splice(i, 1); break; }
+    }
+    if (found) text = lines.join('\n').replace(/\n+$/, '');
+  }
+  const el = document.getElementById('panestatus');
+  if (el.textContent !== found) el.textContent = found;
+  if (el.hidden !== !found) el.hidden = !found;
+  return text;
+}
+
 function trimChrome(text, prov){
   const p = prov || 'claude';
   let lines = text.split('\n');
@@ -3459,6 +3489,7 @@ function paint(force){
   paintPending = false;
   // trailing blank lines between scrollback and live screen just waste space
   let liveT = trimChrome(live, prov);
+  liveT = liftStatus(liveT, prov);
   const hist = history.join('\n').replace(/\n+$/, '');
   const liveLines = (liveT || '').split('\n');
   const histLines = hist ? hist.split('\n') : [];
@@ -3548,6 +3579,13 @@ function paint(force){
   // view to the newest output. Unpinning stays generous: a small nudge up is
   // unambiguously someone wanting to read.
   const PIN_SLACK = 4, UNPIN_SLACK = 24;
+  // Anything around the pane that lands after it is shown — the brief, the
+  // action bar, a suggestion, the status strip — shrinks the box from outside,
+  // and paint() skips frames whose text didn't change. Re-pin on the resize
+  // itself, or the view sits that many px above the bottom until new output.
+  if (window.ResizeObserver) new ResizeObserver(() => {
+    if (pinBottom && !userScrolling) p.scrollTop = p.scrollHeight;
+  }).observe(p);
   const gap = () => p.scrollHeight - (p.scrollTop + p.clientHeight);
   let idle = null, touches = 0, stuck = null;
   // Counting fingers means a touchend the browser never delivers would hold the
@@ -3680,6 +3718,10 @@ function toggleChips(){
   applyChips();                  // floats over the pane, so no reflow to repaint
 }
 applyChips();
+if (window.ResizeObserver) new ResizeObserver(([e]) => {
+  document.getElementById('panestatus').style.setProperty('--chips-h',
+    (chipsOpen ? e.target.offsetHeight : 0) + 'px');
+}).observe(document.getElementById('chips'));
 
 /* Button state + pane class for the current mode. Runs at load too, so the
    remembered mode is reflected before the first pane is opened. */
