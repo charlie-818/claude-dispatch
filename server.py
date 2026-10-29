@@ -3217,7 +3217,9 @@ async def _ensure_summary(uuid, path, pcount, running, provider=DEFAULT_PROVIDER
     """Return this run's stored summary, computing it once if the prompt count
     moved (a new prompt = a new run to describe). One claude call per pane.
     Entries from before the list-view gist/need lines count as stale, once."""
-    fresh = lambda e: e and e.get("prompts") == pcount and "need" in e
+    # A brief written mid-turn has no NEED yet — redo it once the turn ends.
+    fresh = lambda e: (e and e.get("prompts") == pcount and "need" in e
+                       and e.get("running") == running)
     entry = _summaries.get(uuid)
     if fresh(entry):
         return entry
@@ -3236,7 +3238,7 @@ async def _ensure_summary(uuid, path, pcount, running, provider=DEFAULT_PROVIDER
             # so the next open retries.
             return entry
         entry = {"prompts": pcount, "summary": summary, "success": success,
-                 "gist": gist, "need": need, "at": time.time()}
+                 "gist": gist, "need": need, "running": running, "at": time.time()}
         _summaries[uuid] = entry
         await asyncio.to_thread(_save_summaries)
         print(f"  [summary] {uuid[:8]} summarised at prompt #{pcount}", flush=True)
@@ -3250,6 +3252,10 @@ async def api_summary(request):
     f = read_fleet_files().get(uuid) or {}
     path = f.get("transcript")
     running = f.get("state") == "working"
+    # Same veto as the fleet row: a turn that died without a Stop hook is over.
+    if (running and path and (f.get("provider") or DEFAULT_PROVIDER) == DEFAULT_PROVIDER
+            and _turn_busy_scan(path, _claude_turn_kind) is False):
+        running = False
     if not path or not os.path.exists(path):
         # Pane gone — still surface the last summary we saved for it, if any.
         e = _summaries.get(uuid) or {}
