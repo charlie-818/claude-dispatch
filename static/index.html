@@ -344,6 +344,9 @@
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
     transform:translateY(var(--chips-h,0px));box-shadow:0 -1px 0 var(--bg)}
   .panestatus[hidden]{display:none}
+  /* a "ctrl+b" / "ctrl+o" hint on the live screen, tappable: sends that key */
+  .kbtn{padding:0 3px;margin:0 -1px;border-radius:4px;cursor:pointer;
+    background:rgba(102,169,255,.16);color:var(--blue)}
   .chips::-webkit-scrollbar{display:none}
   .chips button{flex:0 0 auto;font:600 12px var(--ui);color:var(--fg);
     background:var(--panel3);border:1px solid var(--line2);border-radius:var(--r);
@@ -3404,6 +3407,11 @@ function stripGrokPrompt(lines){
    transcript. Only the screen's last few lines are searched — the same glyph
    in old scrollback is history. */
 const STATUS_LINE = /^\s*[·✢✳✶✻✽*]\s+[A-Z][\w'-]*(?:…|\s+for\s+\d)/;
+const KEY_HINT = /\bctrl\+([botre])\b/gi;
+function linkKeys(html){
+  return html.replace(KEY_HINT, (m, c) =>
+    `<span class="kbtn" role="button" data-k="^${c.toUpperCase()}">${m}</span>`);
+}
 function liftStatus(text, prov){
   let found = '';
   if (prov === 'claude' && text){
@@ -3414,7 +3422,7 @@ function liftStatus(text, prov){
     if (found) text = lines.join('\n').replace(/\n+$/, '');
   }
   const el = document.getElementById('panestatus');
-  if (el.textContent !== found) el.textContent = found;
+  if (el.textContent !== found) el.innerHTML = linkKeys(esc(found));
   if (el.hidden !== !found) el.hidden = !found;
   return text;
 }
@@ -3501,7 +3509,13 @@ function paint(force){
   // beat as a dim ⏺ instead (\uE000 marks it for colorizeLine/lineLayoutStyle).
   if (prov === 'claude') rawLines = rawLines.map(l => BLINK_OFF.test(l) ? '\uE000' + l.slice(1) : l);
   const tbl = findTables(rawLines, tableBudget(p));   // may re-pad or re-lay grids
-  const lines = rawLines.map((l, i) => tbl.kind[i] ? colorizeTable(l) : colorizeLine(l, prov));
+  // Key hints only count on the live screen — one in old scrollback is about a
+  // command that's long gone.
+  const liveFrom = rawLines.length - liveLines.length;
+  const lines = rawLines.map((l, i) => {
+    const h = tbl.kind[i] ? colorizeTable(l) : colorizeLine(l, prov);
+    return i >= liveFrom ? linkKeys(h) : h;
+  });
   // A running pane pushes a frame twice a second because its spinner glyph
   // moved — text the chrome stripper throws away. Rendering those frames is
   // pure DOM churn in a scroller someone may be reading. If what we'd draw is
@@ -5384,6 +5398,12 @@ async function key(k){
   try { await post('/api/key', {uuid: current.uuid, key: k}); }
   catch(e){ toast(String(e.message), true); }
 }
+['pane', 'panestatus'].forEach(id => document.getElementById(id).addEventListener('click', e => {
+  const b = e.target.closest('.kbtn');
+  if (!b) return;
+  e.stopPropagation();
+  key(b.dataset.k);
+}));
 
 const input = document.getElementById('input'), sendbtn = document.getElementById('sendbtn');
 /* Height tracks the line count; the icon row below it never moves. Every path

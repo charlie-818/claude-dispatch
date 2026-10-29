@@ -193,6 +193,9 @@ KEYS = {
     "1": "1", "2": "2", "3": "3", "4": "4", "5": "5",
     "6": "6", "7": "7", "8": "8", "9": "9",
     "space": " ",
+    # Claude's own "ctrl+b to run in background" / "ctrl+o to expand" / "ctrl+t
+    # to show todos" hints, tapped on the phone: send the real control byte.
+    "^B": "\x02", "^O": "\x0f", "^T": "\x14", "^R": "\x12", "^E": "\x05",
 }
 
 CONN = None          # iterm2.Connection
