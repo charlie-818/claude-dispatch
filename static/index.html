@@ -332,7 +332,9 @@
   .chipsdock{position:relative;height:0;flex:none;z-index:35}
   .chips{display:none;gap:6px;position:absolute;top:0;left:0;right:0;
     padding:8px 10px 9px;background:var(--bg);border:0;
-    overflow-x:auto;scrollbar-width:none}
+    overflow-x:auto;scrollbar-width:none;
+    /* 1px of background over the seam: a fractional top edge let text show through */
+    box-shadow:0 -1px 0 var(--bg)}
   .chips.on{display:flex}
   /* Claude's own spinner line ("✳ Skedaddling… (1m · ↓ 2k tokens)"), lifted
      out of the transcript to sit above it. Slides under the chips when they're
@@ -340,7 +342,7 @@
   .panestatus{flex:none;position:relative;z-index:34;padding:4px 14px 5px;
     background:var(--bg);font:12px/1.35 var(--mono);color:var(--amber);
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-    transform:translateY(var(--chips-h,0px))}
+    transform:translateY(var(--chips-h,0px));box-shadow:0 -1px 0 var(--bg)}
   .panestatus[hidden]{display:none}
   .chips::-webkit-scrollbar{display:none}
   .chips button{flex:0 0 auto;font:600 12px var(--ui);color:var(--fg);
@@ -3720,7 +3722,7 @@ function toggleChips(){
 applyChips();
 if (window.ResizeObserver) new ResizeObserver(([e]) => {
   document.getElementById('panestatus').style.setProperty('--chips-h',
-    (chipsOpen ? e.target.offsetHeight : 0) + 'px');
+    (chipsOpen ? Math.max(0, e.target.getBoundingClientRect().height - 1) : 0) + 'px');
 }).observe(document.getElementById('chips'));
 
 /* Button state + pane class for the current mode. Runs at load too, so the
