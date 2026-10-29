@@ -2099,10 +2099,13 @@ function renderYardList(rows){
     n.querySelector('.yl-name').textContent = r.name;
     n.querySelector('.yl-when').textContent = agoShort(t);
     wantGist(r, t);
-    const g = (GIST.get(r.uuid) || {}).g || '', s = n.querySelector('.yl-sum');
+    // The fleet row carries the saved brief once it covers this turn; the
+    // fetched GIST is only the fallback until it does.
+    const gs = GIST.get(r.uuid) || {};
+    const g = r.gist || gs.g || '', s = n.querySelector('.yl-sum');
     if (s.textContent !== g) s.textContent = g;
     // Mid-run the cached need is from before this turn — hide it until it's redescribed.
-    const nd = st === 'working' ? '' : (GIST.get(r.uuid) || {}).n || '', ne = n.querySelector('.yl-need');
+    const nd = st === 'working' ? '' : ('need' in r ? r.need : gs.n) || '', ne = n.querySelector('.yl-need');
     if (ne.textContent !== nd) ne.textContent = nd;
     // Only say something the dot doesn't: the tool in hand, or the question.
     const ac = st === 'working' || st === 'waiting' ? activity(r) : {};

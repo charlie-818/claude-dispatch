@@ -2970,6 +2970,7 @@ async def _fleet_row(uuid, s, files):
             "mtime": (f or {}).get("mtime"),      # reaper fallback clock
             "action": (f or {}).get("action"),   # newest tool call, from transcript
             "subs": (f or {}).get("subs") or [],  # in-flight subagents → yard pets
+            **_row_brief(uuid, (f or {}).get("prompts")),
             # Enough lines that the current `⏺ Tool(args)` action line is in the
             # window — it sits several lines above the bottom, behind its `⎿`
             # result, the spinner and the prompt box. The bubble distiller scans
@@ -3211,6 +3212,15 @@ _NO_SUMMARY = re.compile(
 
 def _real_summary(text):
     return text if text and not _NO_SUMMARY.search(text) else None
+
+
+def _row_brief(uuid, pcount):
+    """The saved gist/need for a fleet row, only when it describes this exact,
+    finished turn — so the list never leans on a copy it fetched earlier."""
+    e = _summaries.get(uuid) or {}
+    if not pcount or e.get("prompts") != pcount or e.get("running") is not False:
+        return {}
+    return {"gist": _real_summary(e.get("gist")), "need": e.get("need")}
 
 
 async def _ensure_summary(uuid, path, pcount, running, provider=DEFAULT_PROVIDER, cwd=None):
