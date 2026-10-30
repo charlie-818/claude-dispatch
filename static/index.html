@@ -3299,7 +3299,8 @@ function isDivider(l){
   const t = l.trim();
   if (t.length < 8) return false;
   // a run of ─ at both ends (pure "────" or a labelled "──── name ──" border)
-  const dashes = (t.match(/[─━]/g) || []).length;
+  // U+FFFD: a cell the terminal couldn't map, seen mid-rule — still a rule
+  const dashes = (t.match(/[─━\uFFFD]/g) || []).length;
   return dashes >= 8 && /^[─━]{3,}/.test(t) && /[─━]{2,}$/.test(t);
 }
 function isBorder(l){ return isDivider(l) || /[╭╮╰╯┌┐└┘┏┓┗┛]/.test(l); }
@@ -3454,7 +3455,9 @@ function trimChrome(text, prov){
   }
   if (at >= 0){
     let top = at;
-    while (top - 1 >= 0 && isBorder(lines[top - 1])) top--;   // climb the top border
+    // climb the top border — and the "──" stub a too-wide rule wraps onto the
+    // next row, which is too short to read as a divider on its own
+    while (top - 1 >= 0 && (isBorder(lines[top - 1]) || /^\s*[─━]+\s*$/.test(lines[top - 1]))) top--;
     lines = lines.slice(0, top);
   }
   if (p === 'codex'){
