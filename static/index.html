@@ -1682,14 +1682,14 @@ const DOTS = '<span class="dots"><i></i><i></i><i></i></span>';
    from. */
 const LINE_RULES = {
   claude: [
-    [/^\s*[●⏺\uE000]/,      'c-violet'],   // tool call (\uE000: blink-off, see BLINK_OFF)
+    [/^\s*[●⏺\uE000]/,      ''],           // reply / tool call: only the ⏺ is violet (\uE000: blink-off, see BLINK_OFF)
     [/^\s*⎿/,                'c-dim'],      // tool result
     [/^\s*[✻✽*]/,            'c-amber'],    // spinner / status
     [/^\s*❯/,                'c-sel'],      // prompt
     [/^\s*\d\.\s/,           'c-dim'],
   ],
   codex: [
-    [/^\s*•/,                'c-violet'],   // event: ran, edited, replied
+    [/^\s*•/,                ''],           // event: ran, edited, replied — only the • is violet
     [/^\s*[└╰]/,             'c-dim'],      // that event's output
     [/^\s*[›❯]/,             'c-sel'],      // prompt
     [/^\s*[▌│]\s*[-*]\s/,    'c-dim'],
@@ -1737,10 +1737,12 @@ function colorizeLine(l, p, carry){
     ? (/^\s*[│▌]\s*\+/.test(l) ? 'c-add' : 'c-del') : '';
   let e = colorizeWords(esc(l));
   if (p === 'claude') e = e.replace(/^(\s*)([⏺●\uE000])/, (_, sp, d) =>
-    `${sp}<span class="tdot${d === '\uE000' ? ' off' : ''}">${d === '\uE000' ? '⏺' : d}</span>`);
+    `${sp}<span class="tdot c-violet${d === '\uE000' ? ' off' : ''}">${d === '\uE000' ? '⏺' : d}</span>`);
+  // Like the terminal itself: the marker is the accent, the text stays white.
+  if (p === 'codex') e = e.replace(/^(\s*)•/, '$1<span class="c-violet">•</span>');
   if (diff) return linkify(`<span class="${diff}">${e}</span>`);
   for (const [re, cls] of rules)
-    if (re.test(l)) return linkify(`<span class="${cls}">${e}</span>`);
+    if (re.test(l)) return linkify(cls ? `<span class="${cls}">${e}</span>` : e);
   for (const [re, cls] of COMMON_RULES)
     if (re.test(l)) return linkify(`<span class="${cls}">${e}</span>`);
   if (carry && /^\s{2}/.test(l) && /\S/.test(l)) return linkify(`<span class="${carry}">${e}</span>`);
