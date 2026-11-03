@@ -248,12 +248,13 @@
   .paneecho{flex:none;pointer-events:none;background:var(--bg);
     display:flex;flex-direction:column;gap:2px;padding:2px 10px 6px;
     font-family:var(--mono);font-size:11px;line-height:1.42}
-  .paneecho .echoln{color:var(--fg);opacity:.5;white-space:pre-wrap;
-    overflow-wrap:anywhere;animation:echopulse 1.5s ease-in-out infinite}
+  /* Styled exactly like the sent ❯ row paint() renders (a whole-line .c-sel
+     span at the pane's fitted font size, see syncEchoFont) — the echo should
+     be indistinguishable from the message it stands in for. Wrapped lines
+     hang under the text, past the "❯ " marker, the way .ln.hang does. */
+  .paneecho .echoln{white-space:pre-wrap;overflow-wrap:anywhere;
+    padding-inline-start:2ch;text-indent:-2ch}
   .paneecho:not(:has(.echoln:not([hidden]))){display:none}
-  .paneecho .echoln .c-sel{font-weight:600}
-  @keyframes echopulse{0%,100%{opacity:.5}50%{opacity:.25}}
-  @media(prefers-reduced-motion:reduce){.paneecho .echoln{animation:none;opacity:.4}}
   .pane{flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch;
     overscroll-behavior:contain;
     margin:0;padding:12px 10px;font-family:var(--mono);background:var(--bg);
@@ -3559,6 +3560,7 @@ function paint(force){
   // again after, since shrinkToFit may have moved the font they scale from
   fitTables(p);
   if (fitMode === 0){ shrinkToFit(p); fitTables(p); }
+  syncEchoFont();
   const rows = p.children;
   let pad = '0px';
   if (rows.length){
@@ -5634,11 +5636,10 @@ function addPendingEcho(text){
   const box = document.getElementById('paneecho');
   const el = document.createElement('div');
   el.className = 'echoln';
-  const mark = document.createElement('span');
-  mark.className = 'c-sel';
-  mark.textContent = '❯ ';
-  el.appendChild(mark);
-  el.appendChild(document.createTextNode(text));
+  const line = document.createElement('span');
+  line.className = 'c-sel';
+  line.textContent = '❯ ' + text;
+  el.appendChild(line);
   box.appendChild(el);
   const entry = { norm: normEcho(text).slice(0, 30), el, timer: null,
     uuid: current && current.uuid };
@@ -5659,7 +5660,16 @@ function removePendingEcho(entry){
 // The echo row takes height off the pane; keep a pinned view on the newest line.
 function echoRepin(){
   const p = document.getElementById('pane');
+  syncEchoFont();
   if (pinBottom && p) p.scrollTop = p.scrollHeight;
+}
+// The pane's font is fitted to the terminal's columns (fitFont/shrinkToFit) or
+// 13px in wrap mode; the echo has to track it or it reads as a different line.
+function syncEchoFont(){
+  const p = document.getElementById('pane'), box = document.getElementById('paneecho');
+  if (!p || !box) return;
+  const fs = getComputedStyle(p).fontSize;
+  if (box.style.fontSize !== fs) box.style.fontSize = fs;
 }
 // An echo belongs to the chat it was sent from: switching panes hides it (it
 // keeps its 10s backstop), and coming back shows it again if still pending.
