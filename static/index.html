@@ -1682,14 +1682,14 @@ const DOTS = '<span class="dots"><i></i><i></i><i></i></span>';
    from. */
 const LINE_RULES = {
   claude: [
-    [/^\s*[●⏺\uE000]/,      ''],           // reply / tool call: only the ⏺ is violet (\uE000: blink-off, see BLINK_OFF)
+    [/^\s*[●⏺\uE000]/,      'c-violet'],   // tool call (\uE000: blink-off, see BLINK_OFF)
     [/^\s*⎿/,                'c-dim'],      // tool result
     [/^\s*[✻✽*]/,            'c-amber'],    // spinner / status
     [/^\s*❯/,                'c-sel'],      // prompt
     [/^\s*\d\.\s/,           'c-dim'],
   ],
   codex: [
-    [/^\s*•/,                ''],           // event: ran, edited, replied — only the • is violet
+    [/^\s*•/,                'c-violet'],   // event: ran, edited, replied
     [/^\s*[└╰]/,             'c-dim'],      // that event's output
     [/^\s*[›❯]/,             'c-sel'],      // prompt
     [/^\s*[▌│]\s*[-*]\s/,    'c-dim'],
@@ -1714,20 +1714,7 @@ function isFitLine(l, p){
     return true;
   return false;
 }
-/* A block's head line (⏺ reply/tool, ❯ prompt, ⎿ result, • event) is coloured
-   by its marker, but the terminal hard-wraps it and the wrapped rows — and its
-   later paragraphs — carry only the indent. Colouring each row on its own made
-   the tail of every message flip to plain text, as if a new block had started.
-   blockHead() tracks the open block down the transcript: a provider rule match
-   opens one, a line at column 0 or a divider closes it, and blank or indented
-   lines leave it open so colorizeLine can paint them with the head's class. */
-function blockHead(l, p, carry){
-  if (isFitLine(l, p)) return '';
-  for (const [re, cls] of LINE_RULES[p] || LINE_RULES.claude) if (re.test(l)) return cls;
-  if (!/\S/.test(l) || /^\s{2}/.test(l)) return carry;
-  return '';
-}
-function colorizeLine(l, p, carry){
+function colorizeLine(l, p){
   if (isFitLine(l, p))
     return linkify(`<span class="c-dim ${p === 'codex' ? 'codex-divider' : 'fitline'}">${esc(l)}</span>`);
   const rules = LINE_RULES[p] || LINE_RULES.claude;
@@ -1737,25 +1724,19 @@ function colorizeLine(l, p, carry){
     ? (/^\s*[│▌]\s*\+/.test(l) ? 'c-add' : 'c-del') : '';
   let e = colorizeWords(esc(l));
   if (p === 'claude') e = e.replace(/^(\s*)([⏺●\uE000])/, (_, sp, d) =>
-    `${sp}<span class="tdot c-violet${d === '\uE000' ? ' off' : ''}">${d === '\uE000' ? '⏺' : d}</span>`);
-  // Like the terminal itself: the marker is the accent, the text stays white.
-  if (p === 'codex') e = e.replace(/^(\s*)•/, '$1<span class="c-violet">•</span>');
+    `${sp}<span class="tdot${d === '\uE000' ? ' off' : ''}">${d === '\uE000' ? '⏺' : d}</span>`);
   if (diff) return linkify(`<span class="${diff}">${e}</span>`);
   for (const [re, cls] of rules)
-    if (re.test(l)) return linkify(cls ? `<span class="${cls}">${e}</span>` : e);
+    if (re.test(l)) return linkify(`<span class="${cls}">${e}</span>`);
   for (const [re, cls] of COMMON_RULES)
     if (re.test(l)) return linkify(`<span class="${cls}">${e}</span>`);
-  if (carry && /^\s{2}/.test(l) && /\S/.test(l)) return linkify(`<span class="${carry}">${e}</span>`);
   return linkify(e);
 }
 function colorizeWords(e){
   return e.replace(/(`[^`]+`|--[\w-]+|(?:src|lib|test|tests|static)\/[\w./-]+)/g,
     t => `<span class="${t[0] === '`' ? 'c-inline' : 'c-code'}">${t}</span>`);
 }
-function colorizeLines(text, p){
-  let carry = '';
-  return text.split('\n').map(l => { const h = colorizeLine(l, p, carry); carry = blockHead(l, p, carry); return h; });
-}
+function colorizeLines(text, p){ return text.split('\n').map(l => colorizeLine(l, p)); }
 function colorize(text, p){ return colorizeLines(text, p).join('\n'); }
 
 function lineLayoutClass(l){ return /^\s*(?:[-*•]\s|\d+\.\s)/.test(l) ? ' list-line' : ''; }
@@ -3535,10 +3516,8 @@ function paint(force){
   // Key hints only count on the live screen — one in old scrollback is about a
   // command that's long gone.
   const liveFrom = rawLines.length - liveLines.length;
-  let carry = '';
   const lines = rawLines.map((l, i) => {
-    const h = tbl.kind[i] ? colorizeTable(l) : colorizeLine(l, prov, carry);
-    if (!tbl.kind[i]) carry = blockHead(l, prov, carry);
+    const h = tbl.kind[i] ? colorizeTable(l) : colorizeLine(l, prov);
     return i >= liveFrom ? linkKeys(h) : h;
   });
   // A running pane pushes a frame twice a second because its spinner glyph
