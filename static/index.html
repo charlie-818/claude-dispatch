@@ -244,11 +244,11 @@
      without becoming a child paint() has to diff — paint() only ever touches
      #pane's own .ln rows. */
   .panewrap{flex:1;min-height:0;display:flex;flex-direction:column}
-  /* in flow under the pane, not floating over it — floating, it sat on top of
-     the newest output. The pane shrinks by its height and stays pinned. */
-  .paneecho{flex:none;pointer-events:none;background:var(--bg);
-    display:flex;flex-direction:column;gap:2px;padding:2px 10px 6px;
-    font-family:var(--mono);font-size:11px;line-height:1.42}
+  /* The echo lives INSIDE #pane as its last child, after paint()'s rows, so it
+     sits at the bottom of the transcript and scrolls away with it — as a
+     sibling under the scroller it stayed parked on screen while you read up. */
+  .paneecho{pointer-events:none;display:flex;flex-direction:column;gap:2px;
+    padding:0 0 4px;white-space:normal;font-size:inherit;line-height:1.42}
   /* Styled exactly like the sent ❯ row paint() renders (a whole-line .c-sel
      span at the pane's fitted font size, see syncEchoFont) — the echo should
      be indistinguishable from the message it stands in for. Wrapped lines
@@ -1555,8 +1555,7 @@
   </div>
   <div class="panestatus" id="panestatus" hidden></div>
   <div class="panewrap">
-    <pre class="pane" id="pane"></pre>
-    <div class="paneecho" id="paneecho" aria-hidden="true"></div>
+    <pre class="pane" id="pane"><div class="paneecho" id="paneecho" aria-hidden="true"></div></pre>
   </div>
   <div class="actionbar" id="actionbar"></div>
   <div class="composer">
@@ -1600,6 +1599,9 @@
 <div id="toast"></div>
 
 <script>
+// The send echo's box (see "optimistic send echo"). Held here because
+// openSession() empties #pane, which detaches it until it's put back.
+const ECHO = document.getElementById('paneecho');
 /* A phone has no devtools. Any uncaught error is shown on the yard AND posted
    to the server log, so a blank "connecting…" is never a mystery again. */
 function _report(msg){
@@ -3218,6 +3220,7 @@ function openSession(uuid){
   document.getElementById('s-session').classList.add('on');
   const pane = document.getElementById('pane');
   pane.textContent = '';
+  pane.appendChild(ECHO);          // the echo box rides at the end of the rows
   // In fit mode, clear any stale `wrap` class (added by shrinkToFit's last-resort)
   // soft-wrap in a prior session) — it's the 13px "big" state that would flash
   // before fit kicks in. In wrap mode the class is what we want, so leave it.
@@ -3631,7 +3634,7 @@ function paint(force){
   const kids = p.children;
   for (let i = 0; i < lines.length; i++){
     let el = kids[i];
-    if (!el){ el = document.createElement('div'); p.appendChild(el); }
+    if (!el || el === ECHO){ el = document.createElement('div'); p.insertBefore(el, ECHO); }
     const k = tbl.kind[i];
     const c0 = rawLines[i][0];
     el.className = c0 === '\uE001' ? 'ln ccb-row' : c0 === '\uE002' ? 'ln ccb-gone'
@@ -3640,7 +3643,8 @@ function paint(force){
     else { el.style.cssText = lineLayoutStyle(rawLines[i]); delete el.dataset.tb; }
     if (el.__h !== lines[i]){ el.innerHTML = lines[i] || ''; el.__h = lines[i]; }
   }
-  while (kids.length > lines.length) p.removeChild(p.lastElementChild);
+  if (ECHO.parentNode !== p) p.appendChild(ECHO);
+  while (kids.length > lines.length + 1) p.removeChild(ECHO.previousElementSibling);
   // tables first, so an over-wide grid can't drag the whole pane's font down;
   // again after, since shrinkToFit may have moved the font they scale from
   fitTables(p);
@@ -3654,7 +3658,8 @@ function paint(force){
     // padding is set and only write the style when the value moves — a style
     // write every frame is a layout invalidation every frame.
     const top = rows[0].getBoundingClientRect().top;
-    const bottom = rows[rows.length - 1].getBoundingClientRect().bottom;
+    const last = ECHO.offsetHeight ? ECHO : ECHO.previousElementSibling || ECHO;
+    const bottom = last.getBoundingClientRect().bottom;
     const slack = p.clientHeight - (bottom - top);
     if (slack > 0) pad = slack + 'px';
   }
@@ -5724,14 +5729,14 @@ async function uploadFiles(files, btnId){
 
 /* ── optimistic send echo ──────────────────────────────
    Claude.ai/ChatGPT-style instant feedback: the moment you tap send, a dimmed
-   "❯ text" row appears just under the pane (see .paneecho —
-   a sibling of #pane, never one of paint()'s diffed .ln rows). It's removed
+   "❯ text" row appears at the bottom of the transcript (see .paneecho — the
+   last child of #pane, after paint()'s diffed .ln rows). It's removed
    once the real frame catches up, on a 30s backstop, or immediately on error.
    Multiple quick sends stack top-to-bottom. */
 let pendingEchoes = [];
 function normEcho(s){ return (s || '').replace(/\s+/g, ' ').trim().toLowerCase(); }
 function addPendingEcho(text){
-  const box = document.getElementById('paneecho');
+  const box = ECHO;
   const el = document.createElement('div');
   el.className = 'echoln';
   const line = document.createElement('span');
@@ -5764,7 +5769,7 @@ function echoRepin(){
 // The pane's font is fitted to the terminal's columns (fitFont/shrinkToFit) or
 // 13px in wrap mode; the echo has to track it or it reads as a different line.
 function syncEchoFont(){
-  const p = document.getElementById('pane'), box = document.getElementById('paneecho');
+  const p = document.getElementById('pane'), box = ECHO;
   if (!p || !box) return;
   const fs = getComputedStyle(p).fontSize;
   if (box.style.fontSize !== fs) box.style.fontSize = fs;
