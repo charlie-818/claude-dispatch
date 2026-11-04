@@ -352,8 +352,52 @@
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
   .bga-row b{color:var(--blue)}
   .bga-row.err b{color:var(--red)}
-  .bga-txt{font:13px/1.5 var(--ui);color:var(--dim);white-space:pre-wrap}
+  .bga-row.bga-group{font-weight:600}
+  .bga-txt{font:13px/1.5 var(--ui);color:var(--dimmer);white-space:pre-wrap;
+    border-left:2px solid var(--line2);padding-left:9px;margin:5px 0}
+  .bga-txt.clip{cursor:pointer}
   .bga-pre{font:11px/1.45 var(--mono);white-space:pre-wrap;max-height:30vh;overflow:auto;color:var(--dim)}
+
+  /* ── background agent list rows ── */
+  .bga-item{display:flex;flex-direction:column;gap:5px;width:100%;text-align:left;
+    background:var(--panel3);border:1px solid var(--line2);border-radius:var(--r);
+    padding:12px 14px;cursor:pointer;color:var(--fg);font:inherit;margin-bottom:7px}
+  .bga-item:last-child{margin-bottom:0}
+  .bga-item:active{background:var(--line2)}
+  .bga-desc{font:15px/1.35 var(--ui);color:var(--fg);display:-webkit-box;
+    -webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .bga-meta2{font:11px var(--mono);color:var(--dim);display:flex;align-items:center;gap:6px}
+  .bga-dot{width:7px;height:7px;border-radius:50%;flex:none;background:currentColor}
+  .bga-dot.running{color:var(--amber);animation:pulse 1.2s ease-in-out infinite}
+  .bga-dot.completed{color:var(--green)}
+  .bga-dot.failed{color:var(--red)}
+  .bga-dot.stale{color:var(--dimmer)}
+  @media (prefers-reduced-motion:reduce){.bga-dot.running{animation:none}}
+  .bga-action{font:11px var(--mono);color:var(--dim);white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis}
+
+  /* ── background agent detail view ── */
+  .bga-head{display:flex;flex-direction:column;gap:10px;padding-top:16px;margin-bottom:2px}
+  .bga-meta{margin-top:0}
+  .bga-summary{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0}
+  .bga-summary[hidden]{display:none}
+  .bga-chip{display:inline-flex;align-items:center;gap:5px;font:600 11px var(--mono);
+    color:var(--fg2);background:var(--panel3);border:1px solid var(--line2);
+    border-radius:999px;padding:4px 9px}
+  .bga-chip::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--chip-c)}
+  .bga-strip-wrap{margin:6px 0 2px}
+  .bga-strip-wrap[hidden]{display:none}
+  .bga-strip{display:flex;gap:2px;height:8px;border-radius:4px;overflow:hidden}
+  .bga-seg{flex:1;min-width:2px}
+  .bga-legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:6px;font:11px var(--mono);color:var(--dim)}
+  .bga-legend-item{display:inline-flex;align-items:center;gap:5px}
+  .bga-dotflat{width:7px;height:7px;border-radius:50%;flex:none;display:inline-block}
+  .bga-files[hidden]{display:none}
+  .bga-filed{font:12px var(--mono);color:var(--fg2);display:flex;flex-direction:column;
+    gap:3px;margin-bottom:6px}
+  .bga-files-read summary{font:12px var(--mono);color:var(--dim);cursor:pointer}
+  .bga-files-read div{font:11px var(--mono);color:var(--dim);padding:3px 0 3px 4px}
+  .bga-feed{display:flex;flex-direction:column;gap:2px;margin-top:4px}
 
   /* One compact row, collapsed behind the header toggle. It hangs off a
      zero-height dock so it floats OVER the terminal instead of pushing it down.
@@ -375,6 +419,11 @@
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
     transform:translateY(var(--chips-h,0px));box-shadow:0 -1px 0 var(--bg)}
   .panestatus[hidden]{display:none}
+  /* Under the brief card the line sat 6px down but 13px below open chips. Give
+     it the same 13px here, and pull the chips-open translate back by those 7px
+     so toggling the chips still never moves the pane. */
+  .sessinfo:not([hidden]) ~ .panestatus{padding-top:11px;
+    transform:translateY(max(0px, calc(var(--chips-h,0px) - 7px)))}
   /* a "ctrl+b" / "ctrl+o" hint on the live screen, tappable: sends that key */
   .kbtn{padding:0 3px;margin:0 -1px;border-radius:4px;cursor:pointer;
     background:rgba(102,169,255,.16);color:var(--blue)}
@@ -1493,10 +1542,6 @@
         <circle cx="19" cy="12" r="1.9"/>
       </svg>
     </button>
-    <button type="button" class="hdrbtn ico" id="clearctx" onclick="clearContext()"
-            aria-label="clear context" title="clear context">
-      <span class="material-symbols-rounded" aria-hidden="true">ink_eraser</span>
-    </button>
     </div>
   </header>
   <div class="sessinfo" id="sessinfo" hidden>
@@ -2495,11 +2540,54 @@ async function renderBgaList(){
     body.appendChild(note);
     return;
   }
-  agents.forEach(a => {
-    const desc = a.status + (a.status === 'running' && a.action ? ' · ' + a.action : '')
-      + ' · ' + fmtDur((a.dur_ms || 0) / 1000);
-    body.appendChild(opt(`${a.type} · ${a.desc || ''}`, {desc, on: () => openBgAgent(a.id)}));
-  });
+  const bgaDotCls = status => status === 'running' ? 'running'
+    : status === 'completed' ? 'completed'
+    : (status === 'failed' || status === 'killed') ? 'failed' : 'stale';
+  agents.slice()
+    .sort((a, b) => (b.status === 'running') - (a.status === 'running'))
+    .forEach(a => {
+      const row = document.createElement('button');
+      row.type = 'button'; row.className = 'bga-item';
+      const elapsed = fmtDur((a.dur_ms || 0) / 1000);
+      row.innerHTML = `<span class="bga-desc">${esc(a.desc || a.type || '')}</span>`
+        + `<span class="bga-meta2"><span class="bga-dot ${bgaDotCls(a.status)}"></span>`
+        + `${esc(a.type || '')} · ${esc(a.status || '')} · ${esc(elapsed)}</span>`
+        + (a.status === 'running' && a.action
+            ? `<span class="bga-action">${esc(a.action)}</span>` : '');
+      row.onclick = () => openBgAgent(a.id);
+      body.appendChild(row);
+    });
+}
+
+/* tool name → category, for the summary chips / activity strip / files lists */
+function bgaCat(n){
+  if (n === 'Read') return 'read';
+  if (n === 'Edit' || n === 'Write' || n === 'NotebookEdit') return 'edit';
+  if (n === 'Bash') return 'run';
+  if (n === 'Grep' || n === 'Glob' || n === 'ToolSearch' || n === 'WebSearch' || n === 'WebFetch') return 'search';
+  if (n === 'Agent') return 'agent';
+  return 'other';
+}
+const BGA_CAT_COLOR = {read: 'var(--blue)', edit: 'var(--amber)', run: 'var(--green)',
+  search: 'var(--violet)', agent: 'var(--cyan)', other: 'var(--dim)'};
+const BGA_CAT_LABEL = {read: 'Reads', edit: 'Edits', run: 'Commands', search: 'Searches',
+  agent: 'Agent', other: 'Other'};
+
+function bgaToolRow(e){
+  const row = document.createElement('div');
+  row.className = 'bga-row' + (e.ok === false ? ' err' : '');
+  const mark = e.ok === true ? '✓' : e.ok === false ? '✗' : '⧗';
+  row.innerHTML = `${esc(mark)} <b>${esc(e.n)}</b> ${esc(e.a || '')}`;
+  if (e.o){
+    row.onclick = () => {
+      const next = row.nextElementSibling;
+      if (next && next.classList.contains('bga-pre')){ next.remove(); return; }
+      const pre = document.createElement('pre');
+      pre.className = 'bga-pre'; pre.textContent = e.o;
+      row.after(pre);
+    };
+  }
+  return row;
 }
 
 async function openBgAgent(id){
@@ -2508,16 +2596,26 @@ async function openBgAgent(id){
   document.getElementById('sheet-title').textContent = 'background agent';
   const body = document.getElementById('sheet-body');
   body.innerHTML = '';
-  body.appendChild(opt('‹ all agents', {on: () => { bgaSel = null; openBgAgents(); }}));
-  const meta = document.createElement('div'); meta.className = 'sheet-note';
-  body.appendChild(meta);
+  const head = document.createElement('div'); head.className = 'bga-head';
+  head.appendChild(opt('‹ all agents', {on: () => { bgaSel = null; openBgAgents(); }}));
+  const meta = document.createElement('div'); meta.className = 'sheet-note bga-meta';
+  head.appendChild(meta);
+  body.appendChild(head);
   const det = document.createElement('details');
   det.innerHTML = '<summary>prompt</summary><pre class="bga-pre"></pre>';
   body.appendChild(det);
-  const evDiv = document.createElement('div');
+  const summaryDiv = document.createElement('div'); summaryDiv.className = 'bga-summary';
+  body.appendChild(summaryDiv);
+  const stripDiv = document.createElement('div'); stripDiv.className = 'bga-strip-wrap';
+  body.appendChild(stripDiv);
+  const filesDiv = document.createElement('div'); filesDiv.className = 'bga-files';
+  body.appendChild(filesDiv);
+  const evDiv = document.createElement('div'); evDiv.className = 'bga-feed';
   body.appendChild(evDiv);
 
   let events = [], since = 0, log = null;
+  const expandedGroups = new Set();
+  const expandedText = new Set();
 
   function renderMeta(){
     if (!log) return;
@@ -2525,31 +2623,132 @@ async function openBgAgent(id){
       + `${fmtDur((log.dur_ms || 0) / 1000)} · ${log.tokens || 0} tok · ${log.tools || 0} tools`;
     det.querySelector('.bga-pre').textContent = log.prompt || '';
   }
+
+  function renderSummary(){
+    const counts = {read: 0, edit: 0, run: 0, search: 0, agent: 0, other: 0};
+    let errors = 0;
+    const toolEvents = events.filter(e => e.k === 'tool');
+    toolEvents.forEach(e => { counts[bgaCat(e.n)]++; if (e.ok === false) errors++; });
+
+    summaryDiv.innerHTML = '';
+    const chip = (label, n, color) => {
+      const c = document.createElement('span');
+      c.className = 'bga-chip';
+      c.style.setProperty('--chip-c', color);
+      c.textContent = `${label} ${n}`;
+      return c;
+    };
+    if (counts.read) summaryDiv.appendChild(chip('Reads', counts.read, BGA_CAT_COLOR.read));
+    if (counts.edit) summaryDiv.appendChild(chip('Edits', counts.edit, BGA_CAT_COLOR.edit));
+    if (counts.run) summaryDiv.appendChild(chip('Commands', counts.run, BGA_CAT_COLOR.run));
+    if (counts.search) summaryDiv.appendChild(chip('Searches', counts.search, BGA_CAT_COLOR.search));
+    if (errors) summaryDiv.appendChild(chip('Errors', errors, 'var(--red)'));
+    summaryDiv.hidden = !summaryDiv.children.length;
+
+    stripDiv.innerHTML = '';
+    if (toolEvents.length){
+      const strip = document.createElement('div'); strip.className = 'bga-strip';
+      const cats = new Set();
+      toolEvents.forEach(e => {
+        const cat = bgaCat(e.n);
+        cats.add(cat);
+        const seg = document.createElement('span');
+        seg.className = 'bga-seg';
+        seg.style.background = e.ok === false ? 'var(--red)' : BGA_CAT_COLOR[cat];
+        strip.appendChild(seg);
+      });
+      stripDiv.appendChild(strip);
+      const legend = document.createElement('div'); legend.className = 'bga-legend';
+      cats.forEach(cat => {
+        const l = document.createElement('span'); l.className = 'bga-legend-item';
+        l.innerHTML = `<span class="bga-dotflat" style="background:${BGA_CAT_COLOR[cat]}"></span>${esc(BGA_CAT_LABEL[cat] || cat)}`;
+        legend.appendChild(l);
+      });
+      stripDiv.appendChild(legend);
+    }
+    stripDiv.hidden = !toolEvents.length;
+
+    filesDiv.innerHTML = '';
+    const changed = [], changedSeen = new Set();
+    const read = [], readSeen = new Set();
+    toolEvents.forEach(e => {
+      if (!e.a) return;
+      const cat = bgaCat(e.n);
+      if (cat === 'edit' && !changedSeen.has(e.a)){ changedSeen.add(e.a); changed.push(e.a); }
+      if (cat === 'read' && !readSeen.has(e.a)){ readSeen.add(e.a); read.push(e.a); }
+    });
+    if (changed.length){
+      const c = document.createElement('div'); c.className = 'bga-filed';
+      c.innerHTML = changed.map(f => `<div>✎ ${esc(f)}</div>`).join('');
+      filesDiv.appendChild(c);
+    }
+    if (read.length){
+      const d = document.createElement('details'); d.className = 'bga-files-read';
+      d.innerHTML = `<summary>${read.length} file${read.length > 1 ? 's' : ''} read</summary>`
+        + read.map(f => `<div>${esc(f)}</div>`).join('');
+      filesDiv.appendChild(d);
+    }
+    filesDiv.hidden = !changed.length && !read.length;
+  }
+
   function renderEvents(){
     const sheet = document.getElementById('sheet');
     const atBottom = sheet.scrollHeight - sheet.scrollTop - sheet.clientHeight < 40;
+    renderSummary();
     evDiv.innerHTML = '';
-    events.forEach(e => {
+    const groups = [];
+    let i = 0;
+    while (i < events.length){
+      const e = events[i];
       if (e.k === 'tool'){
-        const row = document.createElement('div');
-        row.className = 'bga-row' + (e.ok === false ? ' err' : '');
-        const mark = e.ok === true ? '✓' : e.ok === false ? '✗' : '⧗';
-        row.innerHTML = `${esc(mark)} <b>${esc(e.n)}</b> ${esc(e.a || '')}`;
-        if (e.o){
-          row.onclick = () => {
-            const next = row.nextElementSibling;
-            if (next && next.classList.contains('bga-pre')){ next.remove(); return; }
-            const pre = document.createElement('pre');
-            pre.className = 'bga-pre'; pre.textContent = e.o;
-            row.after(pre);
+        let j = i + 1;
+        while (j < events.length && events[j].k === 'tool' && events[j].n === e.n) j++;
+        groups.push({start: i, end: j});
+        i = j;
+      } else {
+        groups.push({start: i, end: i + 1, single: true});
+        i++;
+      }
+    }
+    groups.forEach(g => {
+      const items = events.slice(g.start, g.end);
+      if (g.single){
+        const e = items[0];
+        const t = document.createElement('div');
+        t.className = 'bga-txt';
+        const txt = e.t || '';
+        const long = txt.length > 240;
+        const expanded = expandedText.has(g.start);
+        t.textContent = long && !expanded ? txt.slice(0, 240) + '…' : txt;
+        if (long){
+          t.classList.add('clip');
+          t.onclick = () => {
+            if (expandedText.has(g.start)) expandedText.delete(g.start);
+            else expandedText.add(g.start);
+            renderEvents();
           };
         }
-        evDiv.appendChild(row);
-      } else {
-        const t = document.createElement('div');
-        t.className = 'bga-txt'; t.textContent = e.t || '';
         evDiv.appendChild(t);
+        return;
       }
+      if (items.length === 1){
+        evDiv.appendChild(bgaToolRow(items[0]));
+        return;
+      }
+      const sum = document.createElement('div');
+      sum.className = 'bga-row bga-group';
+      const errCount = items.filter(e => e.ok === false).length;
+      const uniq = [...new Set(items.map(e => e.a).filter(Boolean))];
+      const names = uniq.slice(0, 3).join(', ');
+      sum.innerHTML = `${errCount ? '✗' : '✓'} <b>${esc(items[0].n)}</b> ×${items.length}`
+        + (names ? ` · ${esc(names)}${uniq.length > 3 ? '…' : ''}` : '');
+      sum.onclick = () => {
+        if (expandedGroups.has(g.start)) expandedGroups.delete(g.start);
+        else expandedGroups.add(g.start);
+        renderEvents();
+      };
+      evDiv.appendChild(sum);
+      if (expandedGroups.has(g.start)) items.forEach(e => evDiv.appendChild(bgaToolRow(e)));
     });
     if (log && log.status !== 'running' && log.result){
       const r = document.createElement('div');
