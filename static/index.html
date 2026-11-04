@@ -3528,7 +3528,7 @@ function bannerize(lines){
 }
 function bannerHtml(l){
   let b; try { b = JSON.parse(l.slice(1)); } catch(e){ return ''; }
-  const info = [b.model, b.ctx && b.ctx + ' context', b.effort && b.effort + ' effort', b.plan]
+  const info = [b.model, b.ctx && b.ctx + ' context', b.effort && b.effort + ' effort']
     .filter(Boolean).map(esc).join('<span class="sep">·</span>');
   return `<div class="ccb"><span class="ccb-mark">${CLAWD_SVG}</span><div class="ccb-txt">`
     + `<div class="ccb-top"><b>Claude Code</b><span class="ccb-ver">v${esc(b.v)}</span></div>`
