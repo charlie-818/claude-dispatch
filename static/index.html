@@ -3458,7 +3458,7 @@ function stripGrokPrompt(lines){
    transcript. Only the screen's last few lines are searched — the same glyph
    in old scrollback is history. */
 const STATUS_LINE = /^\s*[·✢✳✶✻✽*]\s+[A-Z][\w'-]*(?:…|\s+for\s+\d)/;
-const KEY_HINT = /\bctrl\+([botre])\b/gi;
+const KEY_HINT = /\bctrl\+(enter|[botre])\b/gi;
 function linkKeys(html){
   return html.replace(KEY_HINT, (m, c) =>
     `<span class="kbtn" role="button" data-k="^${c.toUpperCase()}">${m}</span>`);

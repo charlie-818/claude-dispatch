@@ -196,6 +196,9 @@ KEYS = {
     # Claude's own "ctrl+b to run in background" / "ctrl+o to expand" / "ctrl+t
     # to show todos" hints, tapped on the phone: send the real control byte.
     "^B": "\x02", "^O": "\x0f", "^T": "\x14", "^R": "\x12", "^E": "\x05",
+    # "ctrl+enter to send now" (a message queued behind a running turn). A bare
+    # \r can't carry the modifier, so send the CSI-u form Claude Code parses.
+    "^ENTER": "\x1b[13;5u",
 }
 
 CONN = None          # iterm2.Connection
