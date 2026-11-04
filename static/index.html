@@ -342,6 +342,18 @@
   .hdrbtn.ico{width:32px;height:32px;padding:0;
     display:flex;align-items:center;justify-content:center}
   .hdrbtn.ico svg{width:17px;height:17px;display:block}
+  .bgabtn{color:var(--amber);display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 9px}
+  .bgabtn[hidden]{display:none}
+  .bgabtn::before{content:"";width:8px;height:8px;border-radius:50%;
+    border:1.5px solid currentColor;border-right-color:transparent;
+    animation:sendspin .9s linear infinite}
+  @media (prefers-reduced-motion:reduce){.bgabtn::before{animation:none}}
+  .bga-row{font:12px/1.45 var(--mono);padding:4px 0;border-bottom:1px solid var(--line2);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+  .bga-row b{color:var(--blue)}
+  .bga-row.err b{color:var(--red)}
+  .bga-txt{font:13px/1.5 var(--ui);color:var(--dim);white-space:pre-wrap}
+  .bga-pre{font:11px/1.45 var(--mono);white-space:pre-wrap;max-height:30vh;overflow:auto;color:var(--dim)}
 
   /* One compact row, collapsed behind the header toggle. It hangs off a
      zero-height dock so it floats OVER the terminal instead of pushing it down.
@@ -1465,6 +1477,7 @@
       <div class="meta" id="sm"></div>
     </div>
     <div class="hdracts">
+    <button class="hdrbtn bgabtn" id="bgabtn" hidden onclick="openBgAgents()" aria-label="background agents"><span class="n"></span></button>
     <button class="hdrbtn ico" id="briefbtn" onclick="toggleBrief()"
             aria-label="summary" aria-expanded="false">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -2068,7 +2081,7 @@ function renderFleet(rows){
   }
   if (current){                     // keep the open session's effort in sync
     const fresh = rows.find(r => r.uuid === current.uuid);
-    if (fresh){ current = fresh; paintCtxBar(fresh.ctx); markEffort(fresh.effort); markMode(fresh.mode); markModel(fresh.model); renderActions(); }
+    if (fresh){ current = fresh; paintCtxBar(fresh.ctx); markEffort(fresh.effort); markMode(fresh.mode); markModel(fresh.model); renderActions(); paintBgaBtn(); }
   }
   const panes = `${rows.length} pane${rows.length===1?'':'s'}`;
   document.querySelectorAll('.sb-panes').forEach(e => e.textContent = panes);
@@ -2428,6 +2441,141 @@ function bgWaitWords(w){
   if (w.shells) parts.push(n(w.shells, 'shell'));
   if (!parts.length) return '';
   return parts.join(' + ');
+}
+
+/* ── background agent monitor ──────────────────────────────────────
+   Tap the header pill to watch the subagents a Claude pane is running in
+   the background: a list sheet, then per-agent tool/text events. */
+let bgaSel = null, bgaTimer = null, bgaLogTimer = null;
+
+function paintBgaBtn(){
+  const btn = document.getElementById('bgabtn');
+  if (!btn) return;
+  if (!current || (current.provider || 'claude') !== 'claude'){ btn.hidden = true; return; }
+  const n = Math.max(bgWait(current).agents || 0, (current.subs || []).length);
+  if (!n){ btn.hidden = true; return; }
+  btn.hidden = false;
+  btn.querySelector('.n').textContent = n;
+}
+
+function closeBga(){
+  if (bgaTimer){ clearInterval(bgaTimer); bgaTimer = null; }
+  if (bgaLogTimer){ clearTimeout(bgaLogTimer); bgaLogTimer = null; }
+  bgaSel = null;
+}
+
+function openBgAgents(){
+  if (!current) return;
+  openKind = 'bga'; bgaSel = null;
+  if (bgaLogTimer){ clearTimeout(bgaLogTimer); bgaLogTimer = null; }
+  document.getElementById('sheet-title').textContent = 'Background agents';
+  renderBgaList();
+  document.getElementById('sheet').classList.add('on');
+  document.getElementById('sheet-bg').classList.add('on');
+  pushNav({v: 'sheet'});
+  if (bgaTimer) clearInterval(bgaTimer);
+  bgaTimer = setInterval(() => { if (openKind === 'bga' && !bgaSel) renderBgaList(); }, 5000);
+}
+
+async function renderBgaList(){
+  if (!current) return;
+  const body = document.getElementById('sheet-body');
+  let agents = [];
+  try {
+    const r = await fetch('/api/bga?uuid=' + encodeURIComponent(current.uuid));
+    if (r.status === 401){ authState().then(relock); return; }
+    const d = await r.json();
+    agents = d.agents || [];
+  } catch(e){ return; }
+  if (openKind !== 'bga' || bgaSel) return;        // sheet moved on while this was in flight
+  body.innerHTML = '';
+  if (!agents.length){
+    const note = document.createElement('div');
+    note.className = 'sheet-note'; note.textContent = 'No background agents.';
+    body.appendChild(note);
+    return;
+  }
+  agents.forEach(a => {
+    const desc = a.status + (a.status === 'running' && a.action ? ' · ' + a.action : '')
+      + ' · ' + fmtDur((a.dur_ms || 0) / 1000);
+    body.appendChild(opt(`${a.type} · ${a.desc || ''}`, {desc, on: () => openBgAgent(a.id)}));
+  });
+}
+
+async function openBgAgent(id){
+  bgaSel = id;
+  if (bgaLogTimer){ clearTimeout(bgaLogTimer); bgaLogTimer = null; }
+  document.getElementById('sheet-title').textContent = 'background agent';
+  const body = document.getElementById('sheet-body');
+  body.innerHTML = '';
+  body.appendChild(opt('‹ all agents', {on: () => { bgaSel = null; openBgAgents(); }}));
+  const meta = document.createElement('div'); meta.className = 'sheet-note';
+  body.appendChild(meta);
+  const det = document.createElement('details');
+  det.innerHTML = '<summary>prompt</summary><pre class="bga-pre"></pre>';
+  body.appendChild(det);
+  const evDiv = document.createElement('div');
+  body.appendChild(evDiv);
+
+  let events = [], since = 0, log = null;
+
+  function renderMeta(){
+    if (!log) return;
+    meta.textContent = `${log.status} · ${log.model || ''} · `
+      + `${fmtDur((log.dur_ms || 0) / 1000)} · ${log.tokens || 0} tok · ${log.tools || 0} tools`;
+    det.querySelector('.bga-pre').textContent = log.prompt || '';
+  }
+  function renderEvents(){
+    const sheet = document.getElementById('sheet');
+    const atBottom = sheet.scrollHeight - sheet.scrollTop - sheet.clientHeight < 40;
+    evDiv.innerHTML = '';
+    events.forEach(e => {
+      if (e.k === 'tool'){
+        const row = document.createElement('div');
+        row.className = 'bga-row' + (e.ok === false ? ' err' : '');
+        const mark = e.ok === true ? '✓' : e.ok === false ? '✗' : '⧗';
+        row.innerHTML = `${esc(mark)} <b>${esc(e.n)}</b> ${esc(e.a || '')}`;
+        if (e.o){
+          row.onclick = () => {
+            const next = row.nextElementSibling;
+            if (next && next.classList.contains('bga-pre')){ next.remove(); return; }
+            const pre = document.createElement('pre');
+            pre.className = 'bga-pre'; pre.textContent = e.o;
+            row.after(pre);
+          };
+        }
+        evDiv.appendChild(row);
+      } else {
+        const t = document.createElement('div');
+        t.className = 'bga-txt'; t.textContent = e.t || '';
+        evDiv.appendChild(t);
+      }
+    });
+    if (log && log.status !== 'running' && log.result){
+      const r = document.createElement('div');
+      r.className = 'bga-txt'; r.textContent = log.result;
+      evDiv.appendChild(r);
+    }
+    if (atBottom) sheet.scrollTop = sheet.scrollHeight;
+  }
+
+  async function poll(){
+    if (openKind !== 'bga' || bgaSel !== id) return;
+    try {
+      const r = await fetch(`/api/bga/log?uuid=${encodeURIComponent(current.uuid)}&id=${encodeURIComponent(id)}&since=${since}`);
+      if (r.status === 401){ authState().then(relock); return; }
+      log = await r.json();
+      events.length = Math.min(events.length, log.from || 0);
+      events = events.concat(log.events || []);
+      since = log.stable;
+      renderMeta();
+      renderEvents();
+    } catch(e){ return; }
+    if (openKind === 'bga' && bgaSel === id && log && log.status === 'running'){
+      bgaLogTimer = setTimeout(poll, 2000);
+    }
+  }
+  poll();
 }
 
 /* reconcile live rows into the troupe: add new, drop gone, update the rest */
@@ -3203,6 +3351,7 @@ function openSession(uuid){
   pushNav({v: 'session', uuid});
   document.getElementById('st').textContent = current.name;
   applyProviderChrome();
+  paintBgaBtn();
   loadCommands();
   codexPaneVersion++;
   grokPaneVersion++;
@@ -4062,6 +4211,7 @@ function closeSheet(){
   const wasOpen = openKind !== null;
   openKind = null; pendingModel = null;
   if (typeof deviceTimer !== 'undefined') clearInterval(deviceTimer);
+  closeBga();
   const sheet = document.getElementById('sheet');
   sheet.style.transition = ''; sheet.style.transform = '';   // drop any drag offset; let CSS animate the exit
   sheet.style.bottom = ''; sheet.style.maxHeight = '';       // drop any keyboard lift
@@ -5499,6 +5649,10 @@ async function key(k){
   e.stopPropagation();
   key(b.dataset.k);
 }));
+document.getElementById('panestatus').addEventListener('click', e => {
+  if (e.target.closest('.kbtn')) return;
+  if (/background agent/i.test(e.target.textContent || '')) openBgAgents();
+});
 
 const input = document.getElementById('input'), sendbtn = document.getElementById('sendbtn');
 /* Height tracks the line count; the icon row below it never moves. Every path

@@ -2558,6 +2558,347 @@ def live_subagents(transcript_path, now):
     return [k for _, k in out]
 
 
+# ── background subagents: read-only view into a pane's Task spawns ─────────
+# Each subagent writes its own transcript under <session>/subagents/agent-
+# <id>.jsonl plus a sidecar agent-<id>.meta.json. A background spawn's outcome
+# shows up as a <task-notification> block stapled onto the PARENT transcript
+# (the main session, or the parent agent's own file for a nested spawn) — so
+# "done" is read from there, not from the subagent file itself, which just
+# goes quiet when the agent stops writing.
+_BGA_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_BGA_NOTE = {}        # parent transcript path -> {"off", "ids": {task_id: {...}}}
+_BGA_LOG = {}         # agent transcript path -> scan state (see _bga_scan)
+_BGA_CACHE_CAP = 40   # bound both caches; drop the oldest entry once full
+
+_BGA_NOTIF_RE = re.compile(
+    r"<task-id>([^<]*)</task-id>.*?<status>([^<]*)</status>"
+    r"(?:.*?<result>(.*?)</result>)?"
+    r"(?:.*?<subagent_tokens>(\d*)</subagent_tokens>)?"
+    r"(?:.*?<tool_uses>(\d*)</tool_uses>)?"
+    r"(?:.*?<duration_ms>(\d*)</duration_ms>)?", re.S)
+
+
+def _bga_cache_put(cache, key, val):
+    if key not in cache and len(cache) >= _BGA_CACHE_CAP:
+        del cache[next(iter(cache))]
+    cache[key] = val
+
+
+def _bga_dir(uuid):
+    """Realpath of a pane's subagents dir, or None if this isn't a Claude pane,
+    it has no transcript, or the resolved path escapes _PROJECTS_DIR."""
+    f = read_fleet_files().get((uuid or "").upper()) or {}
+    if (f.get("provider") or DEFAULT_PROVIDER) != DEFAULT_PROVIDER:
+        return None
+    path = f.get("transcript")
+    if not path:
+        return None
+    sdir = os.path.realpath(os.path.splitext(path)[0] + "/subagents")
+    root = os.path.realpath(_PROJECTS_DIR) + os.sep
+    return sdir if (sdir + os.sep).startswith(root) else None
+
+
+def _bga_notes(path):
+    """{task_id: {status, ts, tokens, tools, dur_ms, result}} parsed out of the
+    <task-notification> blocks a parent transcript accumulates — newest wins
+    per id, since a resumed agent can be notified more than once."""
+    st = _BGA_NOTE.get(path)
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return (st or {}).get("ids", {})
+    if st is None or size < st["off"]:
+        st = {"off": max(0, size - 8_000_000), "ids": {}}
+    if size > st["off"]:
+        try:
+            with open(path, "rb") as fh:
+                fh.seek(st["off"]); data = fh.read()
+        except OSError:
+            data = b""
+        cut = data.rfind(b"\n") + 1
+        st["off"] += cut
+        for line in data[:cut].decode("utf-8", "ignore").splitlines():
+            if "<task-notification>" not in line:
+                continue
+            m = _BGA_NOTIF_RE.search(line)
+            if not m or not m.group(1):
+                continue
+            tm = re.search(r'"timestamp":"([^"]*)"', line)
+            tid, status, result, tok, tools, dur = m.groups()
+            try:                       # the regex ran over raw JSON text
+                result = json.loads('"' + (result or "") + '"')
+            except ValueError:
+                result = (result or "").replace("\\n", "\n")
+            st["ids"][tid] = {
+                "status": status or "",
+                "ts": _parse_ts(tm.group(1)) if tm else None,
+                "tokens": int(tok) if tok else 0,
+                "tools": int(tools) if tools else 0,
+                "dur_ms": int(dur) if dur else 0,
+                "result": (result or "")[:6000],
+            }
+    _bga_cache_put(_BGA_NOTE, path, st)
+    return st["ids"]
+
+
+def _bga_scan(path):
+    """Incremental parse of one agent transcript: the prompt it was launched
+    with, its start time, and a flat, capped list of events (text/tool/msg)
+    a client can render as a feed. Attachment lines are filtered out by a
+    cheap string test before json.loads — they can be huge and nothing in
+    them is wanted here. A partial trailing line is left unconsumed."""
+    st = _BGA_LOG.get(path)
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return st or {"prompt": "", "started": None, "model": "", "events": [],
+                      "tool_idx": {}, "msg_usage": {}, "msg_order": []}
+    if st is None or size < st["off"]:
+        st = {"off": 0, "prompt": "", "started": None, "model": "",
+              "events": [], "tool_idx": {}, "msg_usage": {}, "msg_order": []}
+    if size > st["off"]:
+        try:
+            with open(path, "rb") as fh:
+                fh.seek(st["off"]); data = fh.read()
+        except OSError:
+            data = b""
+        cut = data.rfind(b"\n") + 1        # never advance past a partial line
+        if cut:
+            st["off"] += cut
+            for line in data[:cut].decode("utf-8", "ignore").splitlines():
+                if not line.strip() or '"type":"attachment"' in line:
+                    continue
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                typ = o.get("type")
+                msg = o.get("message") or {}
+                content = msg.get("content")
+                if typ == "user" and st["started"] is None and isinstance(content, str):
+                    st["prompt"] = content[:4000]
+                    st["started"] = _parse_ts(o.get("timestamp"))
+                    continue
+                if typ == "assistant":
+                    mid = msg.get("id")
+                    if mid and mid not in st["msg_usage"]:
+                        st["msg_order"].append(mid)
+                    if mid:
+                        u = msg.get("usage") or {}
+                        st["msg_usage"][mid] = {
+                            "input": u.get("input_tokens") or 0,
+                            "cache_c": u.get("cache_creation_input_tokens") or 0,
+                            "cache_r": u.get("cache_read_input_tokens") or 0,
+                            "output": u.get("output_tokens") or 0,
+                        }
+                    st["model"] = msg.get("model") or st["model"]
+                    blocks = content if isinstance(content, list) else (
+                        [content] if isinstance(content, dict) else [])
+                    for b in blocks:
+                        kind = b.get("type")
+                        if kind == "text":
+                            st["events"].append(
+                                {"k": "text", "t": (b.get("text") or "")[:800]})
+                        elif kind == "tool_use":
+                            st["events"].append({
+                                "k": "tool", "n": b.get("name") or "",
+                                "a": _short_action(b.get("name") or "",
+                                                    b.get("input") or {}),
+                                "ts": o.get("timestamp"), "ok": None, "o": ""})
+                            tid = b.get("id")
+                            if tid:
+                                st["tool_idx"][tid] = len(st["events"]) - 1
+                elif typ == "user":
+                    if isinstance(content, str):
+                        if content.strip():
+                            st["events"].append({"k": "msg", "t": content[:400]})
+                    elif isinstance(content, list):
+                        for item in content:
+                            if not (isinstance(item, dict)
+                                     and item.get("type") == "tool_result"):
+                                continue
+                            idx = st["tool_idx"].get(item.get("tool_use_id"))
+                            if idx is not None and idx < len(st["events"]):
+                                ev = st["events"][idx]
+                                ev["ok"] = not item.get("is_error")
+                                ev["o"] = _content_text(item.get("content"))[:240]
+            if len(st["events"]) > 2000:
+                drop = len(st["events"]) - 2000
+                st["events"] = st["events"][drop:]
+                st["tool_idx"] = {k: v - drop for k, v in st["tool_idx"].items()
+                                   if v - drop >= 0}
+    _bga_cache_put(_BGA_LOG, path, st)
+    return st
+
+
+def _bga_tokens(st):
+    """last message's prompt-side tokens + output tokens summed over every
+    message in the transcript (output isn't cumulative like input/cache)."""
+    if not st["msg_order"]:
+        return 0
+    last = st["msg_usage"][st["msg_order"][-1]]
+    return (last["input"] + last["cache_c"] + last["cache_r"]
+            + sum(u["output"] for u in st["msg_usage"].values()))
+
+
+def _bga_status(meta, notif, mtime, now):
+    """completed/failed/killed/stopped (from the notification), unless the
+    agent kept writing after being notified — a resume — in which case it is
+    running again; stoppedByUser wins over a stale guess, and a long-silent
+    agent that was never notified is presumed stale rather than running."""
+    if notif and not (mtime > (notif.get("ts") or 0) + 5):
+        return notif.get("status") or "completed"
+    if meta.get("stoppedByUser"):
+        return "stopped"
+    if now - mtime > 1800:
+        return "stale"
+    return "running"
+
+
+def _bga_notif_for(sdir, agent_id, meta, parent_path):
+    """The notification dict for this agent (keyed by its agentId — the
+    notification's <task-id>), read from whichever
+    transcript is its parent — the main session, or a parent agent's own file
+    for a subagent spawned by another subagent."""
+    parent_id = meta.get("parentAgentId")
+    note_path = (os.path.join(sdir, f"agent-{parent_id}.jsonl")
+                 if parent_id else parent_path)
+    if not note_path or not os.path.exists(note_path):
+        return None
+    return _bga_notes(note_path).get(agent_id)
+
+
+def _bga_resolve(uuid, agent_id):
+    """(sdir, apath, meta, parent_path) for a uuid+id pair, or (None,)*4 if the
+    pane isn't a Claude pane, the id is malformed, or it resolves outside sdir."""
+    if not _BGA_ID.match(agent_id or ""):
+        return None, None, None, None
+    sdir = _bga_dir(uuid)
+    if not sdir:
+        return None, None, None, None
+    apath = os.path.join(sdir, f"agent-{agent_id}.jsonl")
+    real = os.path.realpath(apath)
+    if not (real + "").startswith(sdir + os.sep) or not os.path.exists(real):
+        return None, None, None, None
+    try:
+        meta = json.load(open(os.path.join(sdir, f"agent-{agent_id}.meta.json")))
+    except Exception:
+        meta = {}
+    f = read_fleet_files().get((uuid or "").upper()) or {}
+    return sdir, real, meta, f.get("transcript")
+
+
+async def api_bga(request):
+    if not authed(request):
+        return web.json_response({"error": "locked"}, status=401)
+    uuid = (request.query.get("uuid") or "").upper()
+    sdir = _bga_dir(uuid)
+    if not sdir:
+        return web.json_response({"agents": []})
+    now = time.time()
+    f = read_fleet_files().get(uuid) or {}
+    parent_path = f.get("transcript")
+    try:
+        names = os.listdir(sdir)
+    except OSError:
+        names = []
+    rows = []
+    for name in names:
+        if not (name.startswith("agent-") and name.endswith(".jsonl")):
+            continue
+        agent_id = name[len("agent-"):-len(".jsonl")]
+        if not _BGA_ID.match(agent_id):
+            continue
+        apath = os.path.join(sdir, name)
+        try:
+            mtime = os.path.getmtime(apath)
+        except OSError:
+            continue
+        try:
+            meta = json.load(open(os.path.join(sdir, f"agent-{agent_id}.meta.json")))
+        except Exception:
+            meta = {}
+        if meta.get("requestShape") != "background":
+            continue
+        notif = _bga_notif_for(sdir, agent_id, meta, parent_path)
+        status = _bga_status(meta, notif, mtime, now)
+        if status != "running" and now - mtime > 12 * 3600:
+            continue
+        st = _bga_scan(apath)
+        if notif:
+            tokens, tools, dur_ms = notif["tokens"], notif["tools"], notif["dur_ms"]
+        else:
+            tokens = _bga_tokens(st)
+            tools = sum(1 for e in st["events"] if e["k"] == "tool")
+            dur_ms = int((now - (st.get("started") or mtime)) * 1000)
+        action = ""
+        if status == "running":
+            for e in reversed(st["events"]):
+                if e["k"] == "tool":
+                    action = f"{e['n']} {e['a']}".strip()
+                    break
+        rows.append({
+            "id": agent_id, "type": meta.get("agentType") or "",
+            "desc": meta.get("description") or "", "status": status,
+            "started": st.get("started"), "mtime": mtime,
+            "depth": meta.get("spawnDepth"), "action": action,
+            "tokens": tokens, "tools": tools, "dur_ms": dur_ms,
+        })
+    rows.sort(key=lambda a: a["mtime"], reverse=True)
+    return web.json_response({"agents": rows[:15]})
+
+
+async def api_bga_log(request):
+    if not authed(request):
+        return web.json_response({"error": "locked"}, status=401)
+    uuid = (request.query.get("uuid") or "").upper()
+    agent_id = request.query.get("id") or ""
+    sdir, apath, meta, parent_path = _bga_resolve(uuid, agent_id)
+    if not sdir:
+        return web.json_response({"error": "forbidden"}, status=403)
+    now = time.time()
+    try:
+        mtime = os.path.getmtime(apath)
+    except OSError:
+        mtime = now
+    notif = _bga_notif_for(sdir, agent_id, meta, parent_path)
+    status = _bga_status(meta, notif, mtime, now)
+    st = _bga_scan(apath)
+    try:
+        since = int(request.query.get("since") or 0)
+    except ValueError:
+        since = 0
+    events = st["events"]
+    frm = min(max(since, 0), len(events))
+    stable = next((i for i, e in enumerate(events)
+                   if e["k"] == "tool" and e["ok"] is None), len(events))
+    if status == "running":
+        tokens = _bga_tokens(st)
+        tools = sum(1 for e in events if e["k"] == "tool")
+        dur_ms = int((now - (st.get("started") or mtime)) * 1000)
+        result = None
+    else:
+        if notif:
+            tokens, tools, dur_ms = notif["tokens"], notif["tools"], notif["dur_ms"]
+            result = notif["result"]
+        else:
+            tokens = _bga_tokens(st)
+            tools = sum(1 for e in events if e["k"] == "tool")
+            dur_ms = int(((st.get("started") and mtime - st["started"]) or 0) * 1000)
+            result = ""
+        if not result:
+            result = next((e["t"] for e in reversed(events) if e["k"] in ("text", "msg")), "")
+        result = (result or "")[:6000]
+    return web.json_response({
+        "id": agent_id, "type": meta.get("agentType") or "",
+        "desc": meta.get("description") or "", "status": status,
+        "model": st.get("model") or meta.get("model") or "",
+        "prompt": st.get("prompt") or "", "started": st.get("started"),
+        "mtime": mtime, "tokens": tokens, "tools": tools, "dur_ms": dur_ms,
+        "from": frm, "events": events[frm:], "stable": stable, "result": result,
+    })
+
+
 def fleet_limits(files):
     """Account-wide 5h/7d usage, pooled across every pane's copy.
 
@@ -8453,6 +8794,8 @@ async def main(connection):
     app.router.add_get("/", index)
     app.router.add_get("/api/fleet", api_fleet)
     app.router.add_get("/api/summary", api_summary)
+    app.router.add_get("/api/bga", api_bga)
+    app.router.add_get("/api/bga/log", api_bga_log)
     app.router.add_post("/api/key", api_key)
     app.router.add_post("/api/prompt", api_prompt)
     app.router.add_post("/api/select", api_select)
