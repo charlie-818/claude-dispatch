@@ -2691,9 +2691,13 @@ async function openBgAgent(id){
     filesDiv.hidden = !changed.length && !read.length;
   }
 
+  let firstPaint = true;
   function renderEvents(){
     const sheet = document.getElementById('sheet');
-    const atBottom = sheet.scrollHeight - sheet.scrollTop - sheet.clientHeight < 40;
+    // First paint opens at the top so the summary is in view; after that,
+    // follow new events only if the reader has scrolled to the bottom.
+    const atBottom = !firstPaint
+      && sheet.scrollHeight - sheet.scrollTop - sheet.clientHeight < 40;
     renderSummary();
     evDiv.innerHTML = '';
     const groups = [];
@@ -2755,7 +2759,8 @@ async function openBgAgent(id){
       r.className = 'bga-txt'; r.textContent = log.result;
       evDiv.appendChild(r);
     }
-    if (atBottom) sheet.scrollTop = sheet.scrollHeight;
+    if (firstPaint){ sheet.scrollTop = 0; firstPaint = false; }
+    else if (atBottom) sheet.scrollTop = sheet.scrollHeight;
   }
 
   async function poll(){
