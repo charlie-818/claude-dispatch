@@ -1629,6 +1629,26 @@ function paneCacheSet(uuid, entry){
   PANE_CACHE.set(uuid, entry);
   while (PANE_CACHE.size > PANE_CACHE_CAP) PANE_CACHE.delete(PANE_CACHE.keys().next().value);
 }
+// Persisted across relaunches so the first chat open after a cold start still
+// paints instantly, same as the in-memory LRU above. Written only on
+// pagehide/hidden (never per-frame) — this is a paint shortcut, not truth.
+function savePaneCache(){
+  try {
+    const entries = [...PANE_CACHE.entries()].slice(-12).map(([uuid, e]) =>
+      [uuid, { history: (e.history || []).slice(-600), live: e.live, cols: e.cols }]);
+    const payload = JSON.stringify({ at: Date.now(), e: entries });
+    if (payload.length > 2 * 1024 * 1024) return;   // too big to be worth persisting
+    localStorage.setItem('paneCache', payload);
+  } catch(e){}
+}
+window.addEventListener('pagehide', savePaneCache);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') savePaneCache(); });
+try {
+  const paneSnap = JSON.parse(localStorage.getItem('paneCache') || 'null');
+  if (paneSnap && Date.now() - paneSnap.at < 24 * 60 * 60 * 1000 && Array.isArray(paneSnap.e)){
+    for (const [uuid, entry] of paneSnap.e) PANE_CACHE.set(uuid, entry);
+  }
+} catch(e){}
 const codexConfirmedSettings = new Map();
 const hasCodexSettingsIdentity = row => row && row.provider === 'codex' &&
   typeof row.sid === 'string' && row.sid.length > 0 &&
@@ -7236,6 +7256,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 async function gate(){
+  paintFleetSnap();
   await authState();
   if (AUTH.level === 'verified'){ unlockUI(); return start(); }
   if (relock(AUTH)) return;
@@ -7244,15 +7265,13 @@ async function gate(){
 
 /* Nothing connects until the passkey gate says so — a locked phone must not be
    holding an open socket onto the fleet. */
-let started = false;
-function start(){
-  if (started) return;
-  started = true;
-  window.history.replaceState({v:"fleet"}, "");   // base of the in-app back stack
-  loadCommands();
-  initPush();
-  // Cold-paint from the last fleet snapshot before the socket even opens, so
-  // a reload shows the previous state instantly instead of an empty skeleton.
+// Cold-paint from the last fleet snapshot, before even the auth gate resolves
+// (/auth/whoami can take up to 4s) — paints once, guarded so a reload never
+// shows an empty skeleton while waiting on auth.
+let snapPainted = false;
+function paintFleetSnap(){
+  if (snapPainted) return;
+  snapPainted = true;
   try {
     const snap = JSON.parse(localStorage.getItem('fleetSnap') || 'null');
     if (snap && Date.now() - snap.at < 24 * 60 * 60 * 1000){
@@ -7267,6 +7286,17 @@ function start(){
       }
     }
   } catch(e){}
+}
+let started = false;
+function start(){
+  if (started) return;
+  started = true;
+  window.history.replaceState({v:"fleet"}, "");   // base of the in-app back stack
+  loadCommands();
+  initPush();
+  // Cold-paint from the last fleet snapshot before the socket even opens, so
+  // a reload shows the previous state instantly instead of an empty skeleton.
+  paintFleetSnap();
   connectFleet();
   // Warm usage once the fleet socket answers (or after a
   // short timeout so a slow/dead socket never blocks the rest of the UI from
