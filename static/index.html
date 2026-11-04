@@ -5565,7 +5565,20 @@ function fitSuggest(text){
 
 function clearSuggest(){ liveSuggest = null; suggestRaw = ''; suggestH = 0; }
 
+// What the server is typing into Claude's box for a send we just made. Those
+// frames report it as typed box text, which would flash the message in the
+// composer's placeholder between the echo and the Enter — drop it instead.
+let recentSends = [];
+const sendKey = t => (t || '').replace(/\s+/g, '').toLowerCase();
+function isOwnSend(s){
+  if (!s || s.ghost || !s.text) return false;
+  const now = Date.now(), uuid = current && current.uuid;
+  recentSends = recentSends.filter(r => r.until > now);
+  const k = sendKey(s.text);
+  return !!k && recentSends.some(r => r.uuid === uuid && r.key.startsWith(k));
+}
 function applySuggest(s){
+  if (isOwnSend(s)) s = null;
   liveSuggest = s;
   // Claude's own ghost suggestion wins — it's what an empty-box send submits.
   const raw = (s && s.text) ? s.text : '';
@@ -5715,6 +5728,7 @@ async function send(){
   // Clear + echo BEFORE the await — the pause is the whole bug this fixes.
   if (t){ input.value = ''; autosize(); }
   const echo = t ? addPendingEcho(t) : null;
+  if (t) recentSends.push({uuid: current.uuid, key: sendKey(t), until: Date.now() + 15000});
   sendbtn.classList.add('busy'); sendbtn.disabled = true;
   try {
     if (t){
