@@ -2875,6 +2875,7 @@ _FLEET_SEM = asyncio.Semaphore(6)
 
 async def _fleet_row(uuid, s, files):
     """One pane's fleet row, or None if it's a scratch shell to hide entirely."""
+    await _yield_to_opening_chat()
     async with _FLEET_SEM:
         # A Codex/Grok hook child can lose ITERM_SESSION_ID, leaving a record that
         # knows only the tty it ran on. That still names this pane exactly — but
@@ -7103,14 +7104,27 @@ async def ws_pane(request):
                 await ws.send_json({"gone": True})
                 break
             missing = 0
-            job = await s.async_get_variable("jobName") or ""
             if hist_end is None:
-                # scrollback is expensive and rarely changes at the top; ship
-                # the tail once so the client can render the conversation …
-                hist, hist_end = await pane_history(s)
-                payload = {"history": hist, "cols": await pane_cols(s)}
+                # scrollback is expensive and rarely changes at the top; fetch
+                # it alongside the live text and jobName so the first frame is
+                # one round trip instead of three serial ones.
+                job, (hist, hist_end), txt = await asyncio.gather(
+                    s.async_get_variable("jobName"), pane_history(s), pane_text(s))
+                job = job or ""
+                last = txt
+                provider = pane_provider(uuid, job, txt)
+                payload = {"history": hist, "text": txt, "cols": await pane_cols(s),
+                           "prompt": detect_prompt(txt, provider, uuid),
+                           "suggest": detect_input(txt, provider)}
                 await ws.send_json(payload)
+                if opening:
+                    print(f"  [ws/pane] {uuid[:8]} first frame after "
+                          f"{time.time() - t_open:.2f}s", flush=True)
+                    opened()
+                await asyncio.sleep(POLL)
+                continue
             else:
+                job = await s.async_get_variable("jobName") or ""
                 # … then only the rows that have since scrolled off the screen
                 more, hist_end = await pane_history(s, since=hist_end)
                 if more:
@@ -8401,6 +8415,19 @@ def _install_hot_reload(runner):
         print(f"  [reload] hot-reload unavailable: {type(e).__name__}: {e}", flush=True)
 
 
+@web.middleware
+async def _gzip_json(request, handler):
+    resp = await handler(request)
+    if (isinstance(resp, web.Response)
+            and not resp.prepared
+            and resp.content_type == "application/json"
+            and resp.body is not None
+            and len(resp.body) > 1024
+            and "gzip" in request.headers.get("Accept-Encoding", "")):
+        resp.enable_compression()
+    return resp
+
+
 async def main(connection):
     global CONN, APP
     try:
@@ -8417,7 +8444,8 @@ async def main(connection):
     # past the upload limit so the handler is the thing that enforces it and can
     # say what happened; api_upload streams to disk, so a big body is never held
     # in memory whole.
-    app = web.Application(client_max_size=_UPLOAD_MAX + 4 * 1024 * 1024)
+    app = web.Application(client_max_size=_UPLOAD_MAX + 4 * 1024 * 1024,
+                           middlewares=[_gzip_json])
     app["TOKEN"] = TOKEN
     app.router.add_get("/", index)
     app.router.add_get("/api/fleet", api_fleet)
