@@ -2108,9 +2108,11 @@ function pumpGist(){
    repaint never flickers, and only a real change of order moves anything. */
 function renderYardList(rows){
   const el = document.getElementById('yard-list');
-  // Chats with background agents still out stay above ones that just finished;
-  // shells don't count — a dev server left up would pin its row forever.
-  const list = [...(rows || SESSIONS)].map(r => ({r, t: lastMsg(r), bg: bgWait(r).agents > 0}))
+  // Running chats (green dot) lead; chats with only background agents still out
+  // come next, above ones that just finished. Shells don't count — a dev server
+  // left up would pin its row forever.
+  const list = [...(rows || SESSIONS)].map(r => ({r, t: lastMsg(r),
+      bg: stateOf(r) === 'working' ? 2 : bgWait(r).agents > 0 ? 1 : 0}))
     .sort((a, b) => b.bg - a.bg || b.t - a.t || a.r.name.localeCompare(b.r.name));
   const have = new Map([...el.children].map(n => [n.dataset.u, n]));
   list.forEach(({r, t}, i) => {
