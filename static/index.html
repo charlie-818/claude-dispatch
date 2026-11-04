@@ -146,8 +146,9 @@
   .sessinfo{margin:8px 10px 2px;padding:11px 12px 12px;
     background:var(--panel);border:1px solid var(--line2);border-radius:var(--r3);
     box-shadow:0 5px 16px rgba(0,0,0,.5);
-    display:flex;flex-direction:column;gap:10px;
-    animation:briefdrop .18s ease both}
+    display:flex;flex-direction:column;gap:10px}
+  /* only a tap on the eye drops it in; reopening a chat shows it already there */
+  .sessinfo.drop{animation:briefdrop .18s ease both}
   .sessinfo[hidden]{display:none}   /* beat the display:flex above */
   @keyframes briefdrop{from{opacity:0;transform:translateY(-6px)}}
   /* Each brief block stacks an icon+label header above its text, so summary vs
@@ -3235,7 +3236,12 @@ function openSession(uuid){
   suppressCodexPicker = false;
   applyPanePrompt(current.prompt || null); promptDismissed = null; renderActions();
   history = []; live = ''; pinBottom = true; lastSig = null;   // land at newest output
-  briefHasContent = false; applyBrief();   // brief stays as the eye last left it
+  // A summary we've already shown for this chat paints with the page, not
+  // after the fetch — the refetch below only swaps the text if it changed.
+  const seen = summaryCache.get(uuid);
+  document.getElementById('ss-sum').textContent = seen || '';
+  document.getElementById('sessinfo').classList.remove('drop');
+  briefHasContent = !!seen; applyBrief();   // brief stays as the eye last left it
   // Warm the brief NOW, not when the eye is tapped: the `claude -p` call takes a
   // couple of seconds, so kicking it off on open means the text is already there
   // by the time anyone asks for it. Hidden until the eye toggles it on.
@@ -3266,6 +3272,7 @@ function openSession(uuid){
 const SHOW_GOAL = false;
 // No placeholder while the model writes: the panel stays shut until there is
 // text, then opens on its own if the eye is on.
+const summaryCache = new Map();   // uuid → last summary text this tab showed
 async function loadSummary(uuid){
   const sum = document.getElementById('ss-sum');
   const goal = document.getElementById('ss-goal');
@@ -3276,7 +3283,8 @@ async function loadSummary(uuid){
     if (!current || current.uuid !== uuid) return;      // user switched panes
     // No real summary (a fresh chat, or the model had nothing to say) → the
     // panel stays shut rather than showing a placeholder.
-    sum.textContent = d.summary || '';
+    if (sum.textContent !== (d.summary || '')) sum.textContent = d.summary || '';
+    if (d.summary) summaryCache.set(uuid, d.summary); else summaryCache.delete(uuid);
     briefHasContent = !!d.summary;
     // Summary is the norm; the goal block only appears if a real goal comes back.
     if (SHOW_GOAL && d.running && d.success){
@@ -3308,7 +3316,9 @@ function applyBrief(){
    activity landed); if the prefetch has not come back yet, the panel opens the
    moment it does. */
 function toggleBrief(){
-  briefOpen = !briefOpen; applyBrief(); buzz(8);
+  briefOpen = !briefOpen;
+  document.getElementById('sessinfo').classList.toggle('drop', briefOpen);
+  applyBrief(); buzz(8);
   try { localStorage.setItem('brief', briefOpen ? '1' : '0'); } catch(e){}
   if (briefOpen && current) loadSummary(current.uuid);
 }
