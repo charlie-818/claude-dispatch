@@ -2602,6 +2602,7 @@ async function openBgAgent(id){
   head.appendChild(meta);
   body.appendChild(head);
   const det = document.createElement('details');
+  det.open = true;                 // prompt is the first thing worth reading
   det.innerHTML = '<summary>prompt</summary><pre class="bga-pre"></pre>';
   body.appendChild(det);
   const summaryDiv = document.createElement('div'); summaryDiv.className = 'bga-summary';
