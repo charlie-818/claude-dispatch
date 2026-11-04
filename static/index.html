@@ -5628,7 +5628,7 @@ async function uploadFiles(files, btnId){
    Claude.ai/ChatGPT-style instant feedback: the moment you tap send, a dimmed
    "❯ text" row appears just under the pane (see .paneecho —
    a sibling of #pane, never one of paint()'s diffed .ln rows). It's removed
-   once the real frame catches up, on a 10s backstop, or immediately on error.
+   once the real frame catches up, on a 30s backstop, or immediately on error.
    Multiple quick sends stack top-to-bottom. */
 let pendingEchoes = [];
 function normEcho(s){ return (s || '').replace(/\s+/g, ' ').trim().toLowerCase(); }
@@ -5644,7 +5644,7 @@ function addPendingEcho(text){
   const entry = { norm: normEcho(text).slice(0, 30), el, timer: null,
     uuid: current && current.uuid };
   el.hidden = false;
-  entry.timer = setTimeout(() => removePendingEcho(entry), 10000);
+  entry.timer = setTimeout(() => removePendingEcho(entry), 30000);
   pendingEchoes.push(entry);
   echoRepin();
   return entry;
@@ -5672,7 +5672,7 @@ function syncEchoFont(){
   if (box.style.fontSize !== fs) box.style.fontSize = fs;
 }
 // An echo belongs to the chat it was sent from: switching panes hides it (it
-// keeps its 10s backstop), and coming back shows it again if still pending.
+// keeps its 30s backstop), and coming back shows it again if still pending.
 function showPendingEchoes(){
   const uuid = current && current.uuid;
   pendingEchoes.forEach(e => { e.el.hidden = e.uuid !== uuid; });
@@ -5681,7 +5681,13 @@ function showPendingEchoes(){
 function checkPendingEchoes(){
   if (!pendingEchoes.length) return;
   const uuid = current && current.uuid;
-  const hay = normEcho(history.join('\n') + '\n' + live);
+  // Match only what paint() will actually draw. The raw screen holds the input
+  // box, and the server types the text there before pressing Enter — matching
+  // it dropped the echo while the line was still hidden in the box, so the
+  // message blinked out and back in. Against the trimmed text, the echo goes in
+  // the same task paint() adds the real row: a straight swap, no gap frame.
+  const prov = (current && current.provider) || 'claude';
+  const hay = normEcho(history.join('\n') + '\n' + trimChrome(live, prov));
   pendingEchoes.filter(e => e.uuid === uuid).forEach(entry => {
     if (entry.norm && hay.includes(entry.norm)) removePendingEcho(entry);
   });
