@@ -82,9 +82,12 @@
   /* The yard's clawd, sized to span the title and the model/effort line and
      set in a touch: stock-still unless the pane is working, then he runs in
      place with the yard's walk cycle. */
-  .hdclawd{flex:none;width:38px;height:35px;margin:0 -2px 0 4px;display:block}
+  /* The sprite's ink sits low in its box (blank above the head, legs below
+     the body), so nudge it up to centre the figure, not the box, on the text. */
+  .hdclawd{flex:none;width:33px;height:30px;margin:0 0 0 4px;display:block;
+    transform:translateY(-2px)}
   .hdclawd:empty{display:none}
-  .hdclawd .clawd{position:static;transform:none;width:38px;height:35px;display:block}
+  .hdclawd .clawd{position:static;transform:none;width:33px;height:30px;display:block}
   .hdclawd.p-codex .clawd{--skin:#f3f1ec;--skin-dark:#cac6bd}
   .hdclawd.p-grok  .clawd{--skin:#7f8a9c;--skin-dark:#59626f}
   .hdclawd.on .clawd{animation:hdbob .5s ease-in-out infinite}
