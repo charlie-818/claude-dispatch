@@ -2578,16 +2578,30 @@ async function renderBgaList(){
     .forEach(a => {
       const row = document.createElement('button');
       row.type = 'button'; row.className = 'bga-item';
-      const elapsed = fmtDur((a.dur_ms || 0) / 1000);
       row.innerHTML = `<span class="bga-desc">${esc(a.desc || a.type || '')}</span>`
         + `<span class="bga-meta2"><span class="bga-dot ${bgaDotCls(a.status)}"></span>`
-        + `${esc(a.type || '')} · ${esc(a.status || '')} · ${esc(elapsed)}</span>`
+        + `<span>${esc(a.type || '')} · ${esc(a.status || '')} · ${bgaElapsed(a.dur_ms, a.status === 'running')}</span></span>`
         + (a.status === 'running' && a.action
             ? `<span class="bga-action">${esc(a.action)}</span>` : '');
       row.onclick = () => openBgAgent(a.id);
       body.appendChild(row);
     });
 }
+
+/* Elapsed time for an agent. The server's figure only lands every few seconds,
+   so a running agent's clock is advanced locally each second from that base. */
+function bgaElapsed(ms, running){
+  const txt = esc(fmtDur((ms || 0) / 1000));
+  if (!running) return txt;
+  if (!bgaClock) bgaClock = setInterval(() => {
+    const live = document.querySelectorAll('#sheet-body .bga-el');
+    if (!live.length || openKind !== 'bga'){ clearInterval(bgaClock); bgaClock = null; return; }
+    const now = performance.now();
+    live.forEach(el => { el.textContent = fmtDur((+el.dataset.ms + now - +el.dataset.at) / 1000); });
+  }, 1000);
+  return `<span class="bga-el" data-ms="${+ms || 0}" data-at="${performance.now()}">${txt}</span>`;
+}
+let bgaClock = null;
 
 /* tool name → category, for the summary chips / activity strip / files lists */
 function bgaCat(n){
@@ -2650,8 +2664,8 @@ async function openBgAgent(id){
 
   function renderMeta(){
     if (!log) return;
-    meta.textContent = `${log.status} · ${log.model || ''} · `
-      + `${fmtDur((log.dur_ms || 0) / 1000)} · ${log.tokens || 0} tok · ${log.tools || 0} tools`;
+    meta.innerHTML = `${esc(log.status)} · ${esc(log.model || '')} · `
+      + `${bgaElapsed(log.dur_ms, log.status === 'running')} · ${log.tokens || 0} tok · ${log.tools || 0} tools`;
     det.querySelector('.bga-pre').textContent = log.prompt || '';
   }
 
