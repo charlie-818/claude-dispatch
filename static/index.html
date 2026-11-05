@@ -263,8 +263,11 @@
   /* The echo lives INSIDE #pane as its last child, after paint()'s rows, so it
      sits at the bottom of the transcript and scrolls away with it — as a
      sibling under the scroller it stayed parked on screen while you read up. */
+  /* One blank line on top, as Claude Code prints before every sent ❯ row —
+     without it the echo sat flush under the last reply and the real row
+     landed a line lower when it swapped in. */
   .paneecho{pointer-events:none;display:flex;flex-direction:column;gap:2px;
-    padding:0 0 4px;white-space:normal;font-size:inherit;line-height:1.42}
+    padding:1lh 0 4px;white-space:normal;font-size:inherit;line-height:1.42}
   /* Styled exactly like the sent ❯ row paint() renders (a whole-line .c-sel
      span at the pane's fitted font size, see syncEchoFont) — the echo should
      be indistinguishable from the message it stands in for. Wrapped lines
