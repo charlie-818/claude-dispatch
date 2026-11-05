@@ -421,14 +421,18 @@
      out of the transcript to sit above it. Slides under the chips when they're
      open — transform, not margin, so opening them still never reflows the pane. */
   .panestatus{flex:none;position:relative;z-index:34;padding:4px 14px 5px;
+    height:calc(9px + 1.35em);
     background:var(--bg);font:12px/1.35 var(--mono);color:var(--amber);
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
     transform:translateY(var(--chips-h,0px));box-shadow:0 -1px 0 var(--bg)}
-  .panestatus[hidden]{display:none}
+  /* Its box always keeps this height, filled or not, so the pane below it
+     never gains or loses height when the status line comes and goes mid-chat
+     — only its own content fades, it doesn't reflow the transcript under it. */
+  .panestatus[hidden]{display:block!important;visibility:hidden}
   /* Under the brief card the line sat 6px down but 13px below open chips. Give
      it the same 13px here, and pull the chips-open translate back by those 7px
      so toggling the chips still never moves the pane. */
-  .sessinfo:not([hidden]) ~ .panestatus{padding-top:11px;
+  .sessinfo:not([hidden]) ~ .panestatus{padding-top:11px;height:calc(16px + 1.35em);
     transform:translateY(max(0px, calc(var(--chips-h,0px) - 7px)))}
   /* a "ctrl+b" / "ctrl+o" hint on the live screen, tappable: sends that key */
   .kbtn{padding:0 3px;margin:0 -1px;border-radius:4px;cursor:pointer;
