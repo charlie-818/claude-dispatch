@@ -79,6 +79,19 @@
   header .title{font:700 13px var(--ui);letter-spacing:.1em;flex:1;min-width:0;
     text-transform:uppercase;color:var(--fg);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* The yard's clawd, shrunk to sit before the chat title: stock-still unless
+     the pane is working, then he runs in place with the yard's walk cycle. */
+  .strow{display:flex;align-items:center;gap:7px;min-width:0}
+  .hdclawd{flex:none;width:20px;height:18px;display:block}
+  .hdclawd:empty{display:none}
+  .hdclawd .clawd{position:static;transform:none;width:20px;height:18px;display:block}
+  .hdclawd.p-codex .clawd{--skin:#f3f1ec;--skin-dark:#cac6bd}
+  .hdclawd.p-grok  .clawd{--skin:#7f8a9c;--skin-dark:#59626f}
+  .hdclawd.on .clawd{animation:hdbob .5s ease-in-out infinite}
+  .hdclawd.on .arm-l,.hdclawd.on .leg-r{animation:cswA .5s ease-in-out infinite}
+  .hdclawd.on .arm-r,.hdclawd.on .leg-l{animation:cswB .5s ease-in-out infinite}
+  @keyframes hdbob{50%{transform:translateY(-1.5px)}}
+  @media (prefers-reduced-motion:reduce){.hdclawd .clawd,.hdclawd .limb{animation:none!important}}
   /* Chat header: the directory name with its live state (mode · effort · ctx)
      stacked directly beneath it, so the whole right edge is free for the two
      icon buttons. Both lines truncate rather than crowding them. */
@@ -1522,7 +1535,7 @@
 <div class="screen" id="s-session">
   <header>
     <div class="sesshead">
-      <div class="title" id="st">—</div>
+      <div class="strow"><span class="hdclawd" id="hdclawd" aria-hidden="true"></span><div class="title" id="st">—</div></div>
       <div class="meta" id="sm"></div>
     </div>
     <div class="hdracts">
@@ -2126,7 +2139,7 @@ function renderFleet(rows){
   }
   if (current){                     // keep the open session's effort in sync
     const fresh = rows.find(r => r.uuid === current.uuid);
-    if (fresh){ current = fresh; paintCtxBar(fresh.ctx); markEffort(fresh.effort); markMode(fresh.mode); markModel(fresh.model); renderActions(); paintBgaBtn(); }
+    if (fresh){ current = fresh; paintCtxBar(fresh.ctx); markEffort(fresh.effort); markMode(fresh.mode); markModel(fresh.model); renderActions(); paintBgaBtn(); paintHdClawd(); }
   }
   const panes = `${rows.length} pane${rows.length===1?'':'s'}`;
   document.querySelectorAll('.sb-panes').forEach(e => e.textContent = panes);
@@ -2492,6 +2505,14 @@ function bgWaitWords(w){
    Tap the header pill to watch the subagents a Claude pane is running in
    the background: a list sheet, then per-agent tool/text events. */
 let bgaSel = null, bgaTimer = null, bgaLogTimer = null;
+
+function paintHdClawd(){
+  const el = document.getElementById('hdclawd');
+  if (!el || !current) return;
+  const prov = SPRITES[current.provider] ? current.provider : 'claude';
+  if (el.dataset.p !== prov){ el.dataset.p = prov; el.className = 'hdclawd p-' + prov; el.innerHTML = SPRITES[prov]; }
+  el.classList.toggle('on', stateOf(current) === 'working');
+}
 
 function paintBgaBtn(){
   const btn = document.getElementById('bgabtn');
@@ -3557,6 +3578,7 @@ function openSession(uuid){
   document.getElementById('st').textContent = current.name;
   applyProviderChrome();
   paintBgaBtn();
+  paintHdClawd();
   loadCommands();
   codexPaneVersion++;
   grokPaneVersion++;
