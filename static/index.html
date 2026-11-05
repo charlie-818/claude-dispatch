@@ -1881,6 +1881,103 @@ function lineRenderClass(l, p){
   return isFitLine(l, p) ? '' : ' hang' + lineLayoutClass(l);
 }
 
+/* Claude Code hard-wraps its prose with real newlines at the terminal's own
+   column count (214 here). paint() draws one .ln block per terminal row, so
+   on a much narrower phone each of those rows wraps again — ragged mid-
+   sentence breaks, even mid-word splits, one word per row. reflowRows merges
+   a hard-wrapped row back into the logical line it broke out of (continuation
+   rows hang-indented under the row above, or cut at the exact column with no
+   indent at all) so the phone's own soft-wrap can break it at word
+   boundaries instead. cellw counts display width, since East Asian wide
+   glyphs and emoji are 2 cells wide in the terminal that produced these
+   rows. */
+function cellw(s){
+  let w = 0;
+  for (const ch of s){
+    const cp = ch.codePointAt(0);
+    w += (cp >= 0x1100 && (
+      cp <= 0x115F ||
+      cp === 0x2329 || cp === 0x232A ||
+      (cp >= 0x2E80 && cp <= 0x303E) ||
+      (cp >= 0x3041 && cp <= 0x33FF) ||
+      (cp >= 0x3400 && cp <= 0x4DBF) ||
+      (cp >= 0x4E00 && cp <= 0x9FFF) ||
+      (cp >= 0xA000 && cp <= 0xA4CF) ||
+      (cp >= 0xAC00 && cp <= 0xD7A3) ||
+      (cp >= 0xF900 && cp <= 0xFAFF) ||
+      (cp >= 0xFE30 && cp <= 0xFE4F) ||
+      (cp >= 0xFF00 && cp <= 0xFF60) ||
+      (cp >= 0xFFE0 && cp <= 0xFFE6) ||
+      (cp >= 0x1F300 && cp <= 0x1FAFF) ||
+      (cp >= 0x20000 && cp <= 0x3FFFD)
+    )) ? 2 : 1;
+  }
+  return w;
+}
+const REFLOW_MARK = /^(?:[-*•]\s+|\d+\.\s+|#{1,6}\s+|[❯›>⏺✻⎿⏵]\s+)/;
+function reflowNojoin(r){
+  if (r === '') return true;
+  if (r[0] === '/') return true;
+  if (/^\s*[┌├└│┏┣┗┃╭╰╞╘╒╟╚╔║╮╯┐┘─━|]/.test(r)) return true;
+  if (/[│┃║]/.test(r)) return true;
+  // banner cards ( + JSON) and their blanked siblings (), and the
+  // dim-dot marker () swapped in for a blinked-off ⏺ — none of these
+  // are prose, and joining into or out of one would corrupt what paint()
+  // keys its styling off of.
+  if (r.indexOf('') !== -1 || r.indexOf('') !== -1 || r.indexOf('') !== -1) return true;
+  return false;
+}
+function reflowIndent(r){ return r.match(/^ */)[0].length; }
+function reflowHang(h){
+  const ind = reflowIndent(h);
+  const m = h.slice(ind).match(REFLOW_MARK);
+  return ind + (m ? cellw(m[0]) : 0);
+}
+function reflowStartsNew(b){
+  const ind = reflowIndent(b);
+  const rest = b.slice(ind);
+  return REFLOW_MARK.test(rest) || /^\d+\s/.test(rest);
+}
+function reflowRows(rows, cols, from){
+  const out = [];
+  let P = null, soft = false, k = null;
+  for (let i = 0; i < rows.length; i++){
+    if (i === from) k = out.length;
+    const B = rows[i];
+    if (out.length === 0 || reflowNojoin(out[out.length - 1]) || reflowNojoin(B)){
+      out.push(B); P = B; soft = false; continue;
+    }
+    const H = out[out.length - 1];
+    const indB = reflowIndent(B);
+    const hangH = reflowHang(H);
+    const pw = cellw(P.replace(/\s+$/, ''));
+    const w = (B.trim().match(/^\S+/) || [''])[0];
+    const sNew = reflowStartsNew(B);
+    if (pw + 1 + cellw(w) > cols && indB > 0 && indB === hangH && !sNew){
+      out[out.length - 1] = H.replace(/\s+$/, '') + ' ' + B.slice(indB);
+      P = B; soft = false; continue;
+    }
+    if (hangH > 0 && pw >= cols - 1 && indB < hangH && !sNew){
+      // A full row iTerm char-wrapped is glued back with no space — but only
+      // when it split a word ("same le"+"ak", "Then I"+"'ll"). A full row that
+      // ended a word or sentence ("it." + "Want") keeps its space.
+      const tail = P.replace(/\s+$/, ''), head = B.replace(/^\s+/, '');
+      const midWord = /^['’]/.test(head)
+        || (/[\p{L}\p{N}]$/u.test(tail) && /^[\p{Ll}\p{N}]/u.test(head));
+      const sep = (pw >= cols && indB === 0 && midWord) ? '' : ' ';
+      out[out.length - 1] = H + sep + B.replace(/^\s+/, '');
+      P = B; soft = true; continue;
+    }
+    if (soft && indB === 0 && !sNew){
+      out[out.length - 1] = H + ' ' + B.trim();
+      P = B; continue;
+    }
+    out.push(B); P = B; soft = false;
+  }
+  if (k === null) k = out.length;
+  return {rows: out, from: k};
+}
+
 /* ── tables ───────────────────────────────────────────
    A table is a grid: soft-wrapping one row, or hanging-indenting it off its
    leading │, scatters the cells and the columns stop lining up. Claude draws
@@ -4004,10 +4101,16 @@ function paint(force){
   // beat as a dim ⏺ instead (\uE000 marks it for colorizeLine/lineLayoutStyle).
   if (prov === 'claude') rawLines = rawLines.map(l => BLINK_OFF.test(l) ? '\uE000' + l.slice(1) : l);
   if (prov === 'claude') rawLines = bannerize(rawLines);
+  let liveTail = liveLines.length;
+  if (p.classList.contains('wrap')){
+    const r = reflowRows(rawLines, cols, histLines.length);
+    rawLines = r.rows;
+    liveTail = r.rows.length - r.from;
+  }
   const tbl = findTables(rawLines, tableBudget(p));   // may re-pad or re-lay grids
   // Key hints only count on the live screen — one in old scrollback is about a
   // command that's long gone.
-  const liveFrom = rawLines.length - liveLines.length;
+  const liveFrom = rawLines.length - liveTail;
   const lines = rawLines.map((l, i) => {
     if (l[0] === '\uE001') return bannerHtml(l);
     if (l[0] === '\uE002') return '';
@@ -4021,7 +4124,7 @@ function paint(force){
   // `force` is for the callers that changed the BOX, not the text — a font
   // toggle, a window resize — where the same lines must be laid out again.
   const sig = lines.join('\n');
-  if (!force && sig === lastSig) return;
+  if (!force && sig === lastSig){ if (fitMode === 0) shrinkToFit(p); return; }
   lastSig = sig;
   // Manual scroll anchoring: Safari has none. Remember the first row in view
   // and where it sits, then put it back there after the rewrite so content
@@ -4148,6 +4251,7 @@ const PANE_PAD = 22;                    // .pane padding both sides, +1px slack
                                         // each side so subpixel rounding can't
                                         // trip the scrollbar on
 const MIN_PX = 4;                       // tiny, but pinch-zoom can read it
+let fitFallback = false;                // fit mode gave up and fell back to wrap
 // Widest grid, in characters, the pane can show at a size still worth reading;
 // findTables lays wider ones out again narrower. Wrap mode reads at the phone's
 // own size, so a grid may shrink to 9px and no further. Fit mode already scales
@@ -4179,7 +4283,7 @@ function tableBudget(p){
 function fitFont(c){
   cols = c || cols;
   const p = document.getElementById('pane');
-  if (fitMode === 1){ p.classList.add('wrap'); p.style.fontSize = ''; return; }
+  if (fitMode === 1){ fitFallback = false; p.classList.add('wrap'); p.style.fontSize = ''; return; }
   p.classList.remove('wrap');
   if (!p.clientWidth) return;           // screen not laid out yet
   // Fit the terminal's own column count, not the widest line we currently hold.
@@ -4199,8 +4303,10 @@ function fitFont(c){
   const chAt100 = probe.getBoundingClientRect().width / 10;
   probe.remove();
   const avail = p.clientWidth - PANE_PAD;
-  const size = Math.max(MIN_PX, Math.min(15, (avail / widest) * 100 / chAt100));
-  p.style.fontSize = size.toFixed(2) + 'px';
+  const want = (avail / widest) * 100 / chAt100;
+  fitFallback = want < MIN_PX;
+  if (fitFallback){ p.classList.add('wrap'); p.style.fontSize = ''; }
+  else p.style.fontSize = Math.min(15, want).toFixed(2) + 'px';
   try { localStorage.setItem('cols', cols); } catch(e){}   // seed next open's pre-fit
 }
 
@@ -4208,6 +4314,7 @@ function fitFont(c){
    any width colorize()'s markup adds. Measure what actually rendered and step
    down until nothing overflows. */
 function shrinkToFit(p){
+  if (fitFallback) return;
   for (let i = 0; i < 5; i++){
     if (!p.clientWidth || p.scrollWidth <= p.clientWidth){ p.classList.remove('wrap'); return; }
     const cur = parseFloat(p.style.fontSize) || 11;
