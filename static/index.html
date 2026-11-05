@@ -79,18 +79,18 @@
   header .title{font:700 13px var(--ui);letter-spacing:.1em;flex:1;min-width:0;
     text-transform:uppercase;color:var(--fg);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  /* The yard's clawd, shrunk to sit before the chat title: stock-still unless
-     the pane is working, then he runs in place with the yard's walk cycle. */
-  .strow{display:flex;align-items:center;gap:7px;min-width:0}
-  .hdclawd{flex:none;width:20px;height:18px;display:block}
+  /* The yard's clawd, sized to span the title and the model/effort line and
+     set in a touch: stock-still unless the pane is working, then he runs in
+     place with the yard's walk cycle. */
+  .hdclawd{flex:none;width:38px;height:35px;margin:0 -2px 0 4px;display:block}
   .hdclawd:empty{display:none}
-  .hdclawd .clawd{position:static;transform:none;width:20px;height:18px;display:block}
+  .hdclawd .clawd{position:static;transform:none;width:38px;height:35px;display:block}
   .hdclawd.p-codex .clawd{--skin:#f3f1ec;--skin-dark:#cac6bd}
   .hdclawd.p-grok  .clawd{--skin:#7f8a9c;--skin-dark:#59626f}
   .hdclawd.on .clawd{animation:hdbob .5s ease-in-out infinite}
   .hdclawd.on .arm-l,.hdclawd.on .leg-r{animation:cswA .5s ease-in-out infinite}
   .hdclawd.on .arm-r,.hdclawd.on .leg-l{animation:cswB .5s ease-in-out infinite}
-  @keyframes hdbob{50%{transform:translateY(-1.5px)}}
+  @keyframes hdbob{50%{transform:translateY(-2px)}}
   @media (prefers-reduced-motion:reduce){.hdclawd .clawd,.hdclawd .limb{animation:none!important}}
   /* Chat header: the directory name with its live state (mode · effort · ctx)
      stacked directly beneath it, so the whole right edge is free for the two
@@ -1534,8 +1534,9 @@
 
 <div class="screen" id="s-session">
   <header>
+    <span class="hdclawd" id="hdclawd" aria-hidden="true"></span>
     <div class="sesshead">
-      <div class="strow"><span class="hdclawd" id="hdclawd" aria-hidden="true"></span><div class="title" id="st">—</div></div>
+      <div class="title" id="st">—</div>
       <div class="meta" id="sm"></div>
     </div>
     <div class="hdracts">
