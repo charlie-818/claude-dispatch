@@ -274,11 +274,16 @@
   .paneecho:not(:has(.echoln:not([hidden]))){display:none}
   .pane{flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch;
     overscroll-behavior:contain;
-    margin:0;padding:12px 10px;font-family:var(--mono);background:var(--bg);
+    margin:0;padding:12px 10px 28px;font-family:var(--mono);background:var(--bg);
     color:var(--fg);-webkit-text-size-adjust:100%;text-size-adjust:100%;
     font-size:11px;line-height:1.42;white-space:pre;overflow-wrap:normal;
-    -webkit-mask-image:linear-gradient(to bottom,rgba(0,0,0,.08) 0,rgba(0,0,0,.42) 38px,#000 104px);
-    mask-image:linear-gradient(to bottom,rgba(0,0,0,.08) 0,rgba(0,0,0,.42) 38px,#000 104px)}
+    /* Fades at both edges: old output dissolves up under the header, and text
+       scrolled down dissolves into the composer instead of hitting a hard
+       edge. The bottom fade sits inside the 28px bottom padding, so the newest
+       line, parked at the bottom, is never dimmed. */
+    --pane-fade:linear-gradient(to bottom,rgba(0,0,0,.08) 0,rgba(0,0,0,.42) 38px,#000 104px,
+      #000 calc(100% - 28px),rgba(0,0,0,.42) calc(100% - 12px),rgba(0,0,0,.08) 100%);
+    -webkit-mask-image:var(--pane-fade);mask-image:var(--pane-fade)}
   .pane.wrap{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px}
   /* tool bullet: fixed 1ch so the ⏺ / dim-⏺ blink never shifts the command */
   /* the ⏺ glyph is wider than a text cell in phone fonts, so it ran into the
