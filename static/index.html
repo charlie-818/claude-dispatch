@@ -4055,6 +4055,29 @@ function bannerize(lines){
 
 const BLINK_OFF = /^ {2}[A-Z][A-Za-z]*\(/;   // "⏺ Bash(…)" with the ⏺ blinked off
 let paintPending = false, lastSig = null;
+/* Bottom-anchor a short transcript: pad the top by exactly the room the
+   rows leave, so the newest line sits just above the composer with no
+   scroll range. Measured from the first/last child that HAS a box —
+   bannerize()'s .ccb-gone rows are display:none and report a zero rect,
+   which made `top` the viewport origin and fed the current padding back
+   into the next frame's slack (bottom -> top -> bottom per streamed line).
+   Idempotent: row heights and clientHeight don't depend on paddingTop.
+   Returns true when it changed the padding. */
+function fitPad(p){
+  const kids = p.children;
+  let first = null, last = null;
+  for (let i = 0; i < kids.length; i++) if (kids[i].offsetHeight){ first = kids[i]; break; }
+  for (let i = kids.length - 1; i >= 0; i--) if (kids[i].offsetHeight){ last = kids[i]; break; }
+  let pad = '0px';
+  if (first){
+    const used = last.getBoundingClientRect().bottom - first.getBoundingClientRect().top;
+    const slack = Math.floor(p.clientHeight - parseFloat(getComputedStyle(p).paddingBottom) - used);
+    if (slack > 0) pad = slack + 'px';
+  }
+  if (p.style.paddingTop === pad) return false;
+  p.style.paddingTop = pad;
+  return true;
+}
 function paint(force){
   const p = document.getElementById('pane');
   const prov = (current && current.provider) || 'claude';
@@ -4100,7 +4123,12 @@ function paint(force){
   // `force` is for the callers that changed the BOX, not the text — a font
   // toggle, a window resize — where the same lines must be laid out again.
   const sig = lines.join('\n');
-  if (!force && sig === lastSig){ if (fitMode === 0) shrinkToFit(p); return; }
+  if (!force && sig === lastSig){
+    if (fitMode === 0) shrinkToFit(p);
+    // same text, but the box or font may have moved under it
+    if (fitPad(p) && pinBottom) p.scrollTop = p.scrollHeight;
+    return;
+  }
   lastSig = sig;
   // Manual scroll anchoring: Safari has none. Remember the first row in view
   // and where it sits, then put it back there after the rewrite so content
@@ -4137,20 +4165,7 @@ function paint(force){
   fitTables(p);
   if (fitMode === 0){ shrinkToFit(p); fitTables(p); }
   syncEchoFont();
-  const rows = p.children;
-  let pad = '0px';
-  if (rows.length){
-    // scrollHeight never reports less than the box, so measure the rows.
-    // Rows' own heights don't depend on the padding, so measure with whatever
-    // padding is set and only write the style when the value moves — a style
-    // write every frame is a layout invalidation every frame.
-    const top = rows[0].getBoundingClientRect().top;
-    const last = ECHO.offsetHeight ? ECHO : ECHO.previousElementSibling || ECHO;
-    const bottom = last.getBoundingClientRect().bottom;
-    const slack = p.clientHeight - (bottom - top);
-    if (slack > 0) pad = slack + 'px';
-  }
-  if (p.style.paddingTop !== pad) p.style.paddingTop = pad;
+  fitPad(p);
   if (pinBottom){
     p.scrollTop = p.scrollHeight;
   } else if (anchor && anchor.parentNode === p){
@@ -4181,9 +4196,12 @@ function paint(force){
   // action bar, a suggestion, the status strip — shrinks the box from outside,
   // and paint() skips frames whose text didn't change. Re-pin on the resize
   // itself, or the view sits that many px above the bottom until new output.
+  // border-box: fitPad's own paddingTop writes must not re-trigger this (RO loop errors get _report()ed)
   if (window.ResizeObserver) new ResizeObserver(() => {
-    if (pinBottom && !userScrolling) p.scrollTop = p.scrollHeight;
-  }).observe(p);
+    if (userScrolling){ paintPending = true; return; }   // settle() repaints -> fitPad
+    fitPad(p);
+    if (pinBottom) p.scrollTop = p.scrollHeight;
+  }).observe(p, {box: 'border-box'});
   const gap = () => p.scrollHeight - (p.scrollTop + p.clientHeight);
   let idle = null, touches = 0, stuck = null;
   // Counting fingers means a touchend the browser never delivers would hold the
@@ -6261,6 +6279,7 @@ function removePendingEcho(entry){
 function echoRepin(){
   const p = document.getElementById('pane');
   syncEchoFont();
+  if (p && !userScrolling) fitPad(p);   // echo row added/removed: keep the short-chat bottom anchor
   if (pinBottom && p) p.scrollTop = p.scrollHeight;
 }
 // The pane's font is fitted to the terminal's columns (fitFont/shrinkToFit) or
