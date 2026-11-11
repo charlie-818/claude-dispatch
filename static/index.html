@@ -289,7 +289,10 @@
     --pane-fade:linear-gradient(to bottom,rgba(0,0,0,.08) 0,rgba(0,0,0,.42) 38px,#000 104px,
       #000 calc(100% - 28px),rgba(0,0,0,.42) calc(100% - 12px),rgba(0,0,0,.08) 100%);
     -webkit-mask-image:var(--pane-fade);mask-image:var(--pane-fade)}
-  .pane.wrap{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px}
+  .pane.wrap{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;
+    /* text starts 2 cells in (bullet + space), so the right edge gets the same
+       2 cells on top of the 10px — equal margins on both sides */
+    padding-right:calc(10px + 2ch)}
   /* tool bullet: fixed 1ch so the ⏺ / dim-⏺ blink never shifts the command */
   /* the ⏺ glyph is wider than a text cell in phone fonts, so it ran into the
      space after it — hide the glyph and draw the bullet as a dot that fits */
@@ -4419,6 +4422,11 @@ function paint(force){
 })();
 
 const PANE_PAD = 22;                    // .pane padding both sides, +1px slack
+// the live value: wrap mode widens the right padding (see .pane.wrap)
+function panePad(p){
+  const cs = getComputedStyle(p);
+  return (parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + 1) || PANE_PAD;
+}
                                         // each side so subpixel rounding can't
                                         // trip the scrollbar on
 const MIN_PX = 4;                       // tiny, but pinch-zoom can read it
@@ -4431,7 +4439,7 @@ let fitFallback = false;                // fit mode gave up and fell back to wra
 const TABLE_READ_PX = 9;
 let chPerPx = 0, chFont = '';
 function tableBudget(p){
-  const avail = p.clientWidth - PANE_PAD;
+  const avail = p.clientWidth - panePad(p);
   if (avail <= 0) return 0;
   const fam = getComputedStyle(p).fontFamily;
   if (fam !== chFont){
@@ -4473,7 +4481,7 @@ function fitFont(c){
   document.body.appendChild(probe);
   const chAt100 = probe.getBoundingClientRect().width / 10;
   probe.remove();
-  const avail = p.clientWidth - PANE_PAD;
+  const avail = p.clientWidth - panePad(p);
   const want = (avail / widest) * 100 / chAt100;
   fitFallback = want < MIN_PX;
   if (fitFallback){ p.classList.add('wrap'); p.style.fontSize = ''; }
@@ -4490,7 +4498,7 @@ function shrinkToFit(p){
     if (!p.clientWidth || p.scrollWidth <= p.clientWidth){ p.classList.remove('wrap'); return; }
     const cur = parseFloat(p.style.fontSize) || 11;
     const next = Math.max(MIN_PX,
-      cur * (p.clientWidth - PANE_PAD) / (p.scrollWidth - PANE_PAD));
+      cur * (p.clientWidth - panePad(p)) / (p.scrollWidth - panePad(p)));
     if (next >= cur - 0.05) break;      // bottomed out at the floor
     p.style.fontSize = next.toFixed(2) + 'px';
   }
