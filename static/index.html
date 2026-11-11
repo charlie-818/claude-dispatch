@@ -318,14 +318,13 @@
   .pane .ln.tk:active .tkb{background:var(--line2)}
   .pane .ln.tk.open .tkb{color:var(--blue);border-color:rgba(102,169,255,.4)}
   .pane .ln.tk.open .tkb svg{transform:rotate(180deg)}
-  /* A sent prompt is the chat's anchor: a tinted band with a violet bar at its
-     left edge. Painted with box-shadows (opaque, so they don't stack) that
+  /* A sent prompt is the chat's anchor: a violet-tinted band. Painted with box-shadows (opaque, so they don't stack) that
      reach into the pane's side padding, so the text and wrap mode's hanging
      indent stay exactly where they were. .echoln wears the same, so the send
      echo still swaps for the real row without a visible change. */
   .pane{--up-bg:color-mix(in srgb,var(--violet) 10%,var(--bg))}
   .pane .ln.uprompt,.paneecho .echoln{background:var(--up-bg);
-    box-shadow:-7px 0 0 0 var(--up-bg),-9px 0 0 0 var(--violet),7px 0 0 0 var(--up-bg)}
+    box-shadow:-7px 0 0 0 var(--up-bg),7px 0 0 0 var(--up-bg)}
   .pane .ln.uprompt.up-first,.paneecho .echoln{padding-top:4px}
   .pane .ln.uprompt.up-last,.paneecho .echoln{padding-bottom:4px}
   .pane .ln.uprompt .c-sel,.paneecho .echoln .c-sel{color:#fff}
