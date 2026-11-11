@@ -296,7 +296,11 @@
   .pane .tdot::before{content:"";position:absolute;left:50%;top:50%;
     width:.6em;height:.6em;margin:-.3em 0 0 -.3em;border-radius:50%;background:currentColor}
   .pane .tdot{color:var(--violet)}
-  .pane .tdot.off{opacity:.3}
+  /* Bullets are hidden (the 1ch cell stays, so text never shifts). Only the
+     active row — the newest ⏺ on the live screen while working — shows one,
+     pulsing on its own beat instead of Claude's on/off blink. */
+  .pane .tdot::before{opacity:0}
+  .pane .ln.tact .tdot::before{opacity:1;animation:pulse 1.1s ease-in-out infinite}
   /* Claude Code's startup banner rows, hidden (see bannerize()) */
   .pane .ln.ccb-gone{display:none}
   /* compact view: a tool call's header row folds its output (see collapseTools) */
@@ -4240,7 +4244,13 @@ function paint(force){
   // byte-identical to what's already drawn, there is nothing to do.
   // `force` is for the callers that changed the BOX, not the text — a font
   // toggle, a window resize — where the same lines must be laid out again.
-  const sig = lines.join('\n');
+  // the one live ⏺ row whose bullet shows (see .tact); part of the signature,
+  // so going idle still repaints to drop it
+  let act = -1;
+  if (prov === 'claude' && current && stateOf(current) === 'working')
+    for (let i = rawLines.length - 1; i >= liveFrom; i--)
+      if (/^\s*[⏺●\uE000]/.test(rawLines[i])){ act = i; break; }
+  const sig = lines.join('\n') + '\u0001' + act;
   if (!force && sig === lastSig){
     if (fitMode === 0) shrinkToFit(p);
     // same text, but the box or font may have moved under it
@@ -4281,6 +4291,7 @@ function paint(force){
       el.dataset.tk = th[0];
     } else if (el.dataset.tk) delete el.dataset.tk;
     if (inBody.has(i)) el.className += ' tkbody';
+    if (i === act) el.className += ' tact';
     const up = upRows.get(i);
     if (up !== undefined) el.className += ' uprompt' + (up & 1 ? ' up-first' : '') + (up & 2 ? ' up-last' : '');
   }
