@@ -332,8 +332,9 @@
   /* A sent prompt is the chat's anchor: bright bold text, a violet glyph and a
      little air above and below. .echoln wears the same, so the send echo
      still swaps for the real row without a visible change. */
-  .pane .ln.uprompt.up-first,.paneecho .echoln{padding-top:4px}
-  .pane .ln.uprompt.up-last,.paneecho .echoln{padding-bottom:4px}
+  /* more air above a prompt than below, so it reads as the head of the
+     reply under it rather than floating between sections */
+  .pane .ln.uprompt.up-first,.paneecho .echoln{padding-top:6px}
   .pane .ln.uprompt .c-sel,.paneecho .echoln .c-sel{color:#fff}
   .pane .upg{color:var(--violet);font-weight:700}
   /* a tool's output rows: a thin gutter rule under the bullet ties them to it */
@@ -377,6 +378,12 @@
     text-indent:calc(-2 * var(--cw))}
   .paneecho .upg{display:inline-block;width:2ch;text-indent:0}
   .pane.sans .paneecho .upg{width:calc(2 * var(--cw))}
+  /* every marker — ❯, the active dot, ✻ — centred in column 1, text from
+     column 2, so the gutter reads as one straight line down the pane */
+  .pane.sans .ln.prose .upg,.pane.sans .paneecho .upg{width:var(--cw);
+    margin-right:var(--cw);text-align:center}
+  .paneecho .upg{width:1ch;margin-right:1ch;text-align:center}
+  .pane.sans .ln.prose .tdot::before{left:calc(var(--cw) / 2)}
   /* phone monospace fonts often lack box-drawing glyphs, and the fallback font
      draws them wider than a text cell — so ─ rules outgrow the text rows and the
      junctions drift off the │s. Pin every box glyph to one text cell, centred. */
