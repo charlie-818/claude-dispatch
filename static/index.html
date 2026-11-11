@@ -318,6 +318,18 @@
   .pane .ln.tk:active .tkb{background:var(--line2)}
   .pane .ln.tk.open .tkb{color:var(--blue);border-color:rgba(102,169,255,.4)}
   .pane .ln.tk.open .tkb svg{transform:rotate(180deg)}
+  /* A sent prompt is the chat's anchor: a tinted band with a violet bar at its
+     left edge. Painted with box-shadows (opaque, so they don't stack) that
+     reach into the pane's side padding, so the text and wrap mode's hanging
+     indent stay exactly where they were. .echoln wears the same, so the send
+     echo still swaps for the real row without a visible change. */
+  .pane{--up-bg:color-mix(in srgb,var(--violet) 10%,var(--bg))}
+  .pane .ln.uprompt,.paneecho .echoln{background:var(--up-bg);
+    box-shadow:-7px 0 0 0 var(--up-bg),-9px 0 0 0 var(--violet),7px 0 0 0 var(--up-bg)}
+  .pane .ln.uprompt.up-first,.paneecho .echoln{padding-top:4px}
+  .pane .ln.uprompt.up-last,.paneecho .echoln{padding-bottom:4px}
+  .pane .ln.uprompt .c-sel,.paneecho .echoln .c-sel{color:#fff}
+  .pane .upg{color:var(--violet);font-weight:700}
   /* a tool's output rows: a thin gutter rule under the bullet ties them to it */
   .pane .ln.tkbody{background:linear-gradient(var(--line2),var(--line2))
     calc(.5ch - 1px) 0/2px 100% no-repeat}
@@ -4133,6 +4145,21 @@ function collapseTools(rows, fold){
   return heads;
 }
 
+/* Rows of each sent prompt ("❯ text" plus its indented continuation rows).
+   Numbered picker options ("❯ 1. Yes") aren't prompts. Returns
+   Map(row -> bits): 1 = first row of the prompt, 2 = last. */
+function findPrompts(rows){
+  const out = new Map();
+  for (let i = 0; i < rows.length; i++){
+    if (!/^\s*[❯›]\s/.test(rows[i]) || /^\s*[❯›]\s*\d+\./.test(rows[i])) continue;
+    let j = i + 1;
+    while (j < rows.length && rows[j][0] !== '\uE002' && /^\s+\S/.test(rows[j])
+      && !/^\s*[⏺●⎿\uE000]/.test(rows[j])) j++;
+    for (let r = i; r < j; r++) out.set(r, (r === i ? 1 : 0) | (r === j - 1 ? 2 : 0));
+    i = j - 1;
+  }
+  return out;
+}
 const TKB_CHEV = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"'
   + ' stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>';
 const BLINK_OFF = /^ {2}[A-Z][A-Za-z]*\(/;   // "⏺ Bash(…)" with the ⏺ blinked off
@@ -4193,6 +4220,7 @@ function paint(force){
     liveTail = r.rows.length - r.from;
   }
   const heads = prov === 'claude' ? collapseTools(rawLines, compactMode) : null;
+  const upRows = findPrompts(rawLines);
   const inBody = new Set();
   if (heads) for (const [h, [, , end]] of heads) for (let r = h + 1; r < end; r++) inBody.add(r);
   const tbl = findTables(rawLines, tableBudget(p));   // may re-pad or re-lay grids
@@ -4203,6 +4231,7 @@ function paint(force){
     if (l[0] === '\uE002') return '';
     let h = tbl.kind[i] ? colorizeTable(l) : colorizeLine(l, prov);
     const th = compactMode && heads && heads.get(i);
+    if (upRows.get(i) & 1) h = h.replace(/^(<span class="c-sel">\s*)([❯›])/, '$1<span class="upg">$2</span>');
     if (th) h += `<span class="tkb">${th[1]} line${th[1] === 1 ? '' : 's'}${TKB_CHEV}</span>`;
     return i >= liveFrom ? linkKeys(h) : h;
   });
@@ -4253,6 +4282,8 @@ function paint(force){
       el.dataset.tk = th[0];
     } else if (el.dataset.tk) delete el.dataset.tk;
     if (inBody.has(i)) el.className += ' tkbody';
+    const up = upRows.get(i);
+    if (up !== undefined) el.className += ' uprompt' + (up & 1 ? ' up-first' : '') + (up & 2 ? ' up-last' : '');
   }
   if (ECHO.parentNode !== p) p.appendChild(ECHO);
   while (kids.length > lines.length + 1) p.removeChild(ECHO.previousElementSibling);
@@ -6383,7 +6414,9 @@ function addPendingEcho(text){
   el.className = 'echoln';
   const line = document.createElement('span');
   line.className = 'c-sel';
-  line.textContent = '❯ ' + text;
+  const g = document.createElement('span');
+  g.className = 'upg'; g.textContent = '❯';
+  line.append(g, ' ' + text);
   el.appendChild(line);
   box.appendChild(el);
   const entry = { norm: normEcho(text).slice(0, 30), el, timer: null,
