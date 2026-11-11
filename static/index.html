@@ -310,8 +310,11 @@
   .pane .tkb{display:inline-flex;align-items:center;gap:4px;margin-left:10px;
     padding:1px 6px 1px 8px;border:1px solid var(--line2);border-radius:999px;
     background:var(--panel3);font:500 10.5px/1.45 var(--ui);color:var(--dim);
-    vertical-align:1px;white-space:nowrap;-webkit-user-select:none;user-select:none}
-  .pane .tkb svg{width:10px;height:10px}
+    vertical-align:1px;white-space:nowrap;-webkit-user-select:none;user-select:none;
+    /* wrap mode's hanging indent (.hang text-indent) is inherited and shoved the
+       label out of the pill; overflow-wrap:anywhere could split it too */
+    text-indent:0;overflow-wrap:normal;word-break:normal;box-sizing:border-box}
+  .pane .tkb svg{width:10px;height:10px;flex:none}
   .pane .ln.tk:active .tkb{background:var(--line2)}
   .pane .ln.tk.open .tkb{color:var(--blue);border-color:rgba(102,169,255,.4)}
   .pane .ln.tk.open .tkb svg{transform:rotate(180deg)}
