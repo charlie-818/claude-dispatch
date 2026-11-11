@@ -4219,6 +4219,39 @@ function trimChrome(text, prov){
    Dispatch doesn't show it at all: blank the rows (and the spacer under them)
    with  so they're hidden but the line count — and the live/scrollback
    split — doesn't move. */
+/* Repair what a mid-repaint capture leaves behind (Claude rows, before layout):
+   - "──1.─Drop─the─gutter…────": Claude reuses the row its ─── input rule sat
+     on and skips writing blank cells, so the old ─ shows through every space.
+     Words joined by ─ (never real text, never a box row) → spaces again.
+   - a live spinner ("✻ Channeling… (running hooks…)") that scrolled up into
+     scrollback before Claude cleared it: hidden — only the bottom one is live,
+     and liftStatus has already taken that.
+   - a prompt frozen part-way, then printed again in full right under it:
+     the partial copy is hidden. */
+const SMEAR = /[^\s─]─+[^\s─]/;
+function cleanCapture(rows){
+  for (let i = 0; i < rows.length; i++){
+    const r = rows[i];
+    if (r.includes('─') && SMEAR.test(r) && /[A-Za-z]{2}/.test(r) && !BOX_ROW.test(r)
+        && !/[│┃║┌┐└┘├┤┬┴┼╭╮╰╯]/.test(r))
+      rows[i] = r.replace(/─/g, ' ').replace(/ +$/, '');
+  }
+  for (let i = 0; i < rows.length; i++)
+    if (STATUS_LINE.test(rows[i]) && !DONE_LINE.test(rows[i])) rows[i] = '\uE002';
+  for (let i = 0; i < rows.length; i++){
+    const m = rows[i].match(/^(\s*)[❯›]\s+(.*)$/);
+    if (!m || /^\d+\./.test(m[2])) continue;
+    const key = m[2].replace(/\s+/g, ' ').trim().slice(0, 30);
+    if (key.length < 12) continue;
+    for (let j = i + 1; j < rows.length && /^\s+\S/.test(rows[j]); j++){
+      if (!rows[j].replace(/\s+/g, ' ').trim().startsWith(key)) continue;
+      for (let k = i; k < j; k++) rows[k] = '\uE002';
+      rows[j] = m[1] + '❯ ' + rows[j].trim();
+      break;
+    }
+  }
+  return rows;
+}
 function bannerize(lines){
   for (let i = 0; i < lines.length; i++){
     const m = lines[i].match(/Claude Code v(\S+)/);
@@ -4346,7 +4379,7 @@ function paint(force){
   // phone's font, so the command slid left and right every frame; draw the off
   // beat as a dim ⏺ instead (\uE000 marks it for colorizeLine/lineLayoutStyle).
   if (prov === 'claude') rawLines = rawLines.map(l => BLINK_OFF.test(l) ? '\uE000' + l.slice(1) : l);
-  if (prov === 'claude') rawLines = bannerize(rawLines);
+  if (prov === 'claude') rawLines = cleanCapture(bannerize(rawLines));
   let liveTail = liveLines.length;
   if (p.classList.contains('wrap')){
     const r = reflowRows(rawLines, cols, histLines.length);
