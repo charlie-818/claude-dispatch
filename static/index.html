@@ -295,6 +295,7 @@
     -webkit-text-fill-color:transparent}
   .pane .tdot::before{content:"";position:absolute;left:50%;top:50%;
     width:.6em;height:.6em;margin:-.3em 0 0 -.3em;border-radius:50%;background:currentColor}
+  .pane .tdot{color:var(--violet)}
   .pane .tdot.off{opacity:.3}
   /* Claude Code's startup banner rows, hidden (see bannerize()) */
   .pane .ln.ccb-gone{display:none}
@@ -418,8 +419,8 @@
      shadow, no border — so it is fully opaque (no scrollback shows through
      between or above the buttons) yet reads as bare pills on the terminal. */
   .chipsdock{position:relative;height:0;flex:none;z-index:35}
-  .chips{display:none;gap:6px;position:absolute;top:0;left:0;right:0;
-    padding:8px 10px 9px;background:var(--bg);border:0;
+  .chips{display:none;gap:5px;position:absolute;top:0;left:0;right:0;
+    padding:8px 8px 9px;background:var(--bg);border:0;
     overflow-x:auto;scrollbar-width:none;
     /* 1px of background over the seam: a fractional top edge let text show through */
     box-shadow:0 -1px 0 var(--bg)}
@@ -447,14 +448,15 @@
   .chips::-webkit-scrollbar{display:none}
   .chips button{flex:0 0 auto;font:600 12px var(--ui);color:var(--fg);
     background:var(--panel3);border:1px solid var(--line2);border-radius:var(--r);
-    padding:7px 11px;cursor:pointer;white-space:nowrap;
-    display:inline-flex;align-items:center;gap:6px}
+    padding:7px 9px;cursor:pointer;white-space:nowrap;
+    display:inline-flex;align-items:center;gap:5px}
+  .chips button:not(:has(.cv)){padding:7px 8px}    /* icon-only */
   .chips button svg{width:15px;height:15px;flex:none;opacity:.85}
   .chips button .cv{font:600 12px var(--ui);color:var(--fg)}   /* current value */
   .chips button:active{background:var(--line2)}
-  .chips button.ghost{color:var(--violet);border-color:rgba(189,141,255,.4)}
-  .chips button.ghost svg{opacity:1}
-  .chips button.ghost.on{background:rgba(189,141,255,.18);border-color:var(--violet)}
+  .chips button.ghost.on{color:var(--violet);background:rgba(189,141,255,.14);
+    border-color:rgba(189,141,255,.55)}
+  .chips button.ghost.on svg{opacity:1}
   .chips button:disabled{opacity:.4}
 
   #sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:70;
@@ -482,6 +484,12 @@
   .opt.confirm{border-color:var(--red);background:rgba(255,107,97,.18);color:var(--red)}
   .opt:disabled{opacity:.38}
   .sheet-note{font:11px/1.55 var(--ui);color:var(--dim);margin-top:6px}
+  /* keys, folded into the commands sheet: one tight grid above the list */
+  .sheet-keys{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:2px 0 10px}
+  .sheet-keys button{font:600 13px var(--mono);color:var(--fg);background:var(--panel3);
+    border:1px solid var(--line2);border-radius:var(--r);padding:9px 4px;cursor:pointer}
+  .sheet-keys button:active{background:var(--line2)}
+  .sheet-keys button:disabled{opacity:.4}
   .sheet-note.warn{color:var(--red)}
   /* ── directory picker (start new agent) ─────────────────
      Rows scroll; the back/start bar pins to the bottom so it stays reachable
@@ -1608,18 +1616,10 @@
     <button id="chip-model" onclick="openSheet('model')" aria-label="model">
       <span class="cv">model</span>
     </button>
-    <button onclick="openSheet('cmd')" aria-label="commands">
+    <button onclick="openSheet('cmd')" aria-label="commands and keys">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <polyline points="6 8 10 12 6 16"/><line x1="12" y1="16" x2="18" y2="16"/>
-      </svg>
-    </button>
-    <button onclick="openSheet('keys')" aria-label="keys">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <rect x="2.5" y="6.5" width="19" height="11" rx="2.5"/>
-        <line x1="7" y1="10.5" x2="7" y2="10.5"/><line x1="12" y1="10.5" x2="12" y2="10.5"/>
-        <line x1="17" y1="10.5" x2="17" y2="10.5"/><line x1="8" y1="14" x2="16" y2="14"/>
       </svg>
     </button>
     <button id="fitbtn" class="ghost" onclick="cycleFit()" aria-label="fit or wrap">
@@ -1815,14 +1815,15 @@ const DOTS = '<span class="dots"><i></i><i></i><i></i></span>';
    from. */
 const LINE_RULES = {
   claude: [
-    [/^\s*[●⏺\uE000]/,      'c-violet'],   // tool call (\uE000: blink-off, see BLINK_OFF)
+    // tool call (\uE000: blink-off, see BLINK_OFF); Claude's prose ⏺ stays plain fg
+    [/^\s*[●⏺\uE000]\s*(?:[\w.:-]+(?: - [\w .:-]+)?(?: \(MCP\))?\(|.*\(ctrl\+o to expand\))/, 'c-blue'],
     [/^\s*⎿/,                'c-dim'],      // tool result
     [/^\s*[✻✽*]/,            'c-amber'],    // spinner / status
     [/^\s*❯/,                'c-sel'],      // prompt
     [/^\s*\d\.\s/,           'c-dim'],
   ],
   codex: [
-    [/^\s*•/,                'c-violet'],   // event: ran, edited, replied
+    [/^\s*•/,                'c-blue'],     // event: ran, edited, replied
     [/^\s*[└╰]/,             'c-dim'],      // that event's output
     [/^\s*[›❯]/,             'c-sel'],      // prompt
     [/^\s*[▌│]\s*[-*]\s/,    'c-dim'],
@@ -1830,7 +1831,7 @@ const LINE_RULES = {
   grok: [
     [/^\s*❯/,                'c-sel'],      // prompt echo
     [/^\s*◆/,                'c-amber'],    // thinking
-    [/^\s*[◈◇▸]/,            'c-violet'],   // tool call
+    [/^\s*[◈◇▸]/,            'c-blue'],     // tool call
     [/^\s*Worked for /,      'c-dim'],
   ],
 };
@@ -4979,6 +4980,16 @@ function renderSheet(){
 
   else if (openKind === 'cmd'){
     title.textContent = 'commands';
+    const keys = document.createElement('div');
+    keys.className = 'sheet-keys';
+    KEYSET.forEach(([k, label, desc]) => {
+      const b = document.createElement('button');
+      b.textContent = label; b.title = desc; b.setAttribute('aria-label', desc);
+      b.disabled = !send;
+      b.onclick = () => { key(k); closeSheet(); };
+      keys.appendChild(b);
+    });
+    body.appendChild(keys);
     COMMANDS.forEach(c => body.appendChild(opt(c.cmd, {
       desc: c.desc, dis: !send,
       on: () => { runCmd(c.id); closeSheet(); }})));
