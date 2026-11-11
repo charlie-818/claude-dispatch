@@ -4733,7 +4733,7 @@ function updateMeta(){
   document.getElementById('sm').textContent =
     // bypass is the launch default for every pane — not worth the room
     [prov, shortModel(current.model), current.mode === 'bypass' ? '' : current.mode,
-     EFFORT_LABEL[current.effort]].filter(Boolean).join(' · ');
+     current.effort].filter(Boolean).join(' · ');   // full word here; the chip abbreviates
   paintCtxBar(current.ctx);
   applyProviderChrome();
 }
