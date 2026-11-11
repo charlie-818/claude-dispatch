@@ -1727,11 +1727,6 @@
     <div class="cbox">
       <textarea id="input" rows="1" placeholder=""></textarea>
       <div class="cbar">
-        <span class="gap"></span>
-        <button class="mic" id="micbtn" onclick="toggleMic()" aria-label="dictate">
-          <span class="material-symbols-rounded i-mic" aria-hidden="true">mic</span>
-          <span class="material-symbols-rounded i-stop" aria-hidden="true">stop</span>
-        </button>
         <button class="mic" id="attachbtn" onclick="document.getElementById('fileinput').click()" aria-label="attach">
           <span class="material-symbols-rounded" aria-hidden="true">attach_file</span>
         </button>
@@ -1740,6 +1735,11 @@
         </button>
         <button class="mic" id="docbtn" onclick="document.getElementById('docinput').click()" aria-label="attach file">
           <span class="material-symbols-rounded" aria-hidden="true">description</span>
+        </button>
+        <span class="gap"></span>
+        <button class="mic" id="micbtn" onclick="toggleMic()" aria-label="dictate">
+          <span class="material-symbols-rounded i-mic" aria-hidden="true">mic</span>
+          <span class="material-symbols-rounded i-stop" aria-hidden="true">stop</span>
         </button>
         <button class="send" id="sendbtn" onclick="send()" disabled aria-label="send">
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3.5 20.6l16.9-8.1c.8-.4.8-1.6 0-2L3.5 2.4c-.8-.4-1.6.4-1.3 1.2L4 11l-1.8 6.4c-.3.8.5 1.6 1.3 1.2z"/></svg>
