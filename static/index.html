@@ -417,6 +417,20 @@
   .hdrbtn.ico svg{width:17px;height:17px;display:block}
   .bgabtn{color:var(--amber);display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 9px}
   .bgabtn[hidden]{display:none}
+  /* Claude's spinner line, distilled into the header: elapsed time + tokens.
+     Amber pulsing dot while working; green, still, once it says "Worked for". */
+  .hstat{flex:none;display:inline-flex;align-items:center;gap:7px;height:32px;
+    padding:0 9px;background:var(--panel3);border:1px solid var(--line2);
+    border-radius:var(--r);font:600 11.5px/1 var(--mono);color:var(--fg);
+    white-space:nowrap;font-variant-numeric:tabular-nums}
+  .hstat[hidden]{display:none}
+  .hstat .hs-dot{width:7px;height:7px;border-radius:50%;flex:none;
+    background:var(--amber);animation:pulse 1.2s ease-in-out infinite}
+  /* time over tokens, stacked, so the pill stays narrow next to the title */
+  .hstat .hs-txt{display:flex;flex-direction:column;gap:2px;line-height:1}
+  .hstat .hs-tok{font:600 9.5px/1 var(--mono);color:var(--dim)}
+  .hstat.done{color:var(--dim)}
+  .hstat.done .hs-dot{background:var(--green);animation:none}
   .bgabtn::before{content:"";width:8px;height:8px;border-radius:50%;
     border:1.5px solid currentColor;border-right-color:transparent;
     animation:sendspin .9s linear infinite}
@@ -496,6 +510,8 @@
      never gains or loses height when the status line comes and goes mid-chat
      — only its own content fades, it doesn't reflow the transcript under it. */
   .panestatus[hidden]{display:block!important;visibility:hidden}
+  /* retired: the status now lives in the header (.hstat) */
+  .panestatus,.panestatus[hidden]{display:none!important}
   /* Under the brief card the line sat 6px down but 13px below open chips. Give
      it the same 13px here, and pull the chips-open translate back by those 7px
      so toggling the chips still never moves the pane. */
@@ -1613,6 +1629,7 @@
       <div class="meta" id="sm"></div>
     </div>
     <div class="hdracts">
+    <div class="hstat" id="hstat" hidden aria-live="off"></div>
     <button class="hdrbtn bgabtn" id="bgabtn" hidden onclick="openBgAgents()" aria-label="background agents"><span class="n"></span></button>
     <button class="hdrbtn ico" id="briefbtn" onclick="toggleBrief()"
             aria-label="summary" aria-expanded="false">
@@ -3812,6 +3829,7 @@ function openSession(uuid){
   suppressCodexPicker = false;
   applyPanePrompt(current.prompt || null); promptDismissed = null; renderActions();
   history = []; live = ''; pinBottom = true; lastSig = null;   // land at newest output
+  renderHstat('');                 // the last chat's timer mustn't flash on this one
   // A summary we've already shown for this chat paints with the page, not
   // after the fetch — the refetch below only swaps the text if it changed.
   const seen = summaryCache.get(uuid);
@@ -4039,6 +4057,27 @@ function linkKeys(html){
   return html.replace(KEY_HINT, (m, c) =>
     `<span class="kbtn" role="button" data-k="^${c.toUpperCase()}">${m}</span>`);
 }
+/* "✳ Skedaddling… (1m 12s · ↓ 2.3k tokens · esc to interrupt)" or
+   "✻ Worked for 1m 3s" → the header pill: just time and tokens. */
+function renderHstat(found){
+  const el = document.getElementById('hstat');
+  let html = '', done = false;
+  if (found){
+    const paren = found.match(/\(([^)]*)\)/);
+    const parts = paren ? paren[1].split('·').map(s => s.trim()) : [];
+    const fr = found.match(/\bfor\s+((?:\d+[hms]\s*)+)/);
+    done = !!fr && !/…/.test(found);
+    const time = (parts.find(s => /^\d+[hms]\b/.test(s)) || (fr && fr[1]) || '').trim();
+    const tm = found.match(/([↑↓]?)\s*([\d.,]+[kKmM]?)\s*tokens/);
+    const tok = tm ? (tm[1] ? tm[1] + ' ' : '') + tm[2] + ' tok' : '';
+    html = '<span class="hs-dot"></span><span class="hs-txt">'
+      + `<span>${esc(time || (done ? 'done' : 'working'))}</span>`
+      + (tok ? `<span class="hs-tok">${esc(tok)}</span>` : '') + '</span>';
+  }
+  if (el.__h !== html){ el.innerHTML = html; el.__h = html; el.title = found; }
+  el.classList.toggle('done', done);
+  if (el.hidden !== !found) el.hidden = !found;
+}
 function liftStatus(text, prov){
   let found = '';
   if (prov === 'claude' && text){
@@ -4048,9 +4087,7 @@ function liftStatus(text, prov){
     }
     if (found) text = lines.join('\n').replace(/\n+$/, '');
   }
-  const el = document.getElementById('panestatus');
-  if (el.textContent !== found) el.innerHTML = linkKeys(esc(found));
-  if (el.hidden !== !found) el.hidden = !found;
+  renderHstat(found);
   return text;
 }
 
