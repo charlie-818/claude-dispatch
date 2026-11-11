@@ -362,10 +362,10 @@
   /* Trial (PANE_SANS): Claude's prose and the user's prompts in Google Sans.
      Tables, tool calls and their output stay mono — their columns need it. */
   .pane.sans .ln.prose,.pane.sans .paneecho .echoln{
-    font-family:"Google Sans",var(--ui);font-size:1.08em;letter-spacing:.005em;
+    font-family:"Google Sans",var(--ui);font-size:1.16em;letter-spacing:.005em;
     /* one mono cell (~.6em at the pane's size): indents are counted in these,
        not in this font's ch, so prose still lines up with the mono rows */
-    --cw:calc(.6em / 1.08)}
+    --cw:calc(.6em / 1.16)}
   /* paint() strips a prose row's leading spaces and the space after its
      marker; the indent and the hanging marker come back from --ind/--mk */
   .pane.sans .ln.prose{padding-inline-start:calc(var(--ind) * var(--cw))!important;
