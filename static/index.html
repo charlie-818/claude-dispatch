@@ -424,7 +424,6 @@
   .hstat[hidden]{display:none}
   .hstat .hs-dot{width:6px;height:6px;border-radius:50%;flex:none;
     background:currentColor;animation:pulse 1.2s ease-in-out infinite}
-  .hstat .hs-tok{color:var(--dim)}
   .hstat.done{color:var(--dim)}
   .hstat.done .hs-dot{background:var(--green);animation:none}
   .bgabtn::before{content:"";width:8px;height:8px;border-radius:50%;
@@ -4053,7 +4052,7 @@ function linkKeys(html){
     `<span class="kbtn" role="button" data-k="^${c.toUpperCase()}">${m}</span>`);
 }
 /* "✳ Skedaddling… (1m 12s · ↓ 2.3k tokens · esc to interrupt)" or
-   "✻ Worked for 1m 3s" → the header pill: just time and tokens. */
+   "✻ Worked for 1m 3s" → the subtitle's status: just the elapsed time. */
 function renderHstat(found){
   const el = document.getElementById('hstat');
   let html = '', done = false;
@@ -4063,11 +4062,8 @@ function renderHstat(found){
     const fr = found.match(/\bfor\s+((?:\d+[hms]\s*)+)/);
     done = !!fr && !/…/.test(found);
     const time = (parts.find(s => /^\d+[hms]\b/.test(s)) || (fr && fr[1]) || '').trim();
-    const tm = found.match(/([↑↓]?)\s*([\d.,]+[kKmM]?)\s*tokens/);
-    const tok = tm ? tm[1] + tm[2] : '';
     html = '<span class="hs-dot"></span>'
-      + `<span>${esc(time || (done ? 'done' : 'working'))}</span>`
-      + (tok ? `<span class="hs-tok">· ${esc(tok)}</span>` : '');
+      + `<span>${esc(time || (done ? 'done' : 'working'))}</span>`;
   }
   if (el.__h !== html){ el.innerHTML = html; el.__h = html; el.title = found; }
   el.classList.toggle('done', done);
@@ -4672,7 +4668,8 @@ function updateMeta(){
   if (!current) return;
   const prov = current.provider && current.provider !== 'claude' ? current.provider : '';
   document.getElementById('sm').textContent =
-    [prov, shortModel(current.model), current.mode,
+    // bypass is the launch default for every pane — not worth the room
+    [prov, shortModel(current.model), current.mode === 'bypass' ? '' : current.mode,
      EFFORT_LABEL[current.effort]].filter(Boolean).join(' · ');
   paintCtxBar(current.ctx);
   applyProviderChrome();
