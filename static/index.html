@@ -413,20 +413,18 @@
   .hdrbtn.ico svg{width:17px;height:17px;display:block}
   .bgabtn{color:var(--amber);display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 9px}
   .bgabtn[hidden]{display:none}
-  /* Claude's spinner line, distilled to plain text at the end of the subtitle
-     under the title: "opus · main  ● 1m 12s". No box — amber while
-     working, dim once it says "Worked for". */
-  .smrow{display:flex;align-items:baseline;gap:8px;min-width:0;max-width:100%;overflow:hidden}
-  /* the meta shrinks (ellipsis) first, so the status at the end always shows */
+  /* Claude's spinner line, distilled to one more subtitle item:
+     "opus · high · 1m 12s". Same font, size and separator as the meta, so it
+     reads as part of that line — only the colour says amber = working. */
+  .smrow{display:flex;align-items:baseline;min-width:0;max-width:100%;overflow:hidden}
+  /* the meta shrinks (ellipsis) first, so the time at the end always shows */
   .smrow .meta{flex:0 1 auto;min-width:0}
-  .hstat{flex:none;display:inline-flex;align-items:center;gap:5px;
-    font:600 10.5px/1 var(--mono);color:var(--amber);white-space:nowrap;
-    font-variant-numeric:tabular-nums;letter-spacing:.02em}
+  .hstat{flex:none;font:11px var(--mono);letter-spacing:.04em;white-space:nowrap;
+    color:var(--amber);font-variant-numeric:tabular-nums}
   .hstat[hidden]{display:none}
-  .hstat .hs-dot{width:6px;height:6px;border-radius:50%;flex:none;
-    background:currentColor;animation:pulse 1.2s ease-in-out infinite}
+  .hstat::before{content:'\00a0·\00a0';color:var(--dim)}
+  .smrow .meta:empty + .hstat::before{content:none}
   .hstat.done{color:var(--dim)}
-  .hstat.done .hs-dot{background:var(--green);animation:none}
   .bgabtn::before{content:"";width:8px;height:8px;border-radius:50%;
     border:1.5px solid currentColor;border-right-color:transparent;
     animation:sendspin .9s linear infinite}
@@ -4063,10 +4061,9 @@ function renderHstat(found){
     const fr = found.match(/\bfor\s+((?:\d+[hms]\s*)+)/);
     done = !!fr && !/…/.test(found);
     const time = (parts.find(s => /^\d+[hms]\b/.test(s)) || (fr && fr[1]) || '').trim();
-    html = '<span class="hs-dot"></span>'
-      + `<span>${esc(time || (done ? 'done' : 'working'))}</span>`;
+    html = time || (done ? 'done' : 'working');
   }
-  if (el.__h !== html){ el.innerHTML = html; el.__h = html; el.title = found; }
+  if (el.__h !== html){ el.textContent = html; el.__h = html; el.title = found; }
   el.classList.toggle('done', done);
   if (el.hidden !== !found) el.hidden = !found;
 }
