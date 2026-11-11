@@ -3603,6 +3603,95 @@ async def _ensure_summary(uuid, path, pcount, running, provider=DEFAULT_PROVIDER
         return entry
 
 
+# ── per-section tokens ──────────────────────────────────────────────────────
+# The pane only ever shows tokens on the live spinner line; the "✻ Worked for
+# 10s" line a finished section leaves behind has none. The transcript has the
+# real numbers: one usage block per assistant message. Split it at each genuine
+# user prompt and sum, so the client can hang a total on each "…for" line.
+_turns_cache = {}     # path -> (mtime, size, turns)
+
+
+def _claude_turns(path):
+    """[{prompt, out, total}] per genuine user prompt, in order. `out` is the
+    tokens Claude wrote (what the spinner's ↓ counts); `total` adds every
+    input / cache token the section re-read."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return []
+    hit = _turns_cache.get(path)
+    if hit and hit[0] == st.st_mtime and hit[1] == st.st_size:
+        return hit[2]
+    turns, cur, seen = [], None, {}
+    try:
+        fh = open(path, errors="replace")
+    except OSError:
+        return []
+    with fh:
+        for ln in fh:
+            try:
+                o = json.loads(ln)
+            except Exception:
+                continue
+            if not isinstance(o, dict) or o.get("isSidechain"):
+                continue
+            m = o.get("message") if isinstance(o.get("message"), dict) else {}
+            if o.get("type") == "user":
+                if o.get("isMeta"):
+                    continue
+                content = m.get("content")
+                if isinstance(content, list):
+                    if any(isinstance(c, dict) and c.get("type") == "tool_result"
+                           for c in content):
+                        continue
+                    content = " ".join(c.get("text", "") for c in content
+                                       if isinstance(c, dict) and c.get("type") == "text")
+                clean = human_prompt(content) if isinstance(content, str) else ""
+                if clean:
+                    cur = {"prompt": " ".join(clean.split())[:160], "out": 0, "total": 0}
+                    turns.append(cur)
+                continue
+            u = m.get("usage")
+            if cur is None or o.get("type") != "assistant" or not isinstance(u, dict):
+                continue
+            out = u.get("output_tokens") or 0
+            tot = (out + (u.get("input_tokens") or 0)
+                   + (u.get("cache_creation_input_tokens") or 0)
+                   + (u.get("cache_read_input_tokens") or 0))
+            mid = m.get("id")
+            prev = seen.get(mid) if mid else None
+            if prev:
+                # a streamed message repeats its id; keep its latest numbers
+                t, po, pt = prev
+                t["out"] += out - po
+                t["total"] += tot - pt
+                seen[mid] = (t, out, tot)
+            else:
+                cur["out"] += out
+                cur["total"] += tot
+                if mid:
+                    seen[mid] = (cur, out, tot)
+    if len(_turns_cache) > 64:
+        _turns_cache.clear()
+    _turns_cache[path] = (st.st_mtime, st.st_size, turns)
+    return turns
+
+
+async def api_turns(request):
+    if not authed(request):
+        return web.json_response({"error": "locked"}, status=401)
+    uuid = (request.query.get("uuid") or "").upper()
+    f = read_fleet_files().get(uuid) or {}
+    path = f.get("transcript")
+    if (f.get("provider") or DEFAULT_PROVIDER) != DEFAULT_PROVIDER or not path:
+        return web.json_response({"turns": []})
+    real = os.path.realpath(path)
+    if not real.startswith(os.path.realpath(_PROJECTS_DIR) + os.sep):
+        return web.json_response({"turns": []})
+    turns = await asyncio.to_thread(_claude_turns, real)
+    return web.json_response({"turns": turns[-300:]})
+
+
 async def api_summary(request):
     if not authed(request):
         return web.json_response({"error": "locked"}, status=401)
@@ -8814,6 +8903,7 @@ async def main(connection):
     app.router.add_post("/api/cmd", api_cmd)
     app.router.add_post("/api/rewind", api_rewind)
     app.router.add_get("/api/commands", api_commands)
+    app.router.add_get("/api/turns", api_turns)
     app.router.add_get("/api/codex/models", api_codex_models)
     app.router.add_get("/api/grok/models", api_grok_models)
     app.router.add_get("/api/usage", api_usage)

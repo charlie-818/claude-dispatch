@@ -315,6 +315,8 @@
     border-radius:4px;padding:0 5px;margin-right:2px}
   .pane .targ{color:var(--fg2)}
   .pane .tpar{color:var(--dimmer)}
+  /* a finished section's token total, after its "✻ Worked for 10s" */
+  .pane .ttok{color:var(--dim)}
   /* the expander: a real pill at the end of the header, chevron flips when open */
   .pane .tkb{display:inline-flex;align-items:center;gap:4px;margin-left:10px;
     padding:1px 6px 1px 8px;border:1px solid var(--line2);border-radius:999px;
@@ -3823,6 +3825,7 @@ function openSession(uuid){
   applyPanePrompt(current.prompt || null); promptDismissed = null; renderActions();
   history = []; live = ''; pinBottom = true; lastSig = null;   // land at newest output
   renderHstat('');                 // the last chat's timer mustn't flash on this one
+  TURN_TOK = {uuid: current && current.uuid, turns: [], n: -1};
   // A summary we've already shown for this chat paints with the page, not
   // after the fetch — the refetch below only swaps the text if it changed.
   const seen = summaryCache.get(uuid);
@@ -4044,7 +4047,7 @@ function stripGrokPrompt(lines){
    ("✻ Cooked for 14s"). It lives in the strip above the pane, not in the
    transcript. Only the screen's last few lines are searched — the same glyph
    in old scrollback is history. */
-const STATUS_LINE = /^\s*[·✢✳✶✻✽*]\s+[A-Z][\w'-]*(?:…|\s+for\s+\d)/;
+const STATUS_LINE = /^\s*[·✢✳✶✻✽*]\s+[A-Z][^\s…]*(?:…|\s+for\s+\d)/;   // [^\s…]: verbs like "Sautéed"
 const KEY_HINT = /\bctrl\+(enter|[botre])\b/gi;
 function linkKeys(html){
   return html.replace(KEY_HINT, (m, c) =>
@@ -4067,12 +4070,56 @@ function renderHstat(found){
   el.classList.toggle('done', done);
   if (el.hidden !== !found) el.hidden = !found;
 }
+const DONE_LINE = /^\s*[·✢✳✶✻✽*]\s+[A-Z][^\s…]*\s+for\s+\d(?!.*…)/;
+/* Per-section token totals from the transcript (/api/turns), hung on each
+   "✻ Worked for 10s" line. Refetched whenever the count of those lines moves. */
+let TURN_TOK = {uuid: null, turns: [], n: -1};
+function loadTurns(uuid){
+  fetch('/api/turns?uuid=' + encodeURIComponent(uuid)).then(r => r.json()).then(d => {
+    if (!current || current.uuid !== uuid || TURN_TOK.uuid !== uuid) return;
+    TURN_TOK.turns = d.turns || [];
+    paint(true);
+  }).catch(() => {});
+}
+const turnKey = s => s.replace(/\s+/g, ' ').trim().toLowerCase().slice(0, 24);
+/* Map(done row -> section). Each done line belongs to the prompt above it:
+   match on that prompt's opening words, walking back from the newest section
+   (the screen may hold only the tail of the chat); a prompt the screen shows
+   differently (a pasted-text stub) falls back to plain order. */
+function turnTokens(rows){
+  const turns = TURN_TOK.turns, out = new Map(), done = [];
+  let key = '';
+  for (let i = 0; i < rows.length; i++){
+    const r = rows[i];
+    if (/^\s*[❯›]\s/.test(r) && !/^\s*[❯›]\s*\d+\./.test(r)) key = turnKey(r.replace(/^\s*[❯›]\s*/, ''));
+    else if (DONE_LINE.test(r)) done.push([i, key]);
+  }
+  if (TURN_TOK.uuid === (current && current.uuid) && done.length !== TURN_TOK.n){
+    TURN_TOK.n = done.length; loadTurns(TURN_TOK.uuid);
+  }
+  let j = turns.length - 1;
+  for (let d = done.length - 1; d >= 0 && j >= 0; d--){
+    const [i, k] = done[d];
+    let at = -1;
+    if (k.length >= 6) for (let t = j; t >= 0 && t >= j - 20; t--)
+      if (turnKey(turns[t].prompt).startsWith(k) || k.startsWith(turnKey(turns[t].prompt))){ at = t; break; }
+    if (at < 0) at = j;
+    out.set(i, turns[at]);
+    j = at - 1;
+  }
+  return out;
+}
 function liftStatus(text, prov){
   let found = '';
   if (prov === 'claude' && text){
     const lines = text.split('\n');
     for (let i = lines.length - 1; i >= Math.max(0, lines.length - 12); i--){
-      if (STATUS_LINE.test(lines[i])){ found = lines[i].trim(); lines.splice(i, 1); break; }
+      if (!STATUS_LINE.test(lines[i])) continue;
+      // a finished section's "✻ Worked for 1m 30s" stays at the bottom of the
+      // transcript (it carries the section's tokens, see turnTokens); only the
+      // live spinner moves up into the header
+      if (!DONE_LINE.test(lines[i])){ found = lines[i].trim(); lines.splice(i, 1); }
+      break;
     }
     if (found) text = lines.join('\n').replace(/\n+$/, '');
   }
@@ -4279,6 +4326,7 @@ function paint(force){
   }
   const heads = prov === 'claude' ? collapseTools(rawLines, compactMode) : null;
   const upRows = findPrompts(rawLines);
+  const tokAt = prov === 'claude' ? turnTokens(rawLines) : null;
   const prose = new Map();   // row -> [indent cells, marker cells]
   const inBody = new Set();
   if (heads) for (const [h, [, , end]] of heads) for (let r = h + 1; r < end; r++) inBody.add(r);
@@ -4302,6 +4350,9 @@ function paint(force){
       if (lm) h = h.replace(/^((?:<span[^>]*>)*)([-•]|\d+\.) /, (_, pre, m) =>
         `${pre}<span class="lmk">${m === '-' ? '•' : m}</span>`);
     }
+    const tt = tokAt && tokAt.get(i);
+    if (tt && tt.out) h += `<span class="ttok" title="${tt.total.toLocaleString()} tokens incl. context re-read">`
+      + ` · ↓ ${fmtTok(tt.out)} tokens</span>`;
     if (th) h += `<span class="tkb">${th[1]} line${th[1] === 1 ? '' : 's'}${TKB_CHEV}</span>`;
     return i >= liveFrom ? linkKeys(h) : h;
   });
