@@ -4352,7 +4352,7 @@ function paint(force){
     }
     const tt = tokAt && tokAt.get(i);
     if (tt && tt.out) h += `<span class="ttok" title="${tt.total.toLocaleString()} tokens incl. context re-read">`
-      + ` · ↓ ${fmtTok(tt.out)} tokens</span>`;
+      + ` · ${fmtTok(tt.out)} tokens</span>`;
     if (th) h += `<span class="tkb">${th[1]} line${th[1] === 1 ? '' : 's'}${TKB_CHEV}</span>`;
     return i >= liveFrom ? linkKeys(h) : h;
   });
