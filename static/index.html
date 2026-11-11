@@ -352,6 +352,9 @@
   /* a gap above each bullet / numbered point in prose, so every point reads as
      its own item. Not in tool output (a diff's "- " rows) or tables. */
   .pane .ln.list-line:not(.tkbody):not(.tbl){margin-top:.55em}
+  /* …and the same gap after the list: Claude prints no blank line between a
+     list's last point and the paragraph that follows it */
+  .pane .ln.after-list{margin-top:.55em}
   /* bold box glyphs fall back to a wider font, so a bold header's │s drift right
      and its last one pokes out past the grid like an extra column — keep the
      borders at regular weight so every row is the same width */
@@ -4331,6 +4334,16 @@ function paint(force){
   const inBody = new Set();
   if (heads) for (const [h, [, , end]] of heads) for (let r = h + 1; r < end; r++) inBody.add(r);
   const tbl = findTables(rawLines, tableBudget(p));   // may re-pad or re-lay grids
+  // first row back at (or left of) a list's indent once its points end
+  const afterList = new Set();
+  for (let i = 0, li = -1; i < rawLines.length; i++){
+    const r = rawLines[i];
+    if (r[0] === '\uE002' || inBody.has(i) || tbl.kind[i]) continue;
+    if (!r.trim()){ li = -1; continue; }
+    const ind = r.match(/^ */)[0].length;
+    if (/^\s*(?:[-*•]\s|\d+\.\s)/.test(r)){ li = ind; continue; }
+    if (li >= 0 && ind <= li){ afterList.add(i); li = -1; }
+  }
   // Key hints only count on the live screen — one in old scrollback is about a
   // command that's long gone.
   const liveFrom = rawLines.length - liveTail;
@@ -4410,6 +4423,7 @@ function paint(force){
     } else if (el.dataset.tk) delete el.dataset.tk;
     if (inBody.has(i)) el.className += ' tkbody';
     if (i === act) el.className += ' tact';
+    if (afterList.has(i)) el.className += ' after-list';
     const pr = prose.get(i);
     if (pr){ el.className += ' prose'; el.style.setProperty('--ind', pr[0]); el.style.setProperty('--mk', pr[1]); }
     const up = upRows.get(i);
