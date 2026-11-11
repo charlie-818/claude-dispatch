@@ -313,6 +313,13 @@
   /* tool header: "⏺ [Bash] git status" — name as a chip, args plain, parens dim */
   .pane .tname{color:var(--blue);font-weight:600;background:rgba(102,169,255,.12);
     border-radius:4px;padding:0 5px;margin-right:2px}
+  /* chip colour by what the tool does, so a run of calls isn't one blue wall */
+  .pane .tname.k-rd{color:var(--cyan);background:rgba(91,214,205,.12)}
+  .pane .tname.k-wr{color:var(--green);background:rgba(61,220,92,.12)}
+  .pane .tname.k-ag{color:var(--amber);background:rgba(255,194,51,.12)}
+  .pane .tname.k-mcp{color:var(--violet);background:rgba(189,141,255,.13)}
+  /* an MCP call's action, after its server chip: "[chrome] navigate" */
+  .pane .tact{color:var(--fg);font-weight:600;margin:0 1px 0 3px}
   .pane .targ{color:var(--fg2)}
   .pane .tpar{color:var(--dimmer)}
   /* a finished section's token total, after its "✻ Worked for 10s" */
@@ -337,9 +344,6 @@
   .pane .ln.uprompt.up-first,.paneecho .echoln{padding-top:6px}
   .pane .ln.uprompt .c-sel,.paneecho .echoln .c-sel{color:#fff}
   .pane .upg{color:var(--violet);font-weight:700}
-  /* a tool's output rows: a thin gutter rule under the bullet ties them to it */
-  .pane .ln.tkbody{background:linear-gradient(var(--line2),var(--line2))
-    calc(.5ch - 1px) 0/2px 100% no-repeat}
   .pane.wrap .ln.hang{padding-inline-start:calc(var(--logical-indent) + var(--marker-indent));
     text-indent:calc(0ch - var(--logical-indent) - var(--marker-indent))}
   /* one terminal row per line, diffed individually (see paint()). min-height keeps
@@ -1929,6 +1933,21 @@ function isFitLine(l, p){
     return true;
   return false;
 }
+/* "Bash" → one chip; "claude-in-chrome - navigate (MCP)" → a server chip
+   ("chrome") and the action ("navigate"). Chip colour = what the tool does. */
+function toolChip(name){
+  const mcp = name.match(/^(.+?) - (.+?)(?: \(MCP\))?$/);
+  if (mcp){
+    const server = mcp[1].replace(/^(?:claude[-_]in[-_]|claude_ai_|plugin_[^_]+_)/i, '');
+    return `<span class="tname k-mcp">${server}</span><span class="tact">${mcp[2]}</span>`;
+  }
+  const n = name.replace(/ \(MCP\)$/, '');
+  const k = /^(?:Read|Grep|Glob|Search|List|LS|WebFetch|WebSearch|Fetch|LSP)/.test(n) ? 'rd'
+    : /^(?:Edit|MultiEdit|Write|Update|Create|NotebookEdit)/.test(n) ? 'wr'
+    : /^(?:Agent|Task|Skill|Workflow|ToolSearch|AskUserQuestion)/.test(n) ? 'ag'
+    : name !== n ? 'mcp' : 'sh';
+  return `<span class="tname k-${k}">${n}</span>`;
+}
 function colorizeLine(l, p){
   if (isFitLine(l, p))
     return linkify(`<span class="c-dim ${p === 'codex' ? 'codex-divider' : 'fitline'}">${esc(l)}</span>`);
@@ -1941,7 +1960,7 @@ function colorizeLine(l, p){
   if (p === 'claude') e = e.replace(/^(\s*)([⏺●\uE000])/, (_, sp, d) =>
     `${sp}<span class="tdot${d === '\uE000' ? ' off' : ''}">${d === '\uE000' ? '⏺' : d}</span>`)
     .replace(/^(\s*<span class="tdot[^"]*">[^<]*<\/span>\s*)([\w.:-]+(?: - [\w .:-]+)?(?: \(MCP\))?)\((.*?)(\)?)$/,
-      (_, pre, name, args, close) => `${pre}<span class="tname">${name}</span>`
+      (_, pre, name, args, close) => `${pre}${toolChip(name)}`
         + `<span class="tpar">(</span><span class="targ">${args}</span>`
         + (close ? '<span class="tpar">)</span>' : ''));
   if (diff) return linkify(`<span class="${diff}">${e}</span>`);
