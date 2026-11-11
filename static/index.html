@@ -413,11 +413,12 @@
   .hdrbtn.ico svg{width:17px;height:17px;display:block}
   .bgabtn{color:var(--amber);display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 9px}
   .bgabtn[hidden]{display:none}
-  /* Claude's spinner line, distilled to plain text at the head of the subtitle
-     under the title: "● 1m 12s · ↓2.3k  opus · main". No box — amber while
+  /* Claude's spinner line, distilled to plain text at the end of the subtitle
+     under the title: "opus · main  ● 1m 12s". No box — amber while
      working, dim once it says "Worked for". */
   .smrow{display:flex;align-items:baseline;gap:8px;min-width:0;max-width:100%;overflow:hidden}
-  .smrow .meta{flex:1 1 auto;min-width:0}
+  /* the meta shrinks (ellipsis) first, so the status at the end always shows */
+  .smrow .meta{flex:0 1 auto;min-width:0}
   .hstat{flex:none;display:inline-flex;align-items:center;gap:5px;
     font:600 10.5px/1 var(--mono);color:var(--amber);white-space:nowrap;
     font-variant-numeric:tabular-nums;letter-spacing:.02em}
@@ -1621,7 +1622,7 @@
     <span class="hdclawd" id="hdclawd" aria-hidden="true"></span>
     <div class="sesshead">
       <div class="title" id="st">—</div>
-      <div class="smrow"><span class="hstat" id="hstat" hidden aria-live="off"></span><div class="meta" id="sm"></div></div>
+      <div class="smrow"><div class="meta" id="sm"></div><span class="hstat" id="hstat" hidden aria-live="off"></span></div>
     </div>
     <div class="hdracts">
     <button class="hdrbtn bgabtn" id="bgabtn" hidden onclick="openBgAgents()" aria-label="background agents"><span class="n"></span></button>
