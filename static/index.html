@@ -301,8 +301,23 @@
   .pane .ln.ccb-gone{display:none}
   /* compact view: a tool call's header row folds its output (see collapseTools) */
   .pane .ln.tk{cursor:pointer}
-  .pane .ln.tk::after{content:'  \25B8 ' attr(data-n);color:var(--dimmer);font-size:.85em}
-  .pane .ln.tk.open::after{content:'  \25BE'}
+  /* tool header: "⏺ [Bash] git status" — name as a chip, args plain, parens dim */
+  .pane .tname{color:var(--blue);font-weight:600;background:rgba(102,169,255,.12);
+    border-radius:4px;padding:0 5px;margin-right:2px}
+  .pane .targ{color:var(--fg2)}
+  .pane .tpar{color:var(--dimmer)}
+  /* the expander: a real pill at the end of the header, chevron flips when open */
+  .pane .tkb{display:inline-flex;align-items:center;gap:4px;margin-left:10px;
+    padding:1px 6px 1px 8px;border:1px solid var(--line2);border-radius:999px;
+    background:var(--panel3);font:500 10.5px/1.45 var(--ui);color:var(--dim);
+    vertical-align:1px;white-space:nowrap;-webkit-user-select:none;user-select:none}
+  .pane .tkb svg{width:10px;height:10px}
+  .pane .ln.tk:active .tkb{background:var(--line2)}
+  .pane .ln.tk.open .tkb{color:var(--blue);border-color:rgba(102,169,255,.4)}
+  .pane .ln.tk.open .tkb svg{transform:rotate(180deg)}
+  /* a tool's output rows: a thin gutter rule under the bullet ties them to it */
+  .pane .ln.tkbody{background:linear-gradient(var(--line2),var(--line2))
+    calc(.5ch - 1px) 0/2px 100% no-repeat}
   .pane.wrap .ln.hang{padding-inline-start:calc(var(--logical-indent) + var(--marker-indent));
     text-indent:calc(0ch - var(--logical-indent) - var(--marker-indent))}
   /* one terminal row per line, diffed individually (see paint()). min-height keeps
@@ -1858,7 +1873,11 @@ function colorizeLine(l, p){
     ? (/^\s*[│▌]\s*\+/.test(l) ? 'c-add' : 'c-del') : '';
   let e = colorizeWords(esc(l));
   if (p === 'claude') e = e.replace(/^(\s*)([⏺●\uE000])/, (_, sp, d) =>
-    `${sp}<span class="tdot${d === '\uE000' ? ' off' : ''}">${d === '\uE000' ? '⏺' : d}</span>`);
+    `${sp}<span class="tdot${d === '\uE000' ? ' off' : ''}">${d === '\uE000' ? '⏺' : d}</span>`)
+    .replace(/^(\s*<span class="tdot[^"]*">[^<]*<\/span>\s*)([\w.:-]+(?: - [\w .:-]+)?(?: \(MCP\))?)\((.*?)(\)?)$/,
+      (_, pre, name, args, close) => `${pre}<span class="tname">${name}</span>`
+        + `<span class="tpar">(</span><span class="targ">${args}</span>`
+        + (close ? '<span class="tpar">)</span>' : ''));
   if (diff) return linkify(`<span class="${diff}">${e}</span>`);
   for (const [re, cls] of rules)
     if (re.test(l)) return linkify(`<span class="${cls}">${e}</span>`);
@@ -4086,8 +4105,9 @@ function isToolHead(rows, i){
   }
   return false;
 }
-/* Folds every tool body not in openTools. Returns Map(row -> [key, rows]). */
-function collapseTools(rows){
+/* Finds every tool block; with `fold`, blanks the bodies not in openTools.
+   Returns Map(header row -> [key, body rows, end row]). */
+function collapseTools(rows, fold){
   const heads = new Map(), seen = {};
   for (let i = 0; i < rows.length; i++){
     if (rows[i][0] === '' || !isToolHead(rows, i)) continue;
@@ -4103,13 +4123,15 @@ function collapseTools(rows){
     const base = rows[i].replace(TOOL_DOT, '').trim();
     seen[base] = (seen[base] || 0) + 1;      // same command twice = two keys
     const k = base + '#' + seen[base];
-    heads.set(i, [k, j - i - 1]);
-    if (!openTools.has(k)) for (let r = i + 1; r < j; r++) rows[r] = '';
+    heads.set(i, [k, j - i - 1, j]);
+    if (fold && !openTools.has(k)) for (let r = i + 1; r < j; r++) rows[r] = '';
     i = j - 1;
   }
   return heads;
 }
 
+const TKB_CHEV = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"'
+  + ' stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>';
 const BLINK_OFF = /^ {2}[A-Z][A-Za-z]*\(/;   // "⏺ Bash(…)" with the ⏺ blinked off
 let paintPending = false, lastSig = null;
 /* Bottom-anchor a short transcript: pad the top by exactly the room the
@@ -4164,14 +4186,18 @@ function paint(force){
     rawLines = r.rows;
     liveTail = r.rows.length - r.from;
   }
-  const heads = compactMode && prov === 'claude' ? collapseTools(rawLines) : null;
+  const heads = prov === 'claude' ? collapseTools(rawLines, compactMode) : null;
+  const inBody = new Set();
+  if (heads) for (const [h, [, , end]] of heads) for (let r = h + 1; r < end; r++) inBody.add(r);
   const tbl = findTables(rawLines, tableBudget(p));   // may re-pad or re-lay grids
   // Key hints only count on the live screen — one in old scrollback is about a
   // command that's long gone.
   const liveFrom = rawLines.length - liveTail;
   const lines = rawLines.map((l, i) => {
     if (l[0] === '\uE002') return '';
-    const h = tbl.kind[i] ? colorizeTable(l) : colorizeLine(l, prov);
+    let h = tbl.kind[i] ? colorizeTable(l) : colorizeLine(l, prov);
+    const th = compactMode && heads && heads.get(i);
+    if (th) h += `<span class="tkb">${th[1]} line${th[1] === 1 ? '' : 's'}${TKB_CHEV}</span>`;
     return i >= liveFrom ? linkKeys(h) : h;
   });
   // A running pane pushes a frame twice a second because its spinner glyph
@@ -4215,11 +4241,12 @@ function paint(force){
     if (k){ el.style.cssText = ''; el.dataset.tb = tbl.block[i]; }
     else { el.style.cssText = lineLayoutStyle(rawLines[i]); delete el.dataset.tb; }
     if (el.__h !== lines[i]){ el.innerHTML = lines[i] || ''; el.__h = lines[i]; }
-    const th = heads && heads.get(i);
+    const th = compactMode && heads && heads.get(i);
     if (th){
       el.className += ' tk' + (openTools.has(th[0]) ? ' open' : '');
-      el.dataset.tk = th[0]; el.dataset.n = '+' + th[1];
-    } else if (el.dataset.tk){ delete el.dataset.tk; delete el.dataset.n; }
+      el.dataset.tk = th[0];
+    } else if (el.dataset.tk) delete el.dataset.tk;
+    if (inBody.has(i)) el.className += ' tkbody';
   }
   if (ECHO.parentNode !== p) p.appendChild(ECHO);
   while (kids.length > lines.length + 1) p.removeChild(ECHO.previousElementSibling);
