@@ -348,6 +348,9 @@
   .pane .ln.tbl,.pane.wrap .ln.tbl{white-space:pre;overflow-wrap:normal;
     padding-inline-start:0;text-indent:0;overflow:visible}
   .pane .ln.th{font-weight:700}
+  /* a gap above each bullet / numbered point in prose, so every point reads as
+     its own item. Not in tool output (a diff's "- " rows) or tables. */
+  .pane .ln.list-line:not(.tkbody):not(.tbl){margin-top:.55em}
   /* bold box glyphs fall back to a wider font, so a bold header's │s drift right
      and its last one pokes out past the grid like an extra column — keep the
      borders at regular weight so every row is the same width */
@@ -363,7 +366,8 @@
      marker; the indent and the hanging marker come back from --ind/--mk */
   .pane.sans .ln.prose{padding-inline-start:calc(var(--ind) * var(--cw))!important;
     text-indent:calc(var(--mk) * var(--cw) * -1)!important}
-  .pane.sans .ln.prose .tdot,.pane.sans .ln.prose .upg{display:inline-block;
+  .pane.sans .ln.prose .lmk{color:var(--dim)}
+  .pane.sans .ln.prose .tdot,.pane.sans .ln.prose .upg,.pane.sans .ln.prose .lmk{display:inline-block;
     width:calc(var(--mk) * var(--cw));text-indent:0}
   .pane.sans .paneecho .echoln{padding-inline-start:calc(2 * var(--cw));
     text-indent:calc(-2 * var(--cw))}
@@ -4261,10 +4265,13 @@ function paint(force){
     if (PANE_SANS && prov === 'claude' && !tbl.kind[i] && !(heads && heads.has(i))
         && !inBody.has(i) && !/^\s*(?:[╭╮╰╯│┃─━✻✽⎿]|\* )/.test(l)){
       const ind = l.match(/^ */)[0].length;
-      const mk = /^ *[⏺●\uE000❯›] /.test(l) ? 2 : 0;
+      const lm = l.match(/^ *([-•]|\d+\.) /);   // a list point: "- x", "1. x"
+      const mk = /^ *[⏺●\uE000❯›] /.test(l) ? 2 : lm ? lm[1].length + 1 : 0;
       prose.set(i, [ind + mk, mk]);
       h = h.replace(/^((?:<span[^>]*>)*) +/, '$1')
         .replace(/(<span class="(?:tdot|upg)[^"]*">[^<]*<\/span>) /, '$1');
+      if (lm) h = h.replace(/^((?:<span[^>]*>)*)([-•]|\d+\.) /, (_, pre, m) =>
+        `${pre}<span class="lmk">${m === '-' ? '•' : m}</span>`);
     }
     if (th) h += `<span class="tkb">${th[1]} line${th[1] === 1 ? '' : 's'}${TKB_CHEV}</span>`;
     return i >= liveFrom ? linkKeys(h) : h;
