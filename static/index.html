@@ -4166,11 +4166,14 @@ function paint(force){
   // momentum scroll when the scroller's content changes mid-gesture — the
   // "scroll down, it jumps back up" — so frames that land while a gesture is
   // live are held and applied once it settles (see the gesture tracker).
-  if (userScrolling){ paintPending = true; return; }
-  paintPending = false;
+  // The status line lives OUTSIDE the scroller in a fixed-height box, so
+  // updating it can't disturb a gesture — lift it before the hold below, or it
+  // froze for as long as a finger was on the transcript.
   // trailing blank lines between scrollback and live screen just waste space
   let liveT = trimChrome(live, prov);
   liveT = liftStatus(liveT, prov);
+  if (userScrolling){ paintPending = true; return; }
+  paintPending = false;
   const hist = history.join('\n').replace(/\n+$/, '');
   const liveLines = (liveT || '').split('\n');
   const histLines = hist ? hist.split('\n') : [];
