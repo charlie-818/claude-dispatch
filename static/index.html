@@ -342,7 +342,8 @@
   /* more air above a prompt than below, so it reads as the head of the
      reply under it rather than floating between sections */
   .pane .ln.uprompt.up-first,.paneecho .echoln{padding-top:6px}
-  .pane .ln.uprompt .c-sel,.paneecho .echoln .c-sel{color:#fff}
+  /* every row of a prompt, not just the ❯ row that carries .c-sel */
+  .pane .ln.uprompt,.pane .ln.uprompt .c-sel,.paneecho .echoln .c-sel{color:#fff;font-weight:600}
   .pane .upg{color:var(--violet);font-weight:700}
   .pane.wrap .ln.hang{padding-inline-start:calc(var(--logical-indent) + var(--marker-indent));
     text-indent:calc(0ch - var(--logical-indent) - var(--marker-indent))}
@@ -4347,11 +4348,22 @@ function findPrompts(rows){
   const out = new Map();
   for (let i = 0; i < rows.length; i++){
     if (!/^\s*[❯›]\s/.test(rows[i]) || /^\s*[❯›]\s*\d+\./.test(rows[i])) continue;
-    let j = i + 1;
-    while (j < rows.length && rows[j][0] !== '\uE002' && /^\s+\S/.test(rows[j])
-      && !/^\s*[⏺●⎿\uE000]/.test(rows[j])) j++;
-    for (let r = i; r < j; r++) out.set(r, (r === i ? 1 : 0) | (r === j - 1 ? 2 : 0));
-    i = j - 1;
+    // the prompt runs on through its indented rows — and across blank rows
+    // too, while indented text resumes (a pasted, multi-paragraph prompt)
+    const STOP = /^\s*[⏺●⎿✻✽✢✳✶·❯›\uE000\uE002]/;
+    let last = i;
+    for (let j = i + 1; j < rows.length; j++){
+      if (!rows[j].trim()){
+        let n = j;
+        while (n < rows.length && !rows[n].trim()) n++;
+        if (n < rows.length && /^\s{2,}\S/.test(rows[n]) && !STOP.test(rows[n])){ j = n - 1; continue; }
+        break;
+      }
+      if (!/^\s+\S/.test(rows[j]) || STOP.test(rows[j])) break;
+      last = j;
+    }
+    for (let r = i; r <= last; r++) out.set(r, (r === i ? 1 : 0) | (r === last ? 2 : 0));
+    i = last;
   }
   return out;
 }
