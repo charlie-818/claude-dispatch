@@ -2436,6 +2436,8 @@ def read_fleet_files():
             # on disk, survives a server restart.
             "state_since": state_mt,
             "cwd": (d.get("workspace") or {}).get("current_dir", "") or d.get("cwd", ""),
+            # the dir Claude was launched in — the chat's project, whatever it cds into
+            "project": (d.get("workspace") or {}).get("project_dir", "") or "",
             "model": (d.get("model") or {}).get("display_name", ""),
             "cost": round(cst.get("total_cost_usd", 0) or 0, 2),
             "ctx": cw.get("used_percentage"),
@@ -2969,6 +2971,20 @@ def _is_scratch(p):
     return bool(p) and ("cc-scratch" in p or "/var/folders/" in p
                         or p.startswith("/tmp") or p.startswith("/private/tmp"))
 
+def chat_name(project, live_cwd):
+    """A chat is named after its project: the dir it was launched in. A session
+    that cds elsewhere — into Claude's own memory dir to edit a memory, say —
+    kept getting renamed to that dir. The live dir only names it when the launch
+    dir says nothing (home, a scratch dir), and Claude's ~/.claude never does."""
+    home = os.path.expanduser("~").rstrip("/")
+    def telling(p):
+        p = (p or "").rstrip("/")
+        return bool(p) and p != home and not _is_scratch(p) \
+            and not (p + "/").startswith(home + "/.claude/")
+    base = next((p for p in (project, live_cwd) if telling(p)), live_cwd or project or "")
+    return os.path.basename(base.rstrip("/")) or "?"
+
+
 def _cd_target(cmd):
     # destination of the last absolute `cd <dir>` in a (possibly compound) command
     best = None
@@ -3293,7 +3309,7 @@ async def _fleet_row(uuid, s, files):
             "job": job,
             "provider": provider,          # claude | codex | grok — picks the sprite
             "cwd": live_cwd,
-            "name": os.path.basename(live_cwd.rstrip("/")) or "?",
+            "name": chat_name((f or {}).get("project"), live_cwd),
             "state": state,
             "model": (f or {}).get("model", "") or grok_st.get("model", ""),
             "ctx": (f or {}).get("ctx"),
