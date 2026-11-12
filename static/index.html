@@ -446,15 +446,9 @@
     border:1.5px solid currentColor;border-right-color:transparent;
     animation:sendspin .9s linear infinite}
   @media (prefers-reduced-motion:reduce){.bgabtn::before{animation:none}}
-  .bga-row{font:12px/1.45 var(--mono);padding:4px 0;border-bottom:1px solid var(--line2);
-    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
-  .bga-row b{color:var(--blue)}
-  .bga-row.err b{color:var(--red)}
-  .bga-row.bga-group{font-weight:600}
-  .bga-txt{font:13px/1.5 var(--ui);color:var(--dimmer);white-space:pre-wrap;
-    border-left:2px solid var(--line2);padding-left:9px;margin:5px 0}
-  .bga-txt.clip{cursor:pointer}
-  .bga-pre{font:11px/1.45 var(--mono);white-space:pre-wrap;max-height:30vh;overflow:auto;color:var(--dim)}
+  .bga-pre{font:11px/1.45 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;
+    max-height:30vh;overflow:auto;color:var(--dim);background:var(--bg);
+    border:1px solid var(--line2);border-radius:8px;padding:8px 10px;margin:2px 0 8px}
 
   /* ── background agent list rows ── */
   .bga-item{display:flex;flex-direction:column;gap:5px;width:100%;text-align:left;
@@ -474,28 +468,53 @@
   .bga-action{font:11px var(--mono);color:var(--dim);white-space:nowrap;
     overflow:hidden;text-overflow:ellipsis}
 
-  /* ── background agent detail view ── */
-  .bga-head{display:flex;flex-direction:column;gap:10px;padding-top:16px;margin-bottom:2px}
-  .bga-meta{margin-top:0}
-  .bga-summary{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0}
-  .bga-summary[hidden]{display:none}
+  /* ── background agent detail view ──
+     Same parts as the rest of the app: the list's card for the header, the
+     summary card's small caps for section labels, the pane's tool chips for
+     the log. Result first once the agent is done — it's what you came for. */
+  .bga-back{display:inline-flex;align-items:center;gap:4px;background:none;border:0;
+    color:var(--blue);font:600 13px var(--ui);padding:14px 0 12px;cursor:pointer}
+  .bga-hero{background:var(--panel3);border:1px solid var(--line2);border-radius:var(--r);
+    padding:12px 14px;display:flex;flex-direction:column;gap:7px}
+  .bga-title{font:600 15px/1.35 var(--ui);color:var(--fg)}
+  .bga-stat{font:11px/1.4 var(--mono);color:var(--dim);display:flex;align-items:baseline;
+    gap:7px}
+  .bga-stat .bga-dot{align-self:center}
+  .bga-sec{margin-top:20px}
+  .bga-sec[hidden]{display:none}
+  .bga-lab{font:600 9.5px/1 var(--ui);letter-spacing:.1em;text-transform:uppercase;
+    color:var(--dimmer);margin-bottom:9px}
+  .bga-prose{font:13px/1.5 var(--ui);color:var(--fg2);white-space:pre-wrap;
+    overflow-wrap:anywhere}
+  .bga-prose.clamp{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;
+    overflow:hidden}
+  .bga-result .bga-prose{color:var(--fg)}
+  .bga-more{font:600 12px var(--ui);color:var(--blue);background:none;border:0;
+    padding:6px 0 0;cursor:pointer}
+  .bga-summary{display:flex;flex-wrap:wrap;gap:6px}
   .bga-chip{display:inline-flex;align-items:center;gap:5px;font:600 11px var(--mono);
     color:var(--fg2);background:var(--panel3);border:1px solid var(--line2);
     border-radius:999px;padding:4px 9px}
   .bga-chip::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--chip-c)}
-  .bga-strip-wrap{margin:6px 0 2px}
-  .bga-strip-wrap[hidden]{display:none}
-  .bga-strip{display:flex;gap:2px;height:8px;border-radius:4px;overflow:hidden}
+  .bga-strip{display:flex;gap:2px;height:6px;border-radius:3px;overflow:hidden;margin-top:10px}
   .bga-seg{flex:1;min-width:2px}
-  .bga-legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:6px;font:11px var(--mono);color:var(--dim)}
-  .bga-legend-item{display:inline-flex;align-items:center;gap:5px}
-  .bga-dotflat{width:7px;height:7px;border-radius:50%;flex:none;display:inline-block}
-  .bga-files[hidden]{display:none}
-  .bga-filed{font:12px var(--mono);color:var(--fg2);display:flex;flex-direction:column;
-    gap:3px;margin-bottom:6px}
-  .bga-files-read summary{font:12px var(--mono);color:var(--dim);cursor:pointer}
-  .bga-files-read div{font:11px var(--mono);color:var(--dim);padding:3px 0 3px 4px}
-  .bga-feed{display:flex;flex-direction:column;gap:2px;margin-top:4px}
+  .bga-file{display:flex;gap:8px;align-items:baseline;font:12px/1.4 var(--mono);
+    color:var(--fg2);padding:3px 0;overflow-wrap:anywhere}
+  .bga-file::before{content:"✎";color:var(--green);flex:none}
+  .bga-file.read::before{content:"·";color:var(--dimmer)}
+  .bga-file.read{color:var(--dim)}
+  /* log: one row per tool call, chip coloured by kind like the pane's */
+  .bga-trow{display:flex;align-items:center;gap:8px;padding:7px 0;
+    border-bottom:1px solid var(--line);font:12px var(--mono);min-width:0}
+  .bga-trow.out{cursor:pointer}
+  .bga-tn{flex:none;font:600 11px var(--mono);color:var(--c);border-radius:4px;
+    padding:1px 6px;background:color-mix(in srgb,var(--c) 14%,transparent)}
+  .bga-ta{flex:1;min-width:0;color:var(--fg2);white-space:nowrap;overflow:hidden;
+    text-overflow:ellipsis}
+  .bga-tm{flex:none;color:var(--dimmer);font-size:11px}
+  .bga-trow.err .bga-tm{color:var(--red)}
+  .bga-say{font:13px/1.5 var(--ui);color:var(--fg2);padding:9px 0;white-space:pre-wrap;
+    overflow-wrap:anywhere;border-bottom:1px solid var(--line)}
 
   /* One compact row, collapsed behind the header toggle. It hangs off a
      zero-height dock so it floats OVER the terminal instead of pushing it down.
@@ -2830,7 +2849,7 @@ async function renderBgaList(){
         + `<span>${esc(a.type || '')} · ${esc(a.status || '')} · ${bgaElapsed(a.dur_ms, a.status === 'running')}</span></span>`
         + (a.status === 'running' && a.action
             ? `<span class="bga-action">${esc(a.action)}</span>` : '');
-      row.onclick = () => openBgAgent(a.id);
+      row.onclick = () => openBgAgent(a.id, a);
       body.appendChild(row);
     });
 }
@@ -2859,17 +2878,21 @@ function bgaCat(n){
   if (n === 'Agent') return 'agent';
   return 'other';
 }
-const BGA_CAT_COLOR = {read: 'var(--blue)', edit: 'var(--amber)', run: 'var(--green)',
-  search: 'var(--violet)', agent: 'var(--cyan)', other: 'var(--dim)'};
+const BGA_CAT_COLOR = {read: 'var(--cyan)', edit: 'var(--green)', run: 'var(--blue)',
+  search: 'var(--cyan)', agent: 'var(--amber)', other: 'var(--dim)'};
 const BGA_CAT_LABEL = {read: 'Reads', edit: 'Edits', run: 'Commands', search: 'Searches',
   agent: 'Agent', other: 'Other'};
 
-function bgaToolRow(e){
+function bgaToolRow(e, count){
   const row = document.createElement('div');
-  row.className = 'bga-row' + (e.ok === false ? ' err' : '');
-  const mark = e.ok === true ? '✓' : e.ok === false ? '✗' : '⧗';
-  row.innerHTML = `${esc(mark)} <b>${esc(e.n)}</b> ${esc(e.a || '')}`;
-  if (e.o){
+  row.className = 'bga-trow' + (e.ok === false ? ' err' : '');
+  row.style.setProperty('--c', BGA_CAT_COLOR[bgaCat(e.n)]);
+  const mark = e.ok === false ? 'failed' : e.ok == null ? 'running' : '';
+  row.innerHTML = `<span class="bga-tn">${esc(e.n)}</span>`
+    + `<span class="bga-ta">${esc(count ? `×${count}  ${e.a || ''}` : (e.a || ''))}</span>`
+    + (mark ? `<span class="bga-tm">${mark}</span>` : '');
+  if (e.o && !count){
+    row.classList.add('out');
     row.onclick = () => {
       const next = row.nextElementSibling;
       if (next && next.classList.contains('bga-pre')){ next.remove(); return; }
@@ -2881,176 +2904,168 @@ function bgaToolRow(e){
   return row;
 }
 
-async function openBgAgent(id){
+async function openBgAgent(id, agent){
   bgaSel = id;
   if (bgaLogTimer){ clearTimeout(bgaLogTimer); bgaLogTimer = null; }
-  document.getElementById('sheet-title').textContent = 'background agent';
+  document.getElementById('sheet-title').textContent = 'Background agent';
   const body = document.getElementById('sheet-body');
   body.innerHTML = '';
-  const head = document.createElement('div'); head.className = 'bga-head';
-  head.appendChild(opt('‹ all agents', {on: () => { bgaSel = null; openBgAgents(); }}));
-  const meta = document.createElement('div'); meta.className = 'sheet-note bga-meta';
-  head.appendChild(meta);
-  body.appendChild(head);
-  const det = document.createElement('details');
-  det.open = true;                 // prompt is the first thing worth reading
-  det.innerHTML = '<summary>prompt</summary><pre class="bga-pre"></pre>';
-  body.appendChild(det);
-  const summaryDiv = document.createElement('div'); summaryDiv.className = 'bga-summary';
-  body.appendChild(summaryDiv);
-  const stripDiv = document.createElement('div'); stripDiv.className = 'bga-strip-wrap';
-  body.appendChild(stripDiv);
-  const filesDiv = document.createElement('div'); filesDiv.className = 'bga-files';
-  body.appendChild(filesDiv);
-  const evDiv = document.createElement('div'); evDiv.className = 'bga-feed';
-  body.appendChild(evDiv);
+  const el = (tag, cls, html) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (html != null) n.innerHTML = html;
+    return n;
+  };
+  const sec = label => {
+    const s = el('div', 'bga-sec');
+    s.appendChild(el('div', 'bga-lab', esc(label)));
+    body.appendChild(s);
+    return s;
+  };
 
-  let events = [], since = 0, log = null;
+  const back = el('button', 'bga-back', '‹ All agents');
+  back.type = 'button';
+  back.onclick = () => { bgaSel = null; openBgAgents(); };
+  body.appendChild(back);
+
+  const hero = el('div', 'bga-hero');
+  const title = el('div', 'bga-title', esc((agent && (agent.desc || agent.type)) || 'Background agent'));
+  const stat = el('div', 'bga-stat');
+  hero.append(title, stat);
+  body.appendChild(hero);
+
+  const resultSec = sec('Result'); resultSec.classList.add('bga-result');
+  const resultTxt = el('div', 'bga-prose'); resultSec.appendChild(resultTxt);
+
+  const promptSec = sec('Prompt');
+  const promptTxt = el('div', 'bga-prose clamp');
+  const promptMore = el('button', 'bga-more', 'Show more'); promptMore.type = 'button';
+  promptMore.onclick = () => {
+    const open = promptTxt.classList.toggle('clamp');
+    promptMore.textContent = open ? 'Show more' : 'Show less';
+  };
+  promptSec.append(promptTxt, promptMore);
+
+  const actSec = sec('Activity');
+  const summaryDiv = el('div', 'bga-summary');
+  const stripDiv = el('div');
+  actSec.append(summaryDiv, stripDiv);
+
+  const filesSec = sec('Files changed');
+  const filesDiv = el('div');
+  filesSec.appendChild(filesDiv);
+
+  const logSec = sec('Log');
+  const evDiv = el('div', 'bga-feed');
+  logSec.appendChild(evDiv);
+
+  let events = [], since = 0, log = null, readOpen = false;
   const expandedGroups = new Set();
-  const expandedText = new Set();
 
+  const dotCls = st => st === 'running' ? 'running' : st === 'completed' ? 'completed'
+    : (st === 'failed' || st === 'killed') ? 'failed' : 'stale';
   function renderMeta(){
     if (!log) return;
-    meta.innerHTML = `${esc(log.status)} · ${esc(log.model || '')} · `
-      + `${bgaElapsed(log.dur_ms, log.status === 'running')} · ${log.tokens || 0} tok · ${log.tools || 0} tools`;
-    det.querySelector('.bga-pre').textContent = log.prompt || '';
+    if (log.desc && !agent) title.textContent = log.desc;
+    stat.innerHTML = `<span class="bga-dot ${dotCls(log.status)}"></span><span>`
+      + [esc(log.status || ''), esc(log.model || ''),
+         bgaElapsed(log.dur_ms, log.status === 'running'),
+         `${fmtTok(log.tokens || 0)} tokens`, `${log.tools || 0} tools`]
+        .filter(Boolean).join(' · ') + '</span>';
+    promptTxt.textContent = log.prompt || '';
+    promptSec.hidden = !log.prompt;
+    // only offer "Show more" when the clamp is actually hiding something
+    requestAnimationFrame(() => {
+      promptMore.hidden = promptTxt.classList.contains('clamp')
+        && promptTxt.scrollHeight <= promptTxt.clientHeight + 2;
+    });
+    const done = log.status !== 'running' && log.result;
+    resultTxt.textContent = done ? log.result : '';
+    resultSec.hidden = !done;
   }
 
   function renderSummary(){
+    const tools = events.filter(e => e.k === 'tool');
     const counts = {read: 0, edit: 0, run: 0, search: 0, agent: 0, other: 0};
     let errors = 0;
-    const toolEvents = events.filter(e => e.k === 'tool');
-    toolEvents.forEach(e => { counts[bgaCat(e.n)]++; if (e.ok === false) errors++; });
-
+    tools.forEach(e => { counts[bgaCat(e.n)]++; if (e.ok === false) errors++; });
     summaryDiv.innerHTML = '';
     const chip = (label, n, color) => {
-      const c = document.createElement('span');
-      c.className = 'bga-chip';
-      c.style.setProperty('--chip-c', color);
-      c.textContent = `${label} ${n}`;
-      return c;
+      const c = el('span', 'bga-chip'); c.style.setProperty('--chip-c', color);
+      c.textContent = `${label} ${n}`; summaryDiv.appendChild(c);
     };
-    if (counts.read) summaryDiv.appendChild(chip('Reads', counts.read, BGA_CAT_COLOR.read));
-    if (counts.edit) summaryDiv.appendChild(chip('Edits', counts.edit, BGA_CAT_COLOR.edit));
-    if (counts.run) summaryDiv.appendChild(chip('Commands', counts.run, BGA_CAT_COLOR.run));
-    if (counts.search) summaryDiv.appendChild(chip('Searches', counts.search, BGA_CAT_COLOR.search));
-    if (errors) summaryDiv.appendChild(chip('Errors', errors, 'var(--red)'));
-    summaryDiv.hidden = !summaryDiv.children.length;
-
+    ['read', 'edit', 'run', 'search', 'agent'].forEach(k =>
+      counts[k] && chip(BGA_CAT_LABEL[k], counts[k], BGA_CAT_COLOR[k]));
+    if (errors) chip('Errors', errors, 'var(--red)');
     stripDiv.innerHTML = '';
-    if (toolEvents.length){
-      const strip = document.createElement('div'); strip.className = 'bga-strip';
-      const cats = new Set();
-      toolEvents.forEach(e => {
-        const cat = bgaCat(e.n);
-        cats.add(cat);
-        const seg = document.createElement('span');
-        seg.className = 'bga-seg';
-        seg.style.background = e.ok === false ? 'var(--red)' : BGA_CAT_COLOR[cat];
+    if (tools.length){
+      const strip = el('div', 'bga-strip');
+      tools.forEach(e => {
+        const seg = el('span', 'bga-seg');
+        seg.style.background = e.ok === false ? 'var(--red)' : BGA_CAT_COLOR[bgaCat(e.n)];
         strip.appendChild(seg);
       });
       stripDiv.appendChild(strip);
-      const legend = document.createElement('div'); legend.className = 'bga-legend';
-      cats.forEach(cat => {
-        const l = document.createElement('span'); l.className = 'bga-legend-item';
-        l.innerHTML = `<span class="bga-dotflat" style="background:${BGA_CAT_COLOR[cat]}"></span>${esc(BGA_CAT_LABEL[cat] || cat)}`;
-        legend.appendChild(l);
-      });
-      stripDiv.appendChild(legend);
     }
-    stripDiv.hidden = !toolEvents.length;
+    actSec.hidden = !tools.length;
 
-    filesDiv.innerHTML = '';
-    const changed = [], changedSeen = new Set();
-    const read = [], readSeen = new Set();
-    toolEvents.forEach(e => {
+    const changed = [], read = [];
+    tools.forEach(e => {
       if (!e.a) return;
       const cat = bgaCat(e.n);
-      if (cat === 'edit' && !changedSeen.has(e.a)){ changedSeen.add(e.a); changed.push(e.a); }
-      if (cat === 'read' && !readSeen.has(e.a)){ readSeen.add(e.a); read.push(e.a); }
+      if (cat === 'edit' && !changed.includes(e.a)) changed.push(e.a);
+      if (cat === 'read' && !read.includes(e.a)) read.push(e.a);
     });
-    if (changed.length){
-      const c = document.createElement('div'); c.className = 'bga-filed';
-      c.innerHTML = changed.map(f => `<div>✎ ${esc(f)}</div>`).join('');
-      filesDiv.appendChild(c);
-    }
+    filesDiv.innerHTML = changed.map(f => `<div class="bga-file">${esc(f)}</div>`).join('');
     if (read.length){
-      const d = document.createElement('details'); d.className = 'bga-files-read';
-      d.innerHTML = `<summary>${read.length} file${read.length > 1 ? 's' : ''} read</summary>`
-        + read.map(f => `<div>${esc(f)}</div>`).join('');
-      filesDiv.appendChild(d);
+      const more = el('button', 'bga-more',
+        `${readOpen ? 'Hide' : 'Show'} ${read.length} file${read.length > 1 ? 's' : ''} read`);
+      more.type = 'button';
+      more.onclick = () => { readOpen = !readOpen; renderSummary(); };
+      filesDiv.appendChild(more);
+      if (readOpen) read.forEach(f => filesDiv.appendChild(el('div', 'bga-file read', esc(f))));
     }
-    filesDiv.hidden = !changed.length && !read.length;
+    filesSec.querySelector('.bga-lab').textContent = changed.length ? 'Files changed' : 'Files';
+    filesSec.hidden = !changed.length && !read.length;
   }
 
   let firstPaint = true;
   function renderEvents(){
     const sheet = document.getElementById('sheet');
-    // First paint opens at the top so the summary is in view; after that,
-    // follow new events only if the reader has scrolled to the bottom.
+    // First paint opens at the top; after that, follow new events only when
+    // the reader is already at the bottom.
     const atBottom = !firstPaint
       && sheet.scrollHeight - sheet.scrollTop - sheet.clientHeight < 40;
     renderSummary();
     evDiv.innerHTML = '';
-    const groups = [];
-    let i = 0;
-    while (i < events.length){
+    for (let i = 0; i < events.length; ){
       const e = events[i];
-      if (e.k === 'tool'){
-        let j = i + 1;
-        while (j < events.length && events[j].k === 'tool' && events[j].n === e.n) j++;
-        groups.push({start: i, end: j});
-        i = j;
-      } else {
-        groups.push({start: i, end: i + 1, single: true});
-        i++;
+      if (e.k !== 'tool'){
+        if (e.t) evDiv.appendChild(el('div', 'bga-say', esc(e.t)));
+        i++; continue;
       }
+      let j = i + 1;
+      while (j < events.length && events[j].k === 'tool' && events[j].n === e.n) j++;
+      const items = events.slice(i, j), start = i;
+      if (items.length === 1) evDiv.appendChild(bgaToolRow(e));
+      else {
+        const errs = items.some(x => x.ok === false);
+        const head = bgaToolRow({n: e.n, a: [...new Set(items.map(x => x.a).filter(Boolean))]
+          .slice(0, 3).join(', '), ok: errs ? false : items.some(x => x.ok == null) ? null : true},
+          items.length);
+        head.classList.add('out');
+        head.onclick = () => {
+          expandedGroups.has(start) ? expandedGroups.delete(start) : expandedGroups.add(start);
+          renderEvents();
+        };
+        evDiv.appendChild(head);
+        if (expandedGroups.has(start)) items.forEach(x => {
+          const r = bgaToolRow(x); r.style.paddingLeft = '14px'; evDiv.appendChild(r);
+        });
+      }
+      i = j;
     }
-    groups.forEach(g => {
-      const items = events.slice(g.start, g.end);
-      if (g.single){
-        const e = items[0];
-        const t = document.createElement('div');
-        t.className = 'bga-txt';
-        const txt = e.t || '';
-        const long = txt.length > 240;
-        const expanded = expandedText.has(g.start);
-        t.textContent = long && !expanded ? txt.slice(0, 240) + '…' : txt;
-        if (long){
-          t.classList.add('clip');
-          t.onclick = () => {
-            if (expandedText.has(g.start)) expandedText.delete(g.start);
-            else expandedText.add(g.start);
-            renderEvents();
-          };
-        }
-        evDiv.appendChild(t);
-        return;
-      }
-      if (items.length === 1){
-        evDiv.appendChild(bgaToolRow(items[0]));
-        return;
-      }
-      const sum = document.createElement('div');
-      sum.className = 'bga-row bga-group';
-      const errCount = items.filter(e => e.ok === false).length;
-      const uniq = [...new Set(items.map(e => e.a).filter(Boolean))];
-      const names = uniq.slice(0, 3).join(', ');
-      sum.innerHTML = `${errCount ? '✗' : '✓'} <b>${esc(items[0].n)}</b> ×${items.length}`
-        + (names ? ` · ${esc(names)}${uniq.length > 3 ? '…' : ''}` : '');
-      sum.onclick = () => {
-        if (expandedGroups.has(g.start)) expandedGroups.delete(g.start);
-        else expandedGroups.add(g.start);
-        renderEvents();
-      };
-      evDiv.appendChild(sum);
-      if (expandedGroups.has(g.start)) items.forEach(e => evDiv.appendChild(bgaToolRow(e)));
-    });
-    if (log && log.status !== 'running' && log.result){
-      const r = document.createElement('div');
-      r.className = 'bga-txt'; r.textContent = log.result;
-      evDiv.appendChild(r);
-    }
+    logSec.hidden = !events.length;
     if (firstPaint){ sheet.scrollTop = 0; firstPaint = false; }
     else if (atBottom) sheet.scrollTop = sheet.scrollHeight;
   }
@@ -3071,6 +3086,7 @@ async function openBgAgent(id){
       bgaLogTimer = setTimeout(poll, 2000);
     }
   }
+  resultSec.hidden = true; actSec.hidden = true; filesSec.hidden = true; logSec.hidden = true;
   poll();
 }
 
