@@ -4417,13 +4417,15 @@ function paint(force){
     rawLines = r.rows;
     liveTail = r.rows.length - r.from;
   }
+  // tables first: re-laying an over-wide grid can ADD rows, so every row index
+  // below (tool blocks, prompts, section tokens) must be taken after it
+  const tbl = findTables(rawLines, tableBudget(p));   // may re-pad or re-lay grids
   const heads = prov === 'claude' ? collapseTools(rawLines, compactMode) : null;
   const upRows = findPrompts(rawLines);
   const tokAt = prov === 'claude' ? turnTokens(rawLines) : null;
   const prose = new Map();   // row -> [indent cells, marker cells]
   const inBody = new Set();
   if (heads) for (const [h, [, , end]] of heads) for (let r = h + 1; r < end; r++) inBody.add(r);
-  const tbl = findTables(rawLines, tableBudget(p));   // may re-pad or re-lay grids
   // first row back at (or left of) a list's indent once its points end
   const afterList = new Set();
   for (let i = 0, li = -1; i < rawLines.length; i++){
