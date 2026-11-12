@@ -14,7 +14,16 @@ self.addEventListener('push', event => {
     badge: '/icons/icon-192.png',
     data: { uuid: d.uuid || '' }
   };
-  event.waitUntil(self.registration.showNotification(title, opts));
+  // Report every push back to the server log: did it reach the phone, what
+  // does the browser say about permission, and did showing it throw? A phone
+  // has no console, and "accepted by FCM but never seen" is otherwise a guess.
+  const report = msg => fetch('/api/clientlog', {method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({msg: '[sw] ' + msg})}).catch(() => {});
+  const perm = (self.Notification && Notification.permission) || '?';
+  event.waitUntil(self.registration.showNotification(title, opts)
+    .then(() => report(`push shown: ${title} (permission ${perm})`))
+    .catch(e => report(`push NOT shown: ${title} (permission ${perm}): ${e && e.message || e}`)));
 });
 
 self.addEventListener('notificationclick', event => {
