@@ -2883,7 +2883,10 @@ const BGA_CAT_COLOR = {read: 'var(--cyan)', edit: 'var(--green)', run: 'var(--bl
 const BGA_CAT_LABEL = {read: 'Reads', edit: 'Edits', run: 'Commands', search: 'Searches',
   agent: 'Agent', other: 'Other'};
 
-function bgaToolRow(e, count){
+/* `out` = {open, toggle} when the caller tracks which outputs are open: the
+   log is rebuilt every poll while the agent runs, so an output opened by just
+   inserting a <pre> was wiped two seconds later. */
+function bgaToolRow(e, count, out){
   const row = document.createElement('div');
   row.className = 'bga-trow' + (e.ok === false ? ' err' : '');
   row.style.setProperty('--c', BGA_CAT_COLOR[bgaCat(e.n)]);
@@ -2893,12 +2896,17 @@ function bgaToolRow(e, count){
     + (mark ? `<span class="bga-tm">${mark}</span>` : '');
   if (e.o && !count){
     row.classList.add('out');
-    row.onclick = () => {
+    const pre = () => {
+      const p = document.createElement('pre');
+      p.className = 'bga-pre'; p.textContent = e.o;
+      return p;
+    };
+    if (out){
+      row.onclick = out.toggle;
+      if (out.open) queueMicrotask(() => row.after(pre()));
+    } else row.onclick = () => {
       const next = row.nextElementSibling;
-      if (next && next.classList.contains('bga-pre')){ next.remove(); return; }
-      const pre = document.createElement('pre');
-      pre.className = 'bga-pre'; pre.textContent = e.o;
-      row.after(pre);
+      if (next && next.classList.contains('bga-pre')) next.remove(); else row.after(pre());
     };
   }
   return row;
@@ -2961,6 +2969,11 @@ async function openBgAgent(id, agent){
 
   let events = [], since = 0, log = null, readOpen = false;
   const expandedGroups = new Set();
+  const openOut = new Set();          // event index -> its output is showing
+  const outFor = idx => ({open: openOut.has(idx), toggle: () => {
+    openOut.has(idx) ? openOut.delete(idx) : openOut.add(idx);
+    renderEvents();
+  }});
 
   const dotCls = st => st === 'running' ? 'running' : st === 'completed' ? 'completed'
     : (st === 'failed' || st === 'killed') ? 'failed' : 'stale';
@@ -3047,7 +3060,7 @@ async function openBgAgent(id, agent){
       let j = i + 1;
       while (j < events.length && events[j].k === 'tool' && events[j].n === e.n) j++;
       const items = events.slice(i, j), start = i;
-      if (items.length === 1) evDiv.appendChild(bgaToolRow(e));
+      if (items.length === 1) evDiv.appendChild(bgaToolRow(e, 0, outFor(i)));
       else {
         const errs = items.some(x => x.ok === false);
         const head = bgaToolRow({n: e.n, a: [...new Set(items.map(x => x.a).filter(Boolean))]
@@ -3059,8 +3072,9 @@ async function openBgAgent(id, agent){
           renderEvents();
         };
         evDiv.appendChild(head);
-        if (expandedGroups.has(start)) items.forEach(x => {
-          const r = bgaToolRow(x); r.style.paddingLeft = '14px'; evDiv.appendChild(r);
+        if (expandedGroups.has(start)) items.forEach((x, k) => {
+          const r = bgaToolRow(x, 0, outFor(start + k)); r.style.paddingLeft = '14px';
+          evDiv.appendChild(r);
         });
       }
       i = j;
