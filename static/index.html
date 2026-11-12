@@ -6820,6 +6820,13 @@ async function initPush(){
       });
       ctl.postMessage('sw-version');
     });
+    // ?notiftest=1 — show a notification straight from this page's worker, no
+    // push service involved: separates "can't display" from "never received"
+    if (/[?&]notiftest=1/.test(location.search))
+      swReg.showNotification('Dispatch local test', {body: 'Shown directly, no push', tag: 'local'})
+        .then(() => 'shown', e => 'FAILED: ' + (e && e.message || e))
+        .then(r => fetch('/api/clientlog', {method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({msg: '[push] local test ' + r})}));
     fetch('/api/clientlog', {method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({msg: `[push] open: permission ${Notification.permission}, `
         + `sub ${sub ? '…' + sub.endpoint.slice(-12) : 'none'}, worker ${ver}, `
