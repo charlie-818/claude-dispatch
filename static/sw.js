@@ -1,4 +1,8 @@
 /* The Yard — service worker. Handles Web Push while the app is closed. */
+const SW_VERSION = 'report-1';   // bump to see a new worker reach the phone
+self.addEventListener('message', e => {
+  if (e.data === 'sw-version' && e.source) e.source.postMessage({type: 'sw-version', v: SW_VERSION});
+});
 self.addEventListener('install', e => self.skipWaiting());
 self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
 

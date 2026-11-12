@@ -6808,6 +6808,22 @@ async function initPush(){
     // tapped — so a lit bell could sit on a phone the server no longer pushes
     // to (it kept an older or another browser's endpoint). Idempotent server-side.
     if (on) post('/api/push/subscribe', sub.toJSON()).catch(() => {});
+    // one line per open in the server log: what this device's push state is
+    const ctl = navigator.serviceWorker.controller;
+    const ver = await new Promise(res => {
+      if (!ctl) return res('no controller');
+      const t = setTimeout(() => res('old worker'), 1500);
+      navigator.serviceWorker.addEventListener('message', function h(e){
+        if (e.data && e.data.type === 'sw-version'){
+          clearTimeout(t); navigator.serviceWorker.removeEventListener('message', h); res(e.data.v);
+        }
+      });
+      ctl.postMessage('sw-version');
+    });
+    fetch('/api/clientlog', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({msg: `[push] open: permission ${Notification.permission}, `
+        + `sub ${sub ? '…' + sub.endpoint.slice(-12) : 'none'}, worker ${ver}, `
+        + `standalone ${matchMedia('(display-mode: standalone)').matches}`})}).catch(() => {});
   } catch(e){ /* SW registration can fail on http/insecure — leave bell off */ }
   navigator.serviceWorker.addEventListener('message', e => {
     if (e.data && e.data.type === 'open-pane' && e.data.uuid){
