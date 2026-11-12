@@ -7028,13 +7028,20 @@ _push_subs = _load_subs()
 def _send_one(sub, payload):
     from pywebpush import WebPushException, webpush
     try:
+        # pywebpush defaults to TTL 0 — "deliver this instant or drop it" — so a
+        # dozing phone silently lost every push. Hold it for an hour, and ask
+        # for high urgency so Android wakes for it.
         webpush(subscription_info=sub, data=json.dumps(payload),
                 vapid_private_key=_VAPID_PRIV,
-                vapid_claims={"sub": _VAPID_SUB}, timeout=10)
+                vapid_claims={"sub": _VAPID_SUB}, ttl=3600,
+                headers={"Urgency": "high"}, timeout=10)
         return True
     except WebPushException as e:
         code = getattr(getattr(e, "response", None), "status_code", None)
-        if code in (404, 410):
+        # A subscription made seconds ago can read 404 while the push service
+        # registers it — the bell's own test push used to prune it on the spot.
+        young = time.time() - (sub.get("_at") or 0) < 120
+        if code in (404, 410) and not young:
             return None                     # subscription is dead — prune it
         print(f"  [push] send error: {e}", flush=True)
         return False
@@ -7072,6 +7079,8 @@ async def api_push_subscribe(request):
     sub = request.get("_body") or {}
     if not sub.get("endpoint"):
         return web.json_response({"error": "bad subscription"}, status=400)
+    old = next((s for s in _push_subs if s.get("endpoint") == sub["endpoint"]), None)
+    sub["_at"] = old.get("_at", time.time()) if old else time.time()   # first seen
     _push_subs = [s for s in _push_subs if s.get("endpoint") != sub["endpoint"]]
     _push_subs.append(sub)
     _save_subs()
