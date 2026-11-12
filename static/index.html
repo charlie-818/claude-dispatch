@@ -6801,7 +6801,13 @@ async function initPush(){
     swReg = await navigator.serviceWorker.register('/sw.js');
     await navigator.serviceWorker.ready;
     const sub = await swReg.pushManager.getSubscription();
-    reflectBell(!!sub);
+    const on = !!sub && Notification.permission === 'granted';
+    reflectBell(on);
+    // Re-register this device's subscription on every load. The browser can
+    // rotate it, and the server only ever learned it at the moment the bell was
+    // tapped — so a lit bell could sit on a phone the server no longer pushes
+    // to (it kept an older or another browser's endpoint). Idempotent server-side.
+    if (on) post('/api/push/subscribe', sub.toJSON()).catch(() => {});
   } catch(e){ /* SW registration can fail on http/insecure — leave bell off */ }
   navigator.serviceWorker.addEventListener('message', e => {
     if (e.data && e.data.type === 'open-pane' && e.data.uuid){

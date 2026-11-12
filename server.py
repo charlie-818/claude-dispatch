@@ -7047,11 +7047,14 @@ async def _push_all(payload):
     global _push_subs
     if not _push_subs or not _VAPID_PUB:
         return
-    dead = []
+    dead, ok = [], 0
     for sub in list(_push_subs):
         r = await asyncio.to_thread(_send_one, sub, payload)
         if r is None:
             dead.append(sub.get("endpoint"))
+        ok += r is True
+    print(f"  [push] {payload.get('title', '')!r} -> {ok}/{len(_push_subs)} sent"
+          + (f", {len(dead)} dead pruned" if dead else ""), flush=True)
     if dead:
         _push_subs = [s for s in _push_subs if s.get("endpoint") not in dead]
         _save_subs()
