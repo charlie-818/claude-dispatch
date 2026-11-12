@@ -781,7 +781,7 @@
   .mic .i-stop{display:none}
   /* Attach and the file picker are two halves of one intent — "add something" —
      so they sit as a pair: the picker pulls back into attach's tap-target gutter. */
-  #attachbtn ~ #docbtn{margin-left:-8px}
+  #attachbtn ~ #docbtn{margin-left:-8px;-webkit-touch-callout:none;user-select:none}
   .mic.rec{background:var(--red);border-color:transparent;color:#1a1200;
     animation:micpulse 1.1s ease-in-out infinite}
   .mic.rec:active,.mic.busy:active{color:#1a1200}
@@ -1745,6 +1745,10 @@
   <div class="composer">
     <input type="file" id="fileinput" accept="image/*,video/*" multiple hidden
            onchange="uploadFiles(this.files)">
+    <!-- Long-press on the picker button: `capture` asks the phone for its camera
+         directly instead of a chooser. Same upload path. -->
+    <input type="file" id="caminput" accept="image/*" capture="environment" hidden
+           onchange="uploadFiles(this.files, 'docbtn')">
     <!-- Any file at all (PDFs, code, docs…): no accept filter, so the OS
          picker opens on its Files/Finder view rather than the photo library. -->
     <input type="file" id="docinput" multiple hidden
@@ -1760,7 +1764,7 @@
         <button class="mic" id="attachbtn" onclick="document.getElementById('fileinput').click()" aria-label="attach">
           <span class="material-symbols-rounded" aria-hidden="true">attach_file</span>
         </button>
-        <button class="mic" id="docbtn" onclick="document.getElementById('docinput').click()" aria-label="attach file">
+        <button class="mic" id="docbtn" aria-label="attach file (hold for camera)">
           <span class="material-symbols-rounded" aria-hidden="true">photo_camera</span>
         </button>
         <button class="send" id="sendbtn" onclick="send()" disabled aria-label="send">
@@ -6677,8 +6681,32 @@ async function uploadFiles(files, btnId){
     // allow re-picking the same file, and re-shooting after a first shot
     document.getElementById('fileinput').value = '';
     document.getElementById('docinput').value = '';
+    document.getElementById('caminput').value = '';
   }
 }
+
+/* The picker button: tap = any file, hold = straight to the camera. A page
+   may only open a picker from a gesture the browser counts as user activation,
+   and for touch that's the finger lifting — not a timer mid-hold. So the hold
+   arms at 450ms (with a buzz) and the camera opens on release. */
+(function pickerButton(){
+  const b = document.getElementById('docbtn');
+  let timer = null, held = false, eatClick = false;
+  b.addEventListener('pointerdown', () => {
+    held = false; eatClick = false; clearTimeout(timer);
+    timer = setTimeout(() => { held = true; buzz(14); }, 450);
+  });
+  b.addEventListener('pointercancel', () => { clearTimeout(timer); held = false; });
+  b.addEventListener('pointerup', () => {
+    clearTimeout(timer);
+    if (held){ held = false; eatClick = true; document.getElementById('caminput').click(); }
+  });
+  b.addEventListener('click', e => {
+    if (eatClick){ eatClick = false; e.preventDefault(); return; }
+    document.getElementById('docinput').click();
+  });
+  b.addEventListener('contextmenu', e => e.preventDefault());
+})();
 
 /* ── optimistic send echo ──────────────────────────────
    Claude.ai/ChatGPT-style instant feedback: the moment you tap send, a dimmed
