@@ -7050,8 +7050,50 @@ def _send_one(sub, payload):
         return False
 
 
+# ── ntfy: a second alert path that doesn't depend on the browser ────────────
+# Web push rides on Chrome; on a phone where Chrome never wakes for a push the
+# Yard is silent. ntfy is a native app with its own delivery, so every alert
+# also goes to a private topic there. Config lives in .ntfy.json (gitignored):
+# {"topic": "<random>", "server": "https://ntfy.sh", "click": "<this host's url>"}
+_NTFY_FILE = HERE / ".ntfy.json"
+
+
+def _load_ntfy():
+    try:
+        c = json.loads(_NTFY_FILE.read_text())
+    except Exception:
+        return {}
+    return c if isinstance(c, dict) and c.get("topic") else {}
+
+
+_NTFY = _load_ntfy()
+
+
+def _ntfy_send(payload):
+    import urllib.request
+    server = (_NTFY.get("server") or "https://ntfy.sh").rstrip("/")
+    msg = {"topic": _NTFY["topic"], "title": payload.get("title") or "The Yard",
+           "message": payload.get("body") or "", "priority": 4, "tags": ["robot"]}
+    click, uuid = _NTFY.get("click"), payload.get("uuid")
+    if click:
+        msg["click"] = click.rstrip("/") + (f"/?pane={uuid}" if uuid else "/")
+    req = urllib.request.Request(server, data=json.dumps(msg).encode(),
+                                 headers={"Content-Type": "application/json"},
+                                 method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.status == 200
+    except Exception as e:
+        print(f"  [ntfy] send error: {type(e).__name__}: {e}", flush=True)
+        return False
+
+
 async def _push_all(payload):
     global _push_subs
+    if _NTFY:
+        sent = await asyncio.to_thread(_ntfy_send, payload)
+        print(f"  [ntfy] {payload.get('title', '')!r} -> {'sent' if sent else 'FAILED'}",
+              flush=True)
     if not _push_subs or not _VAPID_PUB:
         return
     dead, ok = [], 0
@@ -7137,7 +7179,7 @@ async def _notify_watcher():
     Notifications fire off *confirmed* (debounced) state, not the raw per-poll
     reading, so a flapping session no longer spams "done" for the same chat."""
     print(f"  [notify] watcher running (push {'ON' if _VAPID_PUB else 'DISABLED'}, "
-          f"{len(_push_subs)} subscriber(s))", flush=True)
+          f"{len(_push_subs)} subscriber(s), ntfy {'ON' if _NTFY else 'off'})", flush=True)
     await asyncio.sleep(5)
     while True:
         try:
