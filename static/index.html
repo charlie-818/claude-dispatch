@@ -2047,14 +2047,45 @@ function reflowStartsNew(b){
   const rest = b.slice(ind);
   return REFLOW_MARK.test(rest) || /^\d+\s/.test(rest);
 }
+/* Rows of a sent prompt to glue onto the row above. Claude wraps a prompt
+   narrower than the terminal (a 214-col pane broke one at 145), so the
+   full-width test in reflowRows never fired and prompts kept their breaks.
+   Measure against the prompt's own widest row instead — but only once it has
+   reached half the pane, so a short prompt's typed line breaks stay. */
+function promptJoins(rows, cols){
+  const join = new Set();
+  for (let i = 0; i < rows.length; i++){
+    if (!/^\s*[❯›]\s/.test(rows[i]) || /^\s*[❯›]\s*\d+\./.test(rows[i])) continue;
+    const hang = reflowHang(rows[i]);
+    let e = i;
+    while (e + 1 < rows.length && reflowIndent(rows[e + 1]) === hang && rows[e + 1].trim()
+           && !reflowNojoin(rows[e + 1]) && !reflowStartsNew(rows[e + 1])) e++;
+    if (e === i) continue;
+    const wid = r => cellw(rows[r].replace(/\s+$/, ''));
+    let W = 0;
+    for (let r = i; r <= e; r++) W = Math.max(W, wid(r));
+    if (W >= cols * 0.5)
+      for (let r = i; r < e; r++){
+        const w = (rows[r + 1].trim().match(/^\S+/) || [''])[0];
+        if (wid(r) + 1 + cellw(w) > W) join.add(r + 1);
+      }
+    i = e;
+  }
+  return join;
+}
 function reflowRows(rows, cols, from){
   const out = [];
   let P = null, soft = false, k = null;
+  const pj = promptJoins(rows, cols);
   for (let i = 0; i < rows.length; i++){
     if (i === from) k = out.length;
     const B = rows[i];
     if (out.length === 0 || reflowNojoin(out[out.length - 1]) || reflowNojoin(B)){
       out.push(B); P = B; soft = false; continue;
+    }
+    if (pj.has(i)){
+      out[out.length - 1] = out[out.length - 1].replace(/\s+$/, '') + ' ' + B.trim();
+      P = B; soft = false; continue;
     }
     const H = out[out.length - 1];
     const indB = reflowIndent(B);
