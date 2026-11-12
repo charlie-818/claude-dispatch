@@ -4259,7 +4259,8 @@ function trimChrome(text, prov){
      scrollback before Claude cleared it: hidden — only the bottom one is live,
      and liftStatus has already taken that.
    - a prompt frozen part-way, then printed again in full right under it:
-     the partial copy is hidden. */
+     the partial copy is hidden.
+   - the input box's ─── border left above a just-sent prompt: hidden. */
 const SMEAR = /[^\s─]─+[^\s─]/;
 function cleanCapture(rows){
   for (let i = 0; i < rows.length; i++){
@@ -4270,6 +4271,16 @@ function cleanCapture(rows){
   }
   for (let i = 0; i < rows.length; i++)
     if (STATUS_LINE.test(rows[i]) && !DONE_LINE.test(rows[i])) rows[i] = '\uE002';
+  // the input box's top border, frozen in scrollback right above the prompt
+  // it held as that prompt moved into the transcript (often with iTerm's
+  // U+FFFD glitch in it): not content. A rule anywhere else just gets mended.
+  for (let i = 0; i < rows.length; i++){
+    if (!/^[─━\uFFFD ]+$/.test(rows[i]) || (rows[i].match(/[─━]/g) || []).length < 20) continue;
+    rows[i] = rows[i].replace(/\uFFFD+/g, '─');
+    let n = i + 1;
+    while (n < rows.length && !rows[n].trim()) n++;
+    if (n < rows.length && /^\s*[❯›]\s/.test(rows[n])) rows[i] = '\uE002';
+  }
   for (let i = 0; i < rows.length; i++){
     const m = rows[i].match(/^(\s*)[❯›]\s+(.*)$/);
     if (!m || /^\d+\./.test(m[2])) continue;
