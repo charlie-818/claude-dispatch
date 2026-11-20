@@ -183,3 +183,24 @@ def test_cellw_counts_wide_glyphs_as_two_cells():
     script = _js() + "console.log(JSON.stringify([cellw('abc'), cellw('你好'), cellw('a你b')]));"
     res = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
     assert json.loads(res.stdout) == [3, 4, 4]
+
+
+# captured from pane E56140D1 (152 cols): Claude Code's away-recap hangs its
+# continuation 2 cols in under "※ ". With ※ missing from REFLOW_MARK the hang
+# read as 0, the row never rejoined, and the phone drew two blocks with
+# different left edges and a break mid-sentence ("runs until" | "about").
+RECAP = [
+    "※ recap: We're finding profitable places for idle capital: the NFLX entry and its margin top-up are armed on bigmac, and the burst paper test runs until",
+    "  about 12-04. Your one action is rotating the leaked dRPC key and sending me the new one. (disable recaps in /config)",
+    "",
+    "❯ Not 10 trading days. Check now                                                                                                                        ",
+]
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node not installed")
+def test_recap_continuation_rejoins_under_its_marker():
+    r = _run(RECAP, 152)
+    assert r["rows"] == [
+        "※ recap: We're finding profitable places for idle capital: the NFLX entry and its margin top-up are armed on bigmac, and the burst paper test runs until about 12-04. Your one action is rotating the leaked dRPC key and sending me the new one. (disable recaps in /config)",
+        "", RECAP[3],
+    ]

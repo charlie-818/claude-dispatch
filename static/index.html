@@ -1992,7 +1992,7 @@ function lineLayoutStyle(l){
   const m = l.match(/^[ \t]*/)[0];
   const indent = m.replace(/\t/g, '    ').length;
   const rest = l.slice(m.length);
-  const marker = rest.match(/^(?:[-*•]\s+|\d+\.\s+|#{1,6}\s+|[╭╮╰╯┌┐└┘│▌█][─━╴╶╾╼-]*\s+|[❯›>⏺✻⎿⏵\uE000]\s+)/);
+  const marker = rest.match(/^(?:[-*•]\s+|\d+\.\s+|#{1,6}\s+|[╭╮╰╯┌┐└┘│▌█][─━╴╶╾╼-]*\s+|[❯›>⏺✻※⎿⏵\uE000]\s+)/);
   const markerWidth = marker ? Array.from(marker[0]).length : 0;
   return `--logical-indent:${indent}ch;--marker-indent:${markerWidth}ch`;
 }
@@ -2033,7 +2033,7 @@ function cellw(s){
   }
   return w;
 }
-const REFLOW_MARK = /^(?:[-*•]\s+|\d+\.\s+|#{1,6}\s+|[❯›>⏺✻⎿⏵]\s+)/;
+const REFLOW_MARK = /^(?:[-*•]\s+|\d+\.\s+|#{1,6}\s+|[❯›>⏺✻※⎿⏵]\s+)/;
 function reflowNojoin(r){
   if (r === '') return true;
   if (r[0] === '/') return true;
