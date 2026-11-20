@@ -22,8 +22,9 @@ if [ "$before" != "$after" ]; then
   echo "$(date '+%F %T') deploy ${before:0:8} -> ${after:0:8}"
 
   # Frontend (static/*, index.html) is read off disk per request — the pull alone
-  # deploys it live, no restart. Only a Python change needs the server reloaded.
-  if echo "$changed" | grep -qE '\.py$'; then
+  # deploys it live, no restart. Only a Python change needs the server reloaded —
+  # and tests/ never runs in the server, so a test-only push must not reload it.
+  if echo "$changed" | grep -v '^tests/' | grep -qE '\.py$'; then
     # Hot-reload in place: SIGHUP makes the LIVE server os.execv itself, so the
     # new image inherits the running process's ITERM2_COOKIE and reconnects to
     # iTerm2 with no GUI trust prompt. An external relaunch (pkill + venv python)
