@@ -22,13 +22,13 @@
   href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&display=swap">
 <link rel="stylesheet" media="print" onload="this.media='all'" href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400..700&display=swap">
 <link rel="stylesheet" media="print" onload="this.media='all'"
-  href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20,300..700,0,-25&amp;icon_names=attach_file,description,image,ink_eraser,language,merge,mic,open_in_new,photo_camera,stop&amp;display=block">
+  href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20,300..700,0,-25&amp;icon_names=attach_file,close,description,image,ink_eraser,language,merge,mic,open_in_new,photo_camera,stop&amp;display=block">
 <noscript>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400..700&display=swap">
 <link rel="stylesheet"
   href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&display=swap">
 <link rel="stylesheet"
-  href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20,300..700,0,-25&amp;icon_names=attach_file,description,image,ink_eraser,language,merge,mic,open_in_new,photo_camera,stop&amp;display=block">
+  href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20,300..700,0,-25&amp;icon_names=attach_file,close,description,image,ink_eraser,language,merge,mic,open_in_new,photo_camera,stop&amp;display=block">
 </noscript>
 <title>The Yard — CC Dispatch</title>
 <style>
@@ -6817,7 +6817,7 @@ function renderAttachments(){
   const box = document.getElementById('attachments');
   box.innerHTML = pendingAttachments.map((a, i) => `
     <span class="attchip">
-      <span class="material-symbols-rounded" aria-hidden="true">${a.kind === 'image' ? 'image' : 'draft'}</span>
+      <span class="material-symbols-rounded" aria-hidden="true">${a.kind === 'image' ? 'image' : 'description'}</span>
       <span class="attname">${esc(a.name)}</span>
       <button type="button" class="attx" aria-label="remove ${esc(a.name)}" onclick="removeAttachment(${i})">
         <span class="material-symbols-rounded" aria-hidden="true">close</span>
