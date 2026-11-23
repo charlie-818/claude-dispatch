@@ -4399,16 +4399,20 @@ let compactMode = localStorage.getItem('compact') === '1';
 const openTools = new Set();
 const TOOL_DOT = /^\s*[⏺●\uE000]/;
 const TOOL_HEAD = /^\s*[⏺●\uE000]\s*[\w.:-]+(?: - [\w .:-]+)?(?: \(MCP\))?\(/;
-function isToolHead(rows, i){
-  if (!TOOL_DOT.test(rows[i])) return false;
-  if (TOOL_HEAD.test(rows[i])) return true;
-  // "⏺ Read 3 files (ctrl+o to expand)"-style groups: a ⎿ follows the header
+// a ⎿ result under row i, past only the header's own indented wrap rows
+function hasResult(rows, i){
   for (let j = i + 1; j < rows.length && j < i + 4; j++){
     const t = rows[j];
     if (/^\s*⎿/.test(t)) return true;
     if (!t.trim() || !/^\s/.test(t)) return false;
   }
   return false;
+}
+function isToolHead(rows, i){
+  if (!TOOL_DOT.test(rows[i])) return false;
+  if (TOOL_HEAD.test(rows[i])) return true;
+  // "⏺ Read 3 files (ctrl+o to expand)"-style groups: a ⎿ follows the header
+  return hasResult(rows, i);
 }
 /* Finds every tool block; with `fold`, blanks the bodies not in openTools.
    Returns Map(header row -> [key, body rows, end row]). */
@@ -4467,6 +4471,14 @@ document.getElementById('pane').classList.toggle('sans', PANE_SANS);
 const TKB_CHEV = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"'
   + ' stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>';
 const BLINK_OFF = /^ {2}[A-Z][A-Za-z]*\(/;   // "⏺ Bash(…)" with the ⏺ blinked off
+/* BLINK_OFF only knows "  Name(" headers. Every other header isToolHead takes
+   while its ⏺ shows ("ctx7 - Query Docs (MCP)(", "Web Search(", "Claude in
+   Chrome[x](", a lowercase agent type, "Reading 2 files…") stopped being a
+   header on the off beat, so compact view unfolded its output every other
+   frame while it ran. Same evidence as isToolHead's fallback: a ⎿ result
+   under a 2-col row that isn't the next row of a prompt or paragraph. */
+const blinkedOff = (a, i) => BLINK_OFF.test(a[i]) || (/^ {2}[^\s⎿⏺●]/.test(a[i])
+  && !(i && /^(?:\s*[❯›]\s| {2}[^\s⎿⏺●])/.test(a[i - 1])) && hasResult(a, i));
 let paintPending = false, lastSig = null;
 /* Bottom-anchor a short transcript: pad the top by exactly the room the
    rows leave, so the newest line sits just above the composer with no
@@ -4515,7 +4527,7 @@ function paint(force){
   // Claude blinks a running tool's ⏺ off to blank. The glyph isn't 1ch in the
   // phone's font, so the command slid left and right every frame; draw the off
   // beat as a dim ⏺ instead (\uE000 marks it for colorizeLine/lineLayoutStyle).
-  if (prov === 'claude') rawLines = rawLines.map(l => BLINK_OFF.test(l) ? '\uE000' + l.slice(1) : l);
+  if (prov === 'claude') rawLines = rawLines.map((l, i, a) => blinkedOff(a, i) ? '\uE000' + l.slice(1) : l);
   if (prov === 'claude') rawLines = cleanCapture(bannerize(rawLines));
   let liveTail = liveLines.length;
   if (p.classList.contains('wrap')){
