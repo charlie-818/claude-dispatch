@@ -335,20 +335,21 @@
      live by paint() (see turnTokens), so it never goes through colorizeLine's
      stat-tokwrap regex; needs its own line-break rules for the same reason. */
   .pane .ttok{color:var(--dim);display:block;white-space:nowrap;overflow-wrap:normal}
-  /* the expander: a real pill at the end of the header, chevron flips when open */
-  .pane .tkb{display:inline-flex;align-items:center;gap:4px;
+  /* the expander: plain text + chevron, no pill chrome at rest — a background
+     only shows up on press/open, so the fold control stays out of the way */
+  .pane .tkb{display:inline-flex;align-items:center;gap:3px;
     /* no margin-left here: a real text node precedes the pill, so the gap is
        ordinary collapsible whitespace — it folds away cleanly when the pill
        wraps onto its own line instead of leaving a dangling left indent */
-    padding:1px 6px 1px 8px;border:1px solid var(--line2);border-radius:999px;
-    background:var(--panel3);font:500 10.5px/1.45 var(--ui);color:var(--dim);
+    padding:1px 4px;border:1px solid transparent;border-radius:999px;
+    background:transparent;font:500 10.5px/1.45 var(--ui);color:var(--dimmer);
     vertical-align:1px;white-space:nowrap;-webkit-user-select:none;user-select:none;
     /* wrap mode's hanging indent (.hang text-indent) is inherited and shoved the
        label out of the pill; overflow-wrap:anywhere could split it too */
     text-indent:0;overflow-wrap:normal;word-break:normal;box-sizing:border-box}
-  .pane .tkb svg{width:10px;height:10px;flex:none}
-  .pane .ln.tk:active .tkb{background:var(--line2)}
-  .pane .ln.tk.open .tkb{color:var(--blue);border-color:rgba(102,169,255,.4)}
+  .pane .tkb svg{width:9px;height:9px;flex:none}
+  .pane .ln.tk:active .tkb{background:var(--panel3);border-color:var(--line2)}
+  .pane .ln.tk.open .tkb{color:var(--blue)}
   .pane .ln.tk.open .tkb svg{transform:rotate(180deg)}
   /* A sent prompt is the chat's anchor: bright bold text, a violet glyph and a
      little air above and below. .echoln wears the same, so the send echo
