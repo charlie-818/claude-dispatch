@@ -312,6 +312,9 @@
      overflow-wrap:anywhere cascades in from .pane.wrap and overrides nowrap's
      no-break for overflow purposes, so it must be reset here too. */
   .pane .stat-tokwrap{white-space:nowrap;overflow-wrap:normal}
+  /* the "· " before a token count — fixTokDots() hides this (display:none)
+     once it measures the count landed on its own line */
+  .pane .tok-dot{color:var(--dim)}
   /* Claude Code's startup banner rows, hidden (see bannerize()) */
   .pane .ln.ccb-gone{display:none}
   /* compact view: a tool call's header row folds its output (see collapseTools) */
@@ -2012,10 +2015,17 @@ function colorizeLine(l, p){
     // DONE_LINE) and stays inline instead. The trailing token count — either
     // "· 3k tokens" or, on older builds, "(2.3k tokens)" — used to just wrap
     // wherever the box ran out of room, splitting mid-number on a narrow
-    // phone. Block-level puts it on its own line instead, cleanly, every time.
+    // phone. Now it stays on the first line when it fits; the "·" only makes
+    // sense there, so it's a separate element fixTokDots() hides once it's
+    // measured the count landed on its own line instead.
     e = e.replace(/(\s*(?:\([^()]*\btokens?\b[^()]*\)|·\s*[^·]*\btokens?\b[^·]*))\s*$/i,
-      // the "·" only made sense inline; on its own line it's a stray dot
-      tail => `<span class="stat-tokwrap">${tail.trim().replace(/^·\s*/, '')}</span>`);
+      tail => {
+        let t = tail.trim();
+        const dot = /^·\s*/.test(t);
+        t = t.replace(/^·\s*/, '');
+        return ' ' + (dot ? '<span class="tok-dot">· </span>' : '')
+          + `<span class="stat-tokwrap">${t}</span>`;
+      });
   if (p === 'claude') e = e.replace(/^(\s*)([⏺●\uE000])/, (_, sp, d) =>
     `${sp}<span class="tdot${d === '\uE000' ? ' off' : ''}">${d === '\uE000' ? '⏺' : d}</span>`)
     .replace(/^(\s*<span class="tdot[^"]*">[^<]*<\/span>\s*)([\w.:-]+(?: - [\w .:-]+)?(?: \(MCP\))?)\((.*?)(\)?)$/,
@@ -4549,9 +4559,10 @@ function paint(force){
         `${pre}<span class="lmk">${m === '-' ? '•' : m}</span>`);
     }
     const tt = tokAt && tokAt.get(i);
-    if (tt && tt.out) h += `<span class="ttok" title="${tt.total.toLocaleString()} tokens incl. context re-read">`
-      // block display always puts this on its own line — the "·" that made
-      // sense inline would just be a stray leading dot here
+    if (tt && tt.out) h += `<span class="tok-dot">· </span>`
+      + `<span class="ttok" title="${tt.total.toLocaleString()} tokens incl. context re-read">`
+      // fixTokDots() hides the dot once it's measured the count wrapped
+      // onto its own line, where the "·" would just be a stray leading dot
       + `${fmtTok(tt.out)} tokens</span>`;
     if (th) h += ` <span class="tkb">${th[1]} line${th[1] === 1 ? '' : 's'}${TKB_CHEV}</span>`;
     return i >= liveFrom ? linkKeys(h) : h;
@@ -4579,6 +4590,7 @@ function paint(force){
     if (fitMode === 0) shrinkToFit(p);
     // same text, but the box or font may have moved under it
     if (fitPad(p) && pinBottom) p.scrollTop = p.scrollHeight;
+    fixTokDots(p);
     return;
   }
   lastSig = sig;
@@ -4630,12 +4642,27 @@ function paint(force){
   if (fitMode === 0){ shrinkToFit(p); fitTables(p); }
   syncEchoFont();
   fitPad(p);
+  fixTokDots(p);
   if (pinBottom){
     p.scrollTop = p.scrollHeight;
   } else if (anchor && anchor.parentNode === p){
     const d = anchor.getBoundingClientRect().top - anchorTop;
     if (Math.abs(d) >= 1) p.scrollTop += d;
   }
+}
+
+/* The "· " before a wrapping token count only reads right when the count is
+   still on the same line as the text before it — colorizeLine/paint() can't
+   know that in advance (wrap depends on font size and box width, settled
+   only after layout), so it always emits the dot and this measures whether
+   it landed next to its count or got left dangling/orphaned by a wrap. */
+function fixTokDots(p){
+  p.querySelectorAll('.tok-dot').forEach(dot => {
+    const tok = dot.nextElementSibling;
+    if (!tok) return;
+    const same = Math.abs(dot.getBoundingClientRect().top - tok.getBoundingClientRect().top) < 1;
+    dot.style.display = same ? '' : 'none';
+  });
 }
 
 /* pinBottom must reflect USER intent only. paint() writes scrollTop every frame
@@ -4664,6 +4691,7 @@ function paint(force){
   if (window.ResizeObserver) new ResizeObserver(() => {
     if (userScrolling){ paintPending = true; return; }   // settle() repaints -> fitPad
     fitPad(p);
+    fixTokDots(p);
     if (pinBottom) p.scrollTop = p.scrollHeight;
   }).observe(p, {box: 'border-box'});
   const gap = () => p.scrollHeight - (p.scrollTop + p.clientHeight);
