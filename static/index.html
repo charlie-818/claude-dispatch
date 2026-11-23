@@ -4559,7 +4559,7 @@ function paint(force){
         `${pre}<span class="lmk">${m === '-' ? '•' : m}</span>`);
     }
     const tt = tokAt && tokAt.get(i);
-    if (tt && tt.out) h += `<span class="tok-dot">· </span>`
+    if (tt && tt.out) h += ` <span class="tok-dot">· </span>`
       + `<span class="ttok" title="${tt.total.toLocaleString()} tokens incl. context re-read">`
       // fixTokDots() hides the dot once it's measured the count wrapped
       // onto its own line, where the "·" would just be a stray leading dot
