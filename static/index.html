@@ -306,8 +306,11 @@
      pulsing on its own beat instead of Claude's on/off blink. */
   .pane .tdot::before{opacity:0}
   .pane .ln.tact .tdot::before{opacity:1;animation:pulse 1.1s ease-in-out infinite}
-  /* a status line's trailing "(2.3k tokens)" — own line, never split mid-number */
-  .pane .stat-tokwrap{display:block;white-space:nowrap}
+  /* a status line's trailing "(2.3k tokens)" — own line, never split mid-number.
+     overflow-wrap:anywhere cascades in from .pane.wrap and overrides nowrap's
+     no-break for overflow purposes, so it must be reset here too or "tokens"
+     still splits onto a third line. */
+  .pane .stat-tokwrap{display:block;white-space:nowrap;overflow-wrap:normal}
   /* Claude Code's startup banner rows, hidden (see bannerize()) */
   .pane .ln.ccb-gone{display:none}
   /* compact view: a tool call's header row folds its output (see collapseTools) */
