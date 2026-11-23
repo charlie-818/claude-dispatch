@@ -306,6 +306,8 @@
      pulsing on its own beat instead of Claude's on/off blink. */
   .pane .tdot::before{opacity:0}
   .pane .ln.tact .tdot::before{opacity:1;animation:pulse 1.1s ease-in-out infinite}
+  /* a status line's trailing "(2.3k tokens)" — own line, never split mid-number */
+  .pane .stat-tokwrap{display:block;white-space:nowrap}
   /* Claude Code's startup banner rows, hidden (see bannerize()) */
   .pane .ln.ccb-gone{display:none}
   /* compact view: a tool call's header row folds its output (see collapseTools) */
@@ -320,12 +322,19 @@
   .pane .tname.k-mcp{color:var(--violet);background:rgba(189,141,255,.13)}
   /* an MCP call's action, after its server chip: "[chrome] navigate" */
   .pane .tact{color:var(--fg);font-weight:600;margin:0 1px 0 3px}
-  .pane .targ{color:var(--fg2)}
+  /* Tool args are prose (a search query, a URL), not code — they wrap even in
+     the default pre/nowrap pane mode, instead of running off into horizontal
+     scroll like an actual command line does. WebSearch is the worst offender:
+     its query has no slashes or hyphens for the browser to break on at all. */
+  .pane .targ{color:var(--fg2);white-space:pre-wrap;overflow-wrap:anywhere}
   .pane .tpar{color:var(--dimmer)}
   /* a finished section's token total, after its "✻ Worked for 10s" */
   .pane .ttok{color:var(--dim)}
   /* the expander: a real pill at the end of the header, chevron flips when open */
-  .pane .tkb{display:inline-flex;align-items:center;gap:4px;margin-left:10px;
+  .pane .tkb{display:inline-flex;align-items:center;gap:4px;
+    /* no margin-left here: a real text node precedes the pill, so the gap is
+       ordinary collapsible whitespace — it folds away cleanly when the pill
+       wraps onto its own line instead of leaving a dangling left indent */
     padding:1px 6px 1px 8px;border:1px solid var(--line2);border-radius:999px;
     background:var(--panel3);font:500 10.5px/1.45 var(--ui);color:var(--dim);
     vertical-align:1px;white-space:nowrap;-webkit-user-select:none;user-select:none;
@@ -1714,6 +1723,13 @@
     <button id="chip-model" onclick="openSheet('model')" aria-label="model">
       <span class="cv">model</span>
     </button>
+    <button id="chip-rewind" onclick="openSheet('rewind')" aria-label="rewind">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><polyline points="3 3 3 8 8 8"/>
+        <polyline points="12 7 12 12 15 14"/>
+      </svg>
+    </button>
     <button onclick="openSheet('cmd')" aria-label="commands and keys">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -1967,6 +1983,15 @@ function colorizeLine(l, p){
   const diff = p === 'codex' && /^\s*[│▌]\s*[+-](?![+-])/.test(l)
     ? (/^\s*[│▌]\s*\+/.test(l) ? 'c-add' : 'c-del') : '';
   let e = colorizeWords(esc(l));
+  if (p === 'claude')
+    // "✻ Waiting for 1 background agent to finish · 3k tokens" — the kind of
+    // status line that, lacking "…", never gets lifted into the header (see
+    // DONE_LINE) and stays inline instead. The trailing token count — either
+    // "· 3k tokens" or, on older builds, "(2.3k tokens)" — used to just wrap
+    // wherever the box ran out of room, splitting mid-number on a narrow
+    // phone. Block-level puts it on its own line instead, cleanly, every time.
+    e = e.replace(/(\s*(?:\([^()]*\btokens?\b[^()]*\)|·\s*[^·]*\btokens?\b[^·]*))\s*$/i,
+      tail => `<span class="stat-tokwrap">${tail.trim()}</span>`);
   if (p === 'claude') e = e.replace(/^(\s*)([⏺●\uE000])/, (_, sp, d) =>
     `${sp}<span class="tdot${d === '\uE000' ? ' off' : ''}">${d === '\uE000' ? '⏺' : d}</span>`)
     .replace(/^(\s*<span class="tdot[^"]*">[^<]*<\/span>\s*)([\w.:-]+(?: - [\w .:-]+)?(?: \(MCP\))?)\((.*?)(\)?)$/,
@@ -2970,8 +2995,9 @@ async function openBgAgent(id, agent){
   function renderMeta(){
     if (!log) return;
     if (log.desc && !agent) title.textContent = log.desc;
+    // the pulsing dot already says "running" — spelling it out too is noise
     stat.innerHTML = `<span class="bga-dot ${dotCls(log.status)}"></span><span>`
-      + [esc(log.status || ''), esc(log.model || ''),
+      + [log.status === 'running' ? '' : esc(log.status || ''), esc(log.model || ''),
          bgaElapsed(log.dur_ms, log.status === 'running'),
          `${fmtTok(log.tokens || 0)} tokens`, `${log.tools || 0} tools`]
         .filter(Boolean).join(' · ') + '</span>';
@@ -4501,7 +4527,7 @@ function paint(force){
     const tt = tokAt && tokAt.get(i);
     if (tt && tt.out) h += `<span class="ttok" title="${tt.total.toLocaleString()} tokens incl. context re-read">`
       + ` · ${fmtTok(tt.out)} tokens</span>`;
-    if (th) h += `<span class="tkb">${th[1]} line${th[1] === 1 ? '' : 's'}${TKB_CHEV}</span>`;
+    if (th) h += ` <span class="tkb">${th[1]} line${th[1] === 1 ? '' : 's'}${TKB_CHEV}</span>`;
     return i >= liveFrom ? linkKeys(h) : h;
   });
   // A running pane pushes a frame twice a second because its spinner glyph
@@ -4514,8 +4540,14 @@ function paint(force){
   // so going idle still repaints to drop it
   let act = -1;
   if (prov === 'claude' && current && stateOf(current) === 'working')
-    for (let i = rawLines.length - 1; i >= liveFrom; i--)
+    for (let i = rawLines.length - 1; i >= liveFrom; i--){
+      // A finished section's "✻ Worked for Ns" footer sitting at the bottom
+      // means nothing below it is live — the next prompt just hasn't printed
+      // a new bullet yet. Without this check, the already-completed bullet
+      // above that footer gets picked up and pulses as if still running.
+      if (DONE_LINE.test(rawLines[i])) break;
       if (/^\s*[⏺●\uE000]/.test(rawLines[i])){ act = i; break; }
+    }
   const sig = lines.join('\n') + '\u0001' + act;
   if (!force && sig === lastSig){
     if (fitMode === 0) shrinkToFit(p);
@@ -4852,6 +4884,8 @@ function applyProviderChrome(){
     chipVal('chip-mode', current.mode || 'mode');
     chipVal('chip-effort', EFFORT_LABEL[current.effort] || current.effort || 'effort');
   }
+  const rewindChip = document.getElementById('chip-rewind');
+  if (rewindChip) rewindChip.style.display = provider === 'claude' ? '' : 'none';
   const modeChip = document.getElementById('chip-mode');
   if (modeChip) modeChip.setAttribute('aria-label',
     provider === 'codex' ? 'permissions' : 'permission mode');
@@ -4990,11 +5024,17 @@ async function openGrokPicker(endpoint, values){
 }
 function openSheet(kind){
   openKind = kind; renderSheet();
+  if (kind === 'rewind') loadRewind();
   document.getElementById('sheet').classList.add('on');
   document.getElementById('sheet-bg').classList.add('on');
   pushNav({v: 'sheet'}); }          // back closes the sheet, not the screen
 function closeSheet(){
   const wasOpen = openKind !== null;
+  // walking away from the rewind sheet leaves Claude's picker up on the pane —
+  // close it, unless a pick just handed the pane to the confirm menu
+  if (openKind === 'rewind' && !rewindPicked && current)
+    post('/api/rewind', {uuid: current.uuid, action: 'cancel'}).catch(() => {});
+  rewindPicked = false;
   openKind = null; pendingModel = null;
   if (typeof deviceTimer !== 'undefined') clearInterval(deviceTimer);
   closeBga();
@@ -5248,7 +5288,7 @@ function renderSheet(){
   else if (openKind === 'model'){
     title.textContent = 'model';
     const m = ((current && current.model) || '').toLowerCase();
-    ['opus','sonnet','haiku','fable'].forEach(name => body.appendChild(opt(
+    ['opus','sonnet','fable'].forEach(name => body.appendChild(opt(
       pendingModel === name ? 'tap again to confirm' : name, {
         desc: pendingModel === name ? '' : (m.includes(name) ? 'current' : ''),
         cur: pendingModel !== name && m.includes(name),
@@ -5702,6 +5742,40 @@ function renderActions(){
 function clearContext(){
   if (!current) return;
   runCmd('clear');
+}
+
+/* ── rewind ─────────────────────────────────────────
+   /rewind is a full-screen picker in the terminal, not a numbered prompt, so
+   the server reads it off the pane and hands over every checkpoint at once.
+   Tapping a row walks the pane's caret there and presses Enter; what comes back
+   is Claude's own confirm menu, which the pane view already renders. */
+let REWIND = null;          // {items, caret, truncated} | {error} | null while loading
+let rewindPicked = false;   // a pick closed the sheet — don't cancel the picker
+let rewindBusy = false;
+
+async function loadRewind(){
+  REWIND = null; rewindPicked = false;
+  if (!current) return;
+  const uuid = current.uuid;
+  if (openKind === 'rewind') renderSheet();
+  let next;
+  try { next = await post('/api/rewind', {uuid, action: 'open'}); }
+  catch(e){ next = {error: String(e.message)}; }
+  if (!current || current.uuid !== uuid) return;   // pane switched mid-read
+  REWIND = next;
+  if (openKind === 'rewind') renderSheet();
+}
+
+async function pickRewind(i){
+  if (!current || rewindBusy) return;
+  rewindBusy = true; buzz(12);
+  try {
+    await post('/api/rewind', {uuid: current.uuid, action: 'pick', index: i});
+    rewindPicked = true;
+    closeSheet();
+    toast('pick what to restore');
+  } catch(e){ toast(String(e.message), true); }
+  finally { rewindBusy = false; }
 }
 
 async function runCmd(id){
@@ -6549,13 +6623,49 @@ async function transcribe(blob){
 let liveSuggest = null;
 
 /* What the empty box says when Claude has nothing queued. Time-of-day greeting
-   rather than a blank line — the composer is the first thing you look at. */
+   rather than a blank line — the composer is the first thing you look at.
+   A few playful variants per bucket beat the same stock line every time; the
+   pick is cached per bucket so it doesn't reroll on every re-render (this
+   runs on every fleet frame) and only changes once time-of-day actually does. */
+const GREETINGS = {
+  late: ["Still up? What's next?", "Burning the midnight oil — what's next?",
+         "3am thoughts hit different. What's next?", "Night owl mode: engaged. What's next?",
+         "Charlie, it's the middle of the night. What's next?",
+         "The agents never sleep, apparently neither do you. What's next?",
+         "Shouldn't you be dreaming about tokenized staking? What's next?",
+         "Insomnia or genius idea? Either way, what's next?"],
+  morning: ["Good morning — what's next?", "Morning! What's next?",
+            "Rise and grind — what's next?", "Coffee's optional, chaos isn't. What's next?",
+            "Morning, Charlie. The fleet's warmed up. What's next?",
+            "Up before the bots. Respect. What's next?",
+            "Today's forecast: agents, agents, more agents. What's next?",
+            "Let's go break something productive. What's next?"],
+  afternoon: ["Good afternoon — what's next?", "Afternoon! What's next?",
+              "Mid-day check-in — what's next?", "Keep it rolling — what's next?",
+              "Still standing? Nice. What's next?", "Lunch was optional apparently. What's next?",
+              "The chats are piling up and so is my curiosity. What's next?",
+              "Peak productivity hours, allegedly. What's next?"],
+  evening: ["Good evening — what's next?", "Evening! What's next?",
+            "Winding down? What's next?", "Night shift — what's next?",
+            "One more thing before dinner? What's next?",
+            "The sun's down, the agents are up. What's next?",
+            "Evening, Charlie. Last one, promise. What's next?",
+            "Golden hour for code review. What's next?"],
+};
+/* A fresh random pick per time-of-day bucket OR pane switch — cached so it
+   doesn't reroll on every fleet-poll re-render (would read as flickering),
+   but still feels new each time you actually look at an empty composer. */
+let _greetKey = null, _greetPick = '';
 function greeting(){
   const h = new Date().getHours();
-  if (h < 5)  return "Still up? What's next?";
-  if (h < 12) return "Good morning — what's next?";
-  if (h < 18) return "Good afternoon — what's next?";
-  return "Good evening — what's next?";
+  const bucket = h < 5 ? 'late' : h < 12 ? 'morning' : h < 18 ? 'afternoon' : 'evening';
+  const key = bucket + '|' + ((current && current.uuid) || '');
+  if (key !== _greetKey){
+    _greetKey = key;
+    const pool = GREETINGS[bucket];
+    _greetPick = pool[Math.floor(Math.random() * pool.length)];
+  }
+  return _greetPick;
 }
 function basePlaceholder(){
   return (current && current.sendable) ? greeting() : 'read-only';
@@ -7412,6 +7522,7 @@ function renderSys(){
       </div>
     </div>
     <div class="sys-sec">
+      <button class="sys-btn danger" onclick="sysSleepNow()">Sleep Mac now</button>
       <button class="sys-btn" onclick="showAuth()">Auth &amp; integrations<i class="tabdot" id="authdot"></i></button>
       <button class="sys-btn" onclick="hardReload()">Hard reload</button>
       <button class="sys-btn" onclick="sysClearCaches()">Clear caches &amp; unregister SW</button>
@@ -7455,6 +7566,14 @@ function toggleSysMute(){
   sysMuted = want;
   buzz(8); paintSysSettings();
   syncSysMute({muted: want});
+}
+
+/* Sleeping the Mac drops this session's connection to it -- confirm first,
+   since there's no undo button once it's asleep. */
+async function sysSleepNow(){
+  if (!confirm('Sleep this Mac now? The server will go unreachable until it wakes.')) return;
+  buzz(8);
+  try { await fetch('/api/sleep-now', {method: 'POST'}); } catch(_){}
 }
 
 function setSysAgent(a){
@@ -8303,15 +8422,18 @@ function start(){
   // a reload shows the previous state instantly instead of an empty skeleton.
   paintFleetSnap();
   connectFleet();
-  // Warm usage once the fleet socket answers (or after a
+  // Warm usage/history/sys/devices once the fleet socket answers (or after a
   // short timeout so a slow/dead socket never blocks the rest of the UI from
-  // ever warming).
+  // ever warming); each show*() still refreshes in the background after that.
   let warmed = false;
   const warm = () => {
     if (warmed) return;
     warmed = true;
     loadUsage();          // warm the usage cache now so the first open never flashes '—'
     USAGE_PROVIDERS.forEach(p => { if (p !== USAGE_PROVIDER) loadUsage(p); });
+    loadHistory();
+    loadSys();
+    loadDevices();
   };
   document.addEventListener('fleet-first-message', warm, { once: true });
   setTimeout(warm, 1500);
