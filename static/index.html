@@ -352,13 +352,11 @@
     /* wrap mode's hanging indent (.hang text-indent) is inherited and shoved the
        label out of the pill; overflow-wrap:anywhere could split it too */
     text-indent:0;overflow-wrap:normal;word-break:normal;box-sizing:border-box;
-    /* a tap toggles .open via a forced repaint (new DOM node, see the pane
-       click handler) — without a transition the pressed background and the
-       opened state each just snap in on their own frame, reading as two
-       separate flashes instead of one clean expand/collapse */
+    /* a tap toggles .open via a forced repaint; no :active chrome at all —
+       just this transition on the open/blue + chevron rotation so it eases
+       instead of snapping */
     transition:background-color .15s ease,border-color .15s ease,color .15s ease}
   .pane .tkb svg{width:9px;height:9px;flex:none;transition:transform .15s ease}
-  .pane .ln.tk:active .tkb{background:var(--panel3);border-color:var(--line2)}
   .pane .ln.tk.open .tkb{color:var(--blue)}
   .pane .ln.tk.open .tkb svg{transform:rotate(180deg)}
   /* A sent prompt is the chat's anchor: bright bold text, a violet glyph and a
