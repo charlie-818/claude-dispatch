@@ -753,6 +753,20 @@
     background:var(--panel);border:1px solid var(--line2);border-radius:var(--r3);
     padding:9px 9px 8px;transition:border-color .15s}
   .cbox:focus-within{border-color:var(--blue)}
+  /* staged attachments: a row of icon+name chips above the text, each with
+     its own remove button — never the raw path, that's what this replaces */
+  .attachments{display:flex;flex-wrap:wrap;gap:6px}
+  .attachments:empty{display:none}
+  .attchip{display:inline-flex;align-items:center;gap:5px;max-width:170px;
+    padding:4px 6px 4px 8px;border:1px solid var(--line2);border-radius:999px;
+    background:var(--panel3);font:500 12px var(--ui);color:var(--fg2)}
+  .attchip .material-symbols-rounded{font-size:15px;flex:none;color:var(--dim)}
+  .attchip .attname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .attchip .attx{display:flex;align-items:center;justify-content:center;flex:none;
+    width:16px;height:16px;margin-left:1px;padding:0;border:none;border-radius:50%;
+    background:var(--line2);color:var(--fg2);cursor:pointer}
+  .attchip .attx .material-symbols-rounded{font-size:12px;color:inherit}
+  .attchip .attx:active{background:var(--dim)}
   /* The visible viewport can shrink behind mobile browser chrome. Body already
      owns the safe-area inset, so this is only a small deliberate visual lift. */
   @media (max-width:700px){
@@ -1776,6 +1790,7 @@
     <input type="file" id="docinput" multiple hidden
            onchange="uploadFiles(this.files, 'docbtn')">
     <div class="cbox">
+      <div class="attachments" id="attachments"></div>
       <textarea id="input" rows="1" placeholder=""></textarea>
       <div class="cbar">
         <span class="gap"></span>
@@ -6761,9 +6776,30 @@ function applySuggest(s){
   autosize();
 }
 
-/* Upload image/video from the device. The server saves it in the pane's working
-   dir and returns an absolute path; we drop that path into the composer so
-   Claude Code can Read/view it when you send. */
+/* Staged attachments: uploaded files waiting to go out with the next send.
+   Each entry is {path, name, kind} — kind drives the chip icon only, the
+   path is what actually reaches Claude Code, never shown in the composer. */
+let pendingAttachments = [];
+function renderAttachments(){
+  const box = document.getElementById('attachments');
+  box.innerHTML = pendingAttachments.map((a, i) => `
+    <span class="attchip">
+      <span class="material-symbols-rounded" aria-hidden="true">${a.kind === 'image' ? 'image' : 'draft'}</span>
+      <span class="attname">${esc(a.name)}</span>
+      <button type="button" class="attx" aria-label="remove ${esc(a.name)}" onclick="removeAttachment(${i})">
+        <span class="material-symbols-rounded" aria-hidden="true">close</span>
+      </button>
+    </span>`).join('');
+}
+function removeAttachment(i){
+  pendingAttachments.splice(i, 1);
+  renderAttachments();
+  buzz(8);
+}
+
+/* Upload image/video/doc from the device. The server saves it in the pane's
+   working dir and returns an absolute path; that path rides along at send
+   time (see send()) — the composer itself only ever shows a chip. */
 async function uploadFiles(files, btnId){
   if (!current || !files || !files.length) return;
   const attach = document.getElementById(btnId || 'attachbtn');
@@ -6787,10 +6823,8 @@ async function uploadFiles(files, btnId){
             : 'upload failed — ' + r.status), true);
           continue;
         }
-        const cur = input.value;
-        input.value = (cur ? cur.replace(/\s*$/,'') + ' ' : '') + d.path + ' ';
-        autosize();
-        input.dispatchEvent(new Event('input'));
+        pendingAttachments.push({path: d.path, name: d.name, kind: f.type.startsWith('image/') ? 'image' : 'file'});
+        renderAttachments();
         toast('attached ' + d.name);
       } catch(e){ toast(String(e.message), true); }
     }
@@ -6915,11 +6949,15 @@ async function send(){
     } else toast('Choose an option in the question card', true);
     return;
   }
-  const t = input.value.trim();
+  const atext = pendingAttachments.map(a => a.path).join(' ');
+  const typed = input.value.trim();
+  const t = (typed + (atext ? (typed ? ' ' : '') + atext : '')).trim();
   buzz(12);
   ensurePaneLive();          // dead socket → the sent prompt would never show
   // Clear + echo BEFORE the await — the pause is the whole bug this fixes.
-  if (t){ input.value = ''; autosize(); }
+  const sentAttachments = pendingAttachments;
+  if (typed){ input.value = ''; autosize(); }
+  if (sentAttachments.length){ pendingAttachments = []; renderAttachments(); }
   const echo = t ? addPendingEcho(t) : null;
   if (t) recentSends.push({uuid: current.uuid, key: sendKey(t), until: Date.now() + 15000});
   sendbtn.classList.add('busy'); sendbtn.disabled = true;
@@ -6933,7 +6971,8 @@ async function send(){
     }
   } catch(e){
     if (echo) removePendingEcho(echo);
-    if (t && !input.value) { input.value = t; autosize(); }   // give the text back
+    if (typed && !input.value) { input.value = typed; autosize(); }   // give the text back
+    if (sentAttachments.length){ pendingAttachments = sentAttachments; renderAttachments(); }
     toast(String(e.message), true);
   } finally {
     sendbtn.classList.remove('busy');
