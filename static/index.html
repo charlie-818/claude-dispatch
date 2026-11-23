@@ -1997,7 +1997,8 @@ function colorizeLine(l, p){
     // wherever the box ran out of room, splitting mid-number on a narrow
     // phone. Block-level puts it on its own line instead, cleanly, every time.
     e = e.replace(/(\s*(?:\([^()]*\btokens?\b[^()]*\)|·\s*[^·]*\btokens?\b[^·]*))\s*$/i,
-      tail => `<span class="stat-tokwrap">${tail.trim()}</span>`);
+      // the "·" only made sense inline; on its own line it's a stray dot
+      tail => `<span class="stat-tokwrap">${tail.trim().replace(/^·\s*/, '')}</span>`);
   if (p === 'claude') e = e.replace(/^(\s*)([⏺●\uE000])/, (_, sp, d) =>
     `${sp}<span class="tdot${d === '\uE000' ? ' off' : ''}">${d === '\uE000' ? '⏺' : d}</span>`)
     .replace(/^(\s*<span class="tdot[^"]*">[^<]*<\/span>\s*)([\w.:-]+(?: - [\w .:-]+)?(?: \(MCP\))?)\((.*?)(\)?)$/,
@@ -4532,7 +4533,9 @@ function paint(force){
     }
     const tt = tokAt && tokAt.get(i);
     if (tt && tt.out) h += `<span class="ttok" title="${tt.total.toLocaleString()} tokens incl. context re-read">`
-      + ` · ${fmtTok(tt.out)} tokens</span>`;
+      // block display always puts this on its own line — the "·" that made
+      // sense inline would just be a stray leading dot here
+      + `${fmtTok(tt.out)} tokens</span>`;
     if (th) h += ` <span class="tkb">${th[1]} line${th[1] === 1 ? '' : 's'}${TKB_CHEV}</span>`;
     return i >= liveFrom ? linkKeys(h) : h;
   });
