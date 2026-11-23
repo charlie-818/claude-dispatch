@@ -331,8 +331,10 @@
      its query has no slashes or hyphens for the browser to break on at all. */
   .pane .targ{color:var(--fg2);white-space:pre-wrap;overflow-wrap:anywhere}
   .pane .tpar{color:var(--dimmer)}
-  /* a finished section's token total, after its "✻ Worked for 10s" */
-  .pane .ttok{color:var(--dim)}
+  /* a finished section's token total, after its "✻ Worked for 10s" — appended
+     live by paint() (see turnTokens), so it never goes through colorizeLine's
+     stat-tokwrap regex; needs its own line-break rules for the same reason. */
+  .pane .ttok{color:var(--dim);display:block;white-space:nowrap;overflow-wrap:normal}
   /* the expander: a real pill at the end of the header, chevron flips when open */
   .pane .tkb{display:inline-flex;align-items:center;gap:4px;
     /* no margin-left here: a real text node precedes the pill, so the gap is
