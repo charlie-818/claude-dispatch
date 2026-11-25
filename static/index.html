@@ -547,6 +547,9 @@
   .bga-trow{display:flex;align-items:center;gap:8px;padding:7px 0;
     border-bottom:1px solid var(--line);font:12px var(--mono);min-width:0}
   .bga-trow.out{cursor:pointer}
+  /* an opened row's output box is its own outline — the row's divider on top
+     of it read as a second, doubled border */
+  .bga-trow:has(+ .bga-pre){border-bottom-color:transparent}
   .bga-tn{flex:none;font:600 11px var(--mono);color:var(--c);border-radius:4px;
     padding:1px 6px;background:color-mix(in srgb,var(--c) 14%,transparent)}
   .bga-ta{flex:1;min-width:0;color:var(--fg2);white-space:nowrap;overflow:hidden;
