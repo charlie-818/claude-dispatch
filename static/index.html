@@ -4358,6 +4358,13 @@ function cleanCapture(rows){
   }
   for (let i = 0; i < rows.length; i++)
     if (STATUS_LINE.test(rows[i]) && !DONE_LINE.test(rows[i])) rows[i] = '\uE002';
+  // Claude's idle "\u203B recap: \u2026" summary, and its indented wrap rows: it only
+  // repeats the reply above it, so it's hidden.
+  for (let i = 0; i < rows.length; i++){
+    if (!/^\s*\u203B\s*recap:/i.test(rows[i])) continue;
+    rows[i] = '\uE002';
+    while (i + 1 < rows.length && /^\s+\S/.test(rows[i + 1])) rows[++i] = '\uE002';
+  }
   // the input box's top border, frozen in scrollback right above the prompt
   // it held as that prompt moved into the transcript (often with iTerm's
   // U+FFFD glitch in it): not content. A rule anywhere else just gets mended.
