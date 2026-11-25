@@ -1430,6 +1430,13 @@
   .hrow .hmeta .hm-model{color:var(--violet);flex:0 1 auto}
   .hrow .hmeta .hm-cost{margin-left:auto;flex:none;color:var(--fg2);font-weight:700}
   .hrow.busy{opacity:.55;pointer-events:none}
+  /* the chat's own recap (free — read from its transcript) and the last
+     shell command it ran, between the title and the meta row */
+  .hrow .hsum{font:500 11.5px/1.4 var(--ui);color:var(--dim);margin:0 0 5px;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .hrow .hcmd{font:500 10.5px/1.4 var(--mono);color:var(--dimmer);margin:0 0 5px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hrow .hcmd span{color:var(--c-orange);margin-right:6px}
   /* searching: a flat list of matching chats, each carrying its own repo */
   #hist-body > .hrow{background:var(--panel2);border:1px solid var(--line2);
     border-radius:var(--r);margin-bottom:8px;padding:10px 11px;box-shadow:none}
@@ -7986,6 +7993,8 @@ function renderHistory(){
         b.innerHTML =
           '<div class="htop"><span class="htitle">'+esc(h.title||'untitled')+'</span>'
           + '<span class="hwhen">'+esc(when)+'</span></div>'
+          + (h.summary ? '<div class="hsum">'+esc(h.summary)+'</div>' : '')
+          + (h.last_cmd ? '<div class="hcmd"><span>$</span>'+esc(h.last_cmd)+'</div>' : '')
           + '<div class="hmeta">'
           + (h.provider ? agentLogo(h.provider) : '')
           + '<span>'+h.prompts+' prompts · '+fmtTok(h.tokens||0)+'</span>'

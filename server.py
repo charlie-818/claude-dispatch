@@ -6733,6 +6733,10 @@ def _scan_history_file(path):
     itok = otok = cctok = crtok = 0; seen = set(); title = first_title = ""
     blurb = []; blurb_len = 0                # all user prompts, for search
     labeler = False
+    # Free summaries the client already wrote into the transcript — the idle
+    # "※ recap" (system/away_summary) beats the slug-style ai-title. Never ask
+    # a model for one here: history covers hundreds of chats.
+    recap = ai_title = ""; last_cmd = ""
     for ln in lines:
         try:
             o = json.loads(ln)
@@ -6742,6 +6746,18 @@ def _scan_history_file(path):
             cwd = o.get("cwd")
         typ = o.get("type")
         m = o.get("message") if isinstance(o.get("message"), dict) else {}
+        if typ == "system" and o.get("subtype") == "away_summary":
+            if isinstance(o.get("content"), str) and o["content"].strip():
+                recap = o["content"]
+        elif typ == "ai-title" and isinstance(o.get("aiTitle"), str):
+            ai_title = o["aiTitle"]
+        elif typ == "assistant" and isinstance(m.get("content"), list):
+            for c in m["content"]:
+                if (isinstance(c, dict) and c.get("type") == "tool_use"
+                        and c.get("name") == "Bash" and isinstance(c.get("input"), dict)):
+                    cmd = c["input"].get("command")
+                    if isinstance(cmd, str) and cmd.strip():
+                        last_cmd = cmd
         # newest genuine user prompt → the card title. Where a session got to
         # says more about it than where it started: the opening line of a long
         # chat is usually "fix the build", which names every row in the list.
@@ -6787,6 +6803,9 @@ def _scan_history_file(path):
     if labeler and not prompts:
         return None
     cost = HIST.model_cost(model or "unknown", itok, otok, cctok, crtok) if model else 0.0
+    summary = " ".join((recap or ai_title.replace("-", " ")).split())[:300]
+    # the command's first line only — a heredoc or && chain reads as its head
+    cmd = next((l.strip() for l in last_cmd.splitlines() if l.strip()), "")[:160]
     return {
         "session_id": os.path.basename(path)[:-6],   # strip .jsonl
         "title": title or "(no prompt)",
@@ -6800,6 +6819,8 @@ def _scan_history_file(path):
         # every user prompt (bounded), original case — lets search hit any prompt
         # in the session (not just the title) and show a highlighted snippet
         "search": " ".join(blurb)[:1600],
+        "summary": summary,
+        "last_cmd": cmd,
         "provider": "claude",
     }
 
@@ -6889,7 +6910,7 @@ def _kick_history():
 # the first history view can answer. Entries are keyed on mtime+size, so a
 # stale file is simply re-scanned.
 SCAN_CACHE_FILE = HERE / ".scan_cache.pkl"
-SCAN_CACHE_VERSION = 4          # 4: labeler sessions dropped from history
+SCAN_CACHE_VERSION = 5          # 5: summary + last_cmd per session
 _scan_cache_loaded = [False]
 
 
