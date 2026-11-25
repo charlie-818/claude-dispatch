@@ -807,18 +807,23 @@ SELECT_RE = re.compile(r"^\s*[❯>›]\s")
 # A leading checkbox glyph on an option label — multi-select (AskUserQuestion
 # with multiSelect) draws one of these instead of a number. group(1) is the
 # box itself, group(2) the label with the box stripped off.
-CHECK_RE = re.compile(r"^([☐☑☒◻◼◽◾○●⬡⬢]|\[[ xX✓·]?\])\s*(.*)$")
+CHECK_RE = re.compile(r"^([☐☑☒◻◼◽◾○●⬡⬢]|\[[ xX✓✔√·]?\])\s*(.*)$")
 _CHECKED_MARKS = set("☑☒◼◾⬢●")
 # Claude prints this hint under a checkbox run even when a row happens to
 # have no box drawn (a header row, say) — the fallback signal for "multi".
 MULTI_HINT_RE = re.compile(r"space to (toggle|select)", re.I)
+# Claude Code's multi-select has no "Enter submits": Enter or Space on a row
+# toggles it, and submitting means walking the caret one row past the last
+# option onto this bare button ("Next" on all but the last question) and
+# pressing Enter there.
+SUBMIT_ROW_RE = re.compile(r"^\s*[❯>›]?\s*(Submit|Next|[A-Z][a-z]+ selected)\s*$")
 
 
 def _check_state(mark):
     if mark in _CHECKED_MARKS:
         return True
     if mark.startswith("["):
-        return mark[1:-1] in ("x", "X", "✓", "·")
+        return mark[1:-1] in ("x", "X", "✓", "✔", "√", "·")
     return False
 
 
@@ -906,6 +911,8 @@ def _fold_tail(cur, l, indent, label_col):
     if not cur:
         return "skip"
     s = l.strip()
+    if SUBMIT_ROW_RE.match(l):
+        return "close"                 # the submit button ends the run
     if s and indent >= label_col and not set(s) <= set("─━│ ⎿"):
         # kept apart from the label: a permission prompt's wrapped label gets
         # rejoined at emit time, AskUserQuestion's description stays a description
@@ -1081,7 +1088,14 @@ def detect_prompt(text, provider=None, uuid=None):
                 multi = True
                 break
 
-    return {"question": q[:160], "options": opts[:9], "multi": multi}
+    out = {"question": q[:160], "options": opts[:9], "multi": multi}
+    if multi:
+        for l in lines[run[-1][0] + 1: run[-1][0] + 6]:
+            m = SUBMIT_ROW_RE.match(l)
+            if m:
+                out["submit"] = m.group(1)
+                break
+    return out
 
 
 _GROK_PROMPT_EPISODES = {}
@@ -4084,6 +4098,14 @@ async def api_select(request):
         await asyncio.sleep(0.04)
         toggled += 1
     if submit:
+        if p.get("submit"):
+            # Enter on an option only toggles it — park the caret on the
+            # Submit/Next button below the last option and press it there.
+            last = max(o["index"] for o in opts)
+            for _ in range(last - caret + 1):
+                await s.async_send_text(KEYS["down"])
+                await asyncio.sleep(0.04)
+        await asyncio.sleep(0.08)
         await s.async_send_text(KEYS["enter"])
     return web.json_response({"ok": True, "toggled": toggled, "submitted": submit})
 

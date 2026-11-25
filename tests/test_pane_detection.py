@@ -2116,3 +2116,29 @@ def test_dir_picker_paints_recent_section():
     assert "data.recents" in fn
     assert "addLab('recent')" in fn
     assert ".dp-lab{" in source
+
+
+# AskUserQuestion multiSelect as Claude Code 2.1.280 draws it: numbered rows
+# with a [ ]/[✔] box, then a bare Submit button the caret must be walked onto
+# (Enter on an option row only toggles it).
+ASK_MULTI_PROMPT = """\
+ ☐ Fruit
+Which fruits?
+❯ 1. [✔] Apple
+     crunchy
+  2. [ ] Pear
+  3. [✔] Plum
+     Submit
+──────────────────────────────────────────────
+  Chat about this
+Enter to select · ↑/↓ to navigate · Esc to cancel
+"""
+
+
+def test_detect_prompt_ask_multiselect_submit_row():
+    out = srv.detect_prompt(ASK_MULTI_PROMPT)
+    assert out["multi"] is True
+    assert [o["label"] for o in out["options"]] == ["Apple", "Pear", "Plum"]
+    assert [o["checked"] for o in out["options"]] == [True, False, True]
+    assert out["options"][0]["desc"] == "crunchy"
+    assert out["submit"] == "Submit"

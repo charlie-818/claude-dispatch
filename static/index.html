@@ -750,8 +750,12 @@
   .act .num.check{background:none;width:19px;height:19px;color:var(--dim)}
   .act .num.check svg{width:19px;height:19px;display:block}
   .act.sel .num.check{color:var(--blue)}
-  .act.send{justify-content:center;border-color:transparent;background:var(--blue);
-    color:#06172e;font-weight:600}
+  /* the multi-select's submit — same card shape as the rows above it, blue
+     fill. Not .send: that's the composer's round icon button. */
+  .act.submit{justify-content:center;margin-top:6px;border-color:var(--blue);
+    background:var(--blue);color:#06172e;font-weight:600}
+  .act.submit:active{filter:brightness(.92);background:var(--blue)}
+  .act.submit:disabled{opacity:.55;cursor:default}
 
   /* One box holds everything: the text on top, spanning the full width, and a
      fixed row of icons under it. The textarea grows and shrinks with the line
@@ -5523,8 +5527,8 @@ async function sendSelect(){
   buzz(12);
   try {
     await post('/api/select', {uuid: current.uuid, indices: [...multiPending], submit: true});
-    livePrompt = null; renderActions();
-  } catch(e){ toast(String(e.message), true); }
+    livePrompt = null; multiPendingKey = null; renderActions();
+  } catch(e){ toast(String(e.message), true); renderActions(); }
 }
 
 const codexPromptDrafts = new Map();
@@ -5785,9 +5789,10 @@ function renderActions(){
       });
       bar.appendChild(wrap);
       const go = document.createElement('button');
-      go.className = 'act slim send';
-      go.textContent = 'Send';
-      go.onclick = sendSelect;
+      go.className = 'act submit';
+      const n = multiPending.size;
+      go.textContent = n ? `Submit ${n} selected` : 'Submit';
+      go.onclick = () => { go.disabled = true; sendSelect(); };
       bar.appendChild(go);
       return;
     }
