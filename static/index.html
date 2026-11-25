@@ -335,6 +335,23 @@
      its query has no slashes or hyphens for the browser to break on at all. */
   .pane .targ{color:var(--fg2);white-space:pre-wrap;overflow-wrap:anywhere}
   .pane .tpar{color:var(--dimmer)}
+  /* shell commands, coloured like an editor (see shHighlight). Hues come from
+     the app palette, softened a step so a long command reads as code rather
+     than a row of status colours: command = warm yellow, keyword = violet,
+     string = peach, variable = sky, flag = cyan, path = plain, comment = green. */
+  .pane{--sh-cmd:#f2d27a;--sh-kw:#c99bff;--sh-str:#f0a37e;--sh-var:#8fd0ff;
+    --sh-flag:#6fd3cb;--sh-num:#b9e29a;--sh-com:#7fa86d;--sh-fn:#f2d27a}
+  .pane .targ.sh{color:var(--fg2);font-family:var(--mono)}
+  .pane .sh-cmd{color:var(--sh-cmd);font-weight:600}
+  .pane .sh-kw{color:var(--sh-kw)}
+  .pane .sh-str{color:var(--sh-str)}
+  .pane .sh-var{color:var(--sh-var)}
+  .pane .sh-flag{color:var(--sh-flag)}
+  .pane .sh-num{color:var(--sh-num)}
+  .pane .sh-op{color:var(--dim)}
+  .pane .sh-path{color:var(--fg)}
+  .pane .sh-com{color:var(--sh-com);font-style:italic}
+  .pane .sh-fn{color:var(--sh-fn)}
   /* a finished section's token total, after its "✻ Worked for 10s" — appended
      live by paint() (see turnTokens), so it never goes through colorizeLine's
      stat-tokwrap regex; needs the same first-line-if-it-fits, hang-indented-
@@ -2058,6 +2075,154 @@ function colorizeWords(e){
     t => `<span class="${t[0] === '`' ? 'c-inline' : 'c-code'}">${t}</span>`);
 }
 function colorizeLines(text, p){ return text.split('\n').map(l => colorizeLine(l, p)); }
+
+/* ── shell syntax highlighting ─────────────────────────
+   The commands agents run, coloured the way an editor would. Tuned on ~1.9k
+   real Bash calls: mostly grep/head/tail/git/sed/ssh/python3 chained with
+   && and pipes, quoted patterns, flags, paths, and `python3 - <<'EOF'`
+   heredocs whose bodies are Python or JS — so a heredoc body gets a light
+   code pass (strings, comments, keywords) rather than one flat colour.
+   State runs across rows: a command can wrap, or span lines (heredoc, an
+   open quote), and each row is highlighted where the last one left off. */
+const SH_KW = new Set(('if then else elif fi for while until do done case esac in '
+  + 'function select return break continue exit').split(' '));
+// these take a command after them, so the next word is a command again
+const SH_PREFIX = new Set('sudo timeout xargs env nohup time exec nice caffeinate watch command builtin then do else elif if while until !'.split(' '));
+const CODE_KW = /\b(def|class|import|from|return|if|elif|else|for|while|in|not|and|or|is|with|as|try|except|finally|raise|assert|lambda|yield|async|await|pass|break|continue|None|True|False|const|let|var|function|new|this|null|undefined|true|false|export|default|of|typeof|throw|catch)\b/g;
+const shSpan = (cls, s) => `<span class="sh-${cls}">${esc(s)}</span>`;
+function shVars(s){
+  // $VAR / ${…} / $1 / $? inside a word or a double-quoted string
+  return esc(s).replace(/\$(?:\{[^}]*\}|[A-Za-z_]\w*|[0-9?#@*$!])/g, m => `<span class="sh-var">${m}</span>`);
+}
+function codeLine(raw){
+  // heredoc body: strings, comments, keywords, numbers — nothing deeper
+  let out = '', i = 0;
+  const re = /("(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?|`[^`]*`?)|(#.*$|\/\/.*$)|([^"'`#\/]+|\/)/g;
+  let m;
+  while ((m = re.exec(raw))){
+    if (m[1]) out += shSpan('str', m[1]);
+    else if (m[2]) out += (m[2][0] === '/' && m[2][1] !== '/') ? esc(m[2]) : shSpan('com', m[2]);
+    else out += esc(m[3]).replace(CODE_KW, k => `<span class="sh-kw">${k}</span>`)
+      .replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="sh-num">$1</span>')
+      .replace(/\b([A-Za-z_]\w*)(?=\()/g, '<span class="sh-fn">$1</span>');
+    if (re.lastIndex === m.index) re.lastIndex++;
+  }
+  return out;
+}
+function shNewState(){ return {cmd: true, quote: null, here: null, pend: null}; }
+function shHighlight(raw, st){
+  if (st.here){
+    if (raw.trim() === st.here){ st.here = null; st.cmd = true; return shSpan('kw', raw); }
+    return codeLine(raw);
+  }
+  let out = '', i = 0;
+  const n = raw.length;
+  while (i < n){
+    const c = raw[i];
+    if (st.quote){                                   // a string left open on an earlier row
+      const q = st.quote; let j = i;
+      while (j < n && raw[j] !== q){ if (q === '"' && raw[j] === '\\') j++; j++; }
+      if (j < n){ j++; st.quote = null; }
+      const t = raw.slice(i, j);
+      out += `<span class="sh-str">${q === '"' ? shVars(t) : esc(t)}</span>`;
+      i = j; continue;
+    }
+    if (c === ' ' || c === '\t'){ let j = i; while (j < n && (raw[j] === ' ' || raw[j] === '\t')) j++; out += raw.slice(i, j); i = j; continue; }
+    if (c === '#' && (i === 0 || /\s/.test(raw[i - 1]))){ out += shSpan('com', raw.slice(i)); break; }
+    if (c === "'" || c === '"'){ st.quote = c; out += ''; const save = i; i++;
+      let j = i; while (j < n && raw[j] !== c){ if (c === '"' && raw[j] === '\\') j++; j++; }
+      if (j < n){ j++; st.quote = null; }
+      const t = raw.slice(save, j);
+      out += `<span class="sh-str">${c === '"' ? shVars(t) : esc(t)}</span>`;
+      st.cmd = false; i = j; continue; }
+    const rest = raw.slice(i);
+    let m;
+    if ((m = rest.match(/^<<-?\s*(['"]?)([A-Za-z_]\w*)\1/))){   // heredoc opener
+      st.pend = m[2]; out += shSpan('op', m[0]); i += m[0].length; continue;
+    }
+    if ((m = rest.match(/^(?:&&|\|\||;;|\|&|[|;&]|\$\(|[({]|<\()/))){
+      out += shSpan('op', m[0]); st.cmd = true; i += m[0].length; continue;
+    }
+    if ((m = rest.match(/^(?:[)}]|<<<|\d*>>?&?\d*|&>|<)/))){
+      out += shSpan('op', m[0]); i += m[0].length; continue;
+    }
+    if ((m = rest.match(/^\$(?:\{[^}]*\}|[A-Za-z_]\w*|[0-9?#@*$!])/))){
+      out += shSpan('var', m[0]); st.cmd = false; i += m[0].length; continue;
+    }
+    // a plain word: up to whitespace, an operator, or a quote
+    m = rest.match(/^(?:\\.|[^\s|&;()<>'"`])+/);
+    if (!m){ out += esc(c); i++; continue; }
+    const w = m[0]; i += w.length;
+    let a;
+    if (st.cmd && (a = w.match(/^([A-Za-z_]\w*)=(.*)$/))){       // FOO=bar prefix
+      out += shSpan('var', a[1]) + shSpan('op', '=') + (a[2] ? `<span class="sh-str">${shVars(a[2])}</span>` : '');
+      continue;
+    }
+    if (st.cmd){
+      if (SH_KW.has(w)){ out += shSpan('kw', w); st.cmd = SH_PREFIX.has(w); continue; }
+      if (/^\d+[smhd]?$/.test(w)){ out += shSpan('num', w); continue; }   // timeout 10 …
+      if (w === '[' || w === '[['){ out += shSpan('op', w); st.cmd = false; continue; }
+      out += shSpan('cmd', w);
+      st.cmd = SH_PREFIX.has(w.replace(/^.*\//, ''));
+      continue;
+    }
+    if (SH_KW.has(w) && /^(do|done|then|fi|else|esac|in)$/.test(w)){ out += shSpan('kw', w); st.cmd = w !== 'in'; continue; }
+    if ((a = w.match(/^(--?[A-Za-z0-9][\w-]*)(=.*)?$/))){
+      out += shSpan('flag', a[1]) + (a[2] ? shSpan('op', '=') + `<span class="sh-str">${shVars(a[2].slice(1))}</span>` : '');
+      continue;
+    }
+    if (/^-?\d+(?:\.\d+)?$/.test(w)){ out += shSpan('num', w); continue; }
+    if (/^https?:\/\//.test(w)){ out += esc(w); continue; }          // linkify takes it
+    if (/[\/~]/.test(w) || /^\.\w/.test(w) || /^[\w.-]+\.[A-Za-z]\w{0,4}$/.test(w)){ out += `<span class="sh-path">${shVars(w)}</span>`; continue; }
+    out += w.includes('$') ? shVars(w) : esc(w);
+  }
+  if (st.pend && !st.quote){ st.here = st.pend; st.pend = null; }
+  return out;
+}
+
+/* Which rows are a command, and where on each row the command text starts.
+   Claude: "⏺ Bash(cmd" plus the indented rows it wrapped or broke onto, up to
+   the ⎿ result. Codex: "• Ran cmd" plus its "│ " continuation rows.
+   Returns Map(row -> [start column, is last row of the command]). */
+function shellRows(rows, p){
+  const out = new Map();
+  for (let i = 0; i < rows.length; i++){
+    const r = rows[i];
+    let m, start = -1;
+    if (p === 'claude' && (m = r.match(/^(\s*[⏺●]\s*Bash\()/))) start = m[1].length;
+    else if (p === 'codex' && (m = r.match(/^(\s*•\s+(?:Ran|Running)\s+)\S/))) start = m[1].length;
+    if (start < 0) continue;
+    out.set(i, [start, true]);
+    let last = i;
+    for (let j = i + 1; j < rows.length; j++){
+      const t = rows[j];
+      if (t[0] === '') continue;
+      if (!t.trim() || /^\s*(?:⎿|[⏺●•✻✽❯›]|… \+\d+ lines)/.test(t) || !/^\s/.test(t)) break;
+      if (p === 'codex' && !/^\s*[│└]\s/.test(t)) break;
+      if (p === 'codex' && /^\s*└/.test(t)) break;
+      const ind = p === 'codex' ? t.match(/^\s*│\s?/)[0].length : t.match(/^\s*/)[0].length;
+      out.get(last)[1] = false;
+      out.set(j, [ind, true]);
+      last = j;
+    }
+    i = last;
+  }
+  return out;
+}
+/* One command row as HTML. Claude's header keeps its chip; the closing paren
+   on the command's last row is the tool's, not the shell's. */
+function colorizeShellRow(l, start, isLast, st, p, head){
+  let pre = l.slice(0, start), body = l.slice(start), close = '';
+  if (p === 'claude' && isLast && body.endsWith(')') && !st.here){ body = body.slice(0, -1); close = '<span class="tpar">)</span>'; }
+  const code = `<span class="targ sh">${shHighlight(body, st)}</span>${close}`;
+  if (!head) return esc(pre) + code;
+  if (p === 'claude'){
+    const m = pre.match(/^(\s*)([⏺●])(\s*)Bash\($/);
+    return `<span class="c-blue">${m[1]}<span class="tdot${m[2] === '' ? ' off' : ''}">${m[2] === '' ? '⏺' : m[2]}</span>${m[3]}`
+      + `${toolChip('Bash')}<span class="tpar">(</span>${code}</span>`;
+  }
+  return `<span class="c-blue">${esc(pre)}</span>${code}`;
+}
 function colorize(text, p){ return colorizeLines(text, p).join('\n'); }
 
 function lineLayoutClass(l){ return /^\s*(?:[-*•]\s|\d+\.\s)/.test(l) ? ' list-line' : ''; }
@@ -4575,9 +4740,18 @@ function paint(force){
   // Key hints only count on the live screen — one in old scrollback is about a
   // command that's long gone.
   const liveFrom = rawLines.length - liveTail;
+  const shRows = shellRows(rawLines, prov);
+  let shSt = null;
   const lines = rawLines.map((l, i) => {
     if (l[0] === '\uE002') return '';
-    let h = tbl.kind[i] ? colorizeTable(l) : colorizeLine(l, prov);
+    const sh = !tbl.kind[i] && shRows.get(i);
+    let h;
+    if (sh){
+      const head = /^\s*[⏺●\uE000•]/.test(l);
+      if (head || !shSt) shSt = shNewState();
+      h = linkify(colorizeShellRow(l, sh[0], sh[1], shSt, prov, head));
+      if (sh[1]) shSt = null;
+    } else h = tbl.kind[i] ? colorizeTable(l) : colorizeLine(l, prov);
     const th = compactMode && heads && heads.get(i);
     if (upRows.get(i) & 1) h = h.replace(/^(<span class="c-sel">\s*)([❯›])/, '$1<span class="upg">$2</span>');
     if (PANE_SANS && prov === 'claude' && !tbl.kind[i] && !(heads && heads.has(i))
