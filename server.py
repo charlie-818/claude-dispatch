@@ -1573,6 +1573,12 @@ def session_ops(path):
                         if uid is not None:
                             st["seen"].add(uid)
                         st["prompts"] += 1
+                    # when a person last spoke — the list's sort clock. The
+                    # .state hooks also fire on turns nobody typed (an agent
+                    # finishing, a task notification), so they can't be it.
+                    ts = _parse_ts(o.get("timestamp"))
+                    if ts and ts > (st.get("pat") or 0):
+                        st["pat"] = ts
             m = o.get("message")
             if not isinstance(m, dict):
                 continue
@@ -2472,6 +2478,7 @@ def read_fleet_files():
             row["files"] = fcount
             row["prompts"] = pcount
             row["action"] = (_OPS.get(tp) or {}).get("action") if tp else None
+            row["last_prompt"] = (_OPS.get(tp) or {}).get("pat") if tp else None
             # subagents currently alive for this pane — one pet each on the yard
             row["subs"] = live_subagents(tp, now) if tp else []
         else:
@@ -3345,6 +3352,7 @@ async def _fleet_row(uuid, s, files):
             "bg": _BG.get((f or {}).get("transcript") or "", 0),
             "dur_ms": (f or {}).get("dur_ms"),
             "work_since": (f or {}).get("state_since"),
+            "last_prompt": (f or {}).get("last_prompt"),   # last human prompt, from transcript
             "mtime": (f or {}).get("mtime"),      # reaper fallback clock
             "action": (f or {}).get("action"),   # newest tool call, from transcript
             "subs": (f or {}).get("subs") or [],  # in-flight subagents → yard pets

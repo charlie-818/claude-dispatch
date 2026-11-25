@@ -2668,6 +2668,10 @@ function renderFleet(rows){
 const yardListing = () => document.getElementById('yard').classList.contains('listing');
 const SEEN_ST = new Map();          // uuid -> {st, t} for panes with no hook clock
 function lastMsg(r){
+  // When someone last sent this chat a prompt, read off its transcript. The
+  // hook clock (work_since) also moves on turns nobody typed — a background
+  // agent reporting back, a task notification — which floated idle chats up.
+  if (r.last_prompt) return r.last_prompt;
   if (r.work_since) return r.work_since;
   const st = stateOf(r), k = SEEN_ST.get(r.uuid);
   if (!k) SEEN_ST.set(r.uuid, {st, t: r.mtime || Date.now()/1000});
