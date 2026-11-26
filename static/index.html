@@ -2063,7 +2063,10 @@ function colorizeLine(l, p){
           + `<span class="stat-tokwrap">${t}</span>`;
       });
   if (p === 'claude') e = e.replace(/^(\s*)([⏺●\uE000])/, (_, sp, d) =>
-    `${sp}<span class="tdot${d === '\uE000' ? ' off' : ''}">${d === '\uE000' ? '⏺' : d}</span>`)
+    // the blinked-off beat (\uE000) draws exactly like the on beat: any
+    // difference in markup rewrites the row every 600ms, restarting the live
+    // dot's pulse — the running command visibly flickered
+    `${sp}<span class="tdot">${d === '\uE000' ? '⏺' : d}</span>`)
     .replace(/^(\s*<span class="tdot[^"]*">[^<]*<\/span>\s*)([\w.:-]+(?: - [\w .:-]+)?(?: \(MCP\))?)\((.*?)(\)?)$/,
       (_, pre, name, args, close) => `${pre}${toolChip(name)}`
         + `<span class="tpar">(</span><span class="targ">${args}</span>`
@@ -2223,7 +2226,7 @@ function colorizeShellRow(l, start, isLast, st, p, head){
   if (!head) return esc(pre) + code;
   if (p === 'claude'){
     const m = pre.match(/^(\s*)([⏺●])(\s*)Bash\($/);
-    return `<span class="c-blue">${m[1]}<span class="tdot${m[2] === '' ? ' off' : ''}">${m[2] === '' ? '⏺' : m[2]}</span>${m[3]}`
+    return `<span class="c-blue">${m[1]}<span class="tdot">${m[2] === '\uE000' ? '⏺' : m[2]}</span>${m[3]}`
       + `${toolChip('Bash')}<span class="tpar">(</span>${code}</span>`;
   }
   return `<span class="c-blue">${esc(pre)}</span>${code}`;
