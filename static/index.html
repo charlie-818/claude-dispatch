@@ -376,6 +376,8 @@
   .pane .tkb svg{width:9px;height:9px;flex:none;transition:transform .15s ease}
   .pane .ln.tk.open .tkb{color:var(--blue)}
   .pane .ln.tk.open .tkb svg{transform:rotate(180deg)}
+  /* an opened call's output: greyed a step so the command above stays the lead */
+  .pane .ln.tkout{opacity:.6}
   /* A sent prompt is the chat's anchor: bright bold text, a violet glyph and a
      little air above and below. .echoln wears the same, so the send echo
      still swaps for the real row without a visible change. */
@@ -4841,6 +4843,9 @@ function paint(force){
       el.dataset.tk = th[0];
     } else if (el.dataset.tk) delete el.dataset.tk;
     if (inBody.has(i)) el.className += ' tkbody';
+    // compact view, a call opened up: its output sits a step back from the
+    // command — but a long command's own wrapped rows are still the command
+    if (compactMode && inBody.has(i) && !shRows.has(i)) el.className += ' tkout';
     if (i === act) el.className += ' tact';
     if (afterList.has(i)) el.className += ' after-list';
     const pr = prose.get(i);
