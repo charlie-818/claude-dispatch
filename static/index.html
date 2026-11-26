@@ -4695,6 +4695,8 @@ function fitPad(p){
   p.style.paddingTop = pad;
   return true;
 }
+const REDUCED_MOTION = matchMedia('(prefers-reduced-motion: reduce)');
+let paneHigh = 0;   // most rows this chat has drawn — only rows past it are new
 function paint(force){
   const p = document.getElementById('pane');
   const prov = (current && current.provider) || 'claude';
@@ -4809,6 +4811,10 @@ function paint(force){
     fixTokDots(p);
     return;
   }
+  // a chat just opened paints in one go and lands at the bottom outright;
+  // after that, rows that arrive fade in and the view glides down to them
+  const fresh = lastSig === null || !p.children.length;
+  if (fresh) paneHigh = Infinity;
   lastSig = sig;
   // Manual scroll anchoring: Safari has none. Remember the first row in view
   // and where it sits, then put it back there after the rewrite so content
@@ -4829,7 +4835,12 @@ function paint(force){
   const kids = p.children;
   for (let i = 0; i < lines.length; i++){
     let el = kids[i];
-    if (!el || el === ECHO){ el = document.createElement('div'); p.insertBefore(el, ECHO); }
+    if (!el || el === ECHO){
+      el = document.createElement('div'); p.insertBefore(el, ECHO);
+      if (i >= paneHigh && pinBottom && !REDUCED_MOTION.matches && el.animate)
+        el.animate([{opacity: 0, transform: 'translateY(6px)'}, {opacity: 1, transform: 'none'}],
+                   {duration: 240, easing: 'cubic-bezier(.2,.7,.3,1)'});
+    }
     const k = tbl.kind[i];
     const c0 = rawLines[i][0];
     el.className = c0 === '\uE002' ? 'ln ccb-gone'
@@ -4862,12 +4873,44 @@ function paint(force){
   syncEchoFont();
   fitPad(p);
   fixTokDots(p);
+  paneHigh = fresh ? lines.length : Math.max(paneHigh, lines.length);
   if (pinBottom){
-    p.scrollTop = p.scrollHeight;
+    if (fresh) snapBottom(p); else glideBottom(p);
   } else if (anchor && anchor.parentNode === p){
     const d = anchor.getBoundingClientRect().top - anchorTop;
     if (Math.abs(d) >= 1) p.scrollTop += d;
   }
+}
+
+/* Following the newest output. Writing scrollTop = scrollHeight every frame
+   made each new row land with a jump; instead ease toward the bottom over a
+   few frames, re-aiming every frame since the transcript keeps growing (and
+   can shrink as the live screen re-wraps). A finger on the pane cancels it,
+   and a jump of more than about a screen just snaps — gliding through a
+   page of output reads as lag, not smoothness. paint()'s own scrollTop
+   writes never touch pinBottom (see the gesture watcher below). */
+let glideRaf = 0;
+function snapBottom(p){
+  if (glideRaf){ cancelAnimationFrame(glideRaf); glideRaf = 0; }
+  p.scrollTop = p.scrollHeight;
+}
+function glideBottom(p){
+  const far = p.scrollHeight - p.clientHeight - p.scrollTop;
+  if (REDUCED_MOTION.matches || far > p.clientHeight * 1.2 || far < 1){ snapBottom(p); return; }
+  if (glideRaf) return;                       // already on its way; it re-aims each frame
+  let last = performance.now();
+  const step = now => {
+    glideRaf = 0;
+    if (userScrolling || !pinBottom) return;  // the reader took over
+    const dt = Math.min(64, now - last); last = now;
+    const target = p.scrollHeight - p.clientHeight;
+    const d = target - p.scrollTop;
+    if (Math.abs(d) < 1){ p.scrollTop = target; return; }
+    // exponential approach, ~120ms time constant — fast start, soft landing
+    p.scrollTop += d * (1 - Math.exp(-dt / 120)) + Math.sign(d) * 0.5;
+    glideRaf = requestAnimationFrame(step);
+  };
+  glideRaf = requestAnimationFrame(step);
 }
 
 /* The "· " before a wrapping token count only reads right when the count is
