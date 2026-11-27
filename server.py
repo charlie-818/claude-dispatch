@@ -3547,10 +3547,11 @@ async def _provider_summary(provider, digest, running, cwd=None):
         "SUCCESS: <" + (
             "one sentence, <=110 chars, the concrete condition that will make the "
             "current task stop/finish>" if running else "the word NONE") + "\n"
-        "NEED: <a 2-6 word imperative fragment, <=45 chars, no trailing period, "
-        "what the session is waiting on the user for right now, e.g. 'Approve "
-        "the migration plan' or 'Send the API key'; the word NONE if it needs "
-        "nothing from the user>\n\n"
+        "NEED: <a 2-7 word fragment, <=45 chars, no trailing period, what the "
+        "session is waiting on the user for right now, e.g. 'Ready to deploy, "
+        "say go', 'Approve the migration plan', 'Send the Railway API key', "
+        "'Pick one of the two layouts'; the word NONE if it needs nothing from "
+        "the user>\n\n"
         "Transcript digest:\n" + digest)
     try:
         if provider == "codex":
@@ -7163,6 +7164,43 @@ async def api_push_unsubscribe(request):
     return web.json_response({"ok": True, "subs": len(_push_subs)})
 
 
+_ATTN_WAIT = 25    # s a "needs you" push may wait on its brief before going plain
+
+
+async def _attention_brief(uuid):
+    """(need, gist) for a pane's just-finished turn — the same cached brief the
+    main page shows as "needed next", so a notification never costs a model
+    call the phone's list wasn't about to make anyway."""
+    f = read_fleet_files().get(uuid) or {}
+    path = f.get("transcript")
+    if not path or not os.path.exists(path):
+        return None, None
+    provider = f.get("provider") or DEFAULT_PROVIDER
+    pcount = (session_ops(path)[1] if provider == DEFAULT_PROVIDER
+              else native_ops(provider, path)["prompts"])
+    e = await _ensure_summary(uuid, path, pcount, False, provider, f.get("cwd")) or {}
+    return e.get("need"), _real_summary(e.get("gist"))
+
+
+def _push_attention(uuid, name, tag, question=None):
+    """"<repo> needs you", with one line saying for what: the question on
+    screen when there is one, else the brief's NEED ("Ready to deploy, say
+    go"), else what got done. Runs off the notifier loop — the brief can take
+    seconds — and goes out plain if it doesn't land in time."""
+    async def go():
+        body = (question or "").strip()
+        if not body:
+            try:
+                need, gist = await asyncio.wait_for(
+                    asyncio.shield(_attention_brief(uuid)), _ATTN_WAIT)
+                body = need or (f"Done: {gist}" if gist else "")
+            except Exception as e:
+                print(f"  [push] brief for {uuid[:8]} skipped: {type(e).__name__}", flush=True)
+        await _push_all({"title": f"{name} needs you", "body": body[:180],
+                         "tag": tag, "uuid": uuid})
+    asyncio.create_task(go())
+
+
 @writes("push.test")
 async def api_push_test(request):
     await _push_all({"title": "The Yard", "tag": "test",
@@ -7235,10 +7273,7 @@ async def _notify_watcher():
                             and t["armed"] and now - t["last_done"] >= _DONE_COOLDOWN:
                         t["armed"] = False                   # one "done" per work cycle
                         t["last_done"] = now
-                        await _push_all({
-                            "title": f"{name} needs you",
-                            "body": "",          # just "<repo> needs you"; tapping opens the chat
-                            "tag": f"done-{uuid}", "uuid": uuid})
+                        _push_attention(uuid, name, f"done-{uuid}")
 
                 # ── prompt (needs-input) debounce ──────────────────────────
                 if has_prompt != t["praw"]:
@@ -7254,10 +7289,7 @@ async def _notify_watcher():
                         if not q:
                             opts = [o.get("label", "") for o in prm.get("options") or []]
                             q = " / ".join(o for o in opts[:3] if o) or "waiting on a choice"
-                        await _push_all({
-                            "title": f"{name} needs you",
-                            "body": "",          # just "<repo> needs you"; tapping opens the chat
-                            "tag": f"prompt-{uuid}", "uuid": uuid})
+                        _push_attention(uuid, name, f"prompt-{uuid}", q)
 
             # Drop debounce state only after a grace window of not being seen, so a
             # one-poll stale/missing fleet file doesn't reset the machine and let the
