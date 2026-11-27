@@ -7236,8 +7236,8 @@ async def _notify_watcher():
                         t["armed"] = False                   # one "done" per work cycle
                         t["last_done"] = now
                         await _push_all({
-                            "title": "Session finished",
-                            "body": f"{name} is done — ready for your next prompt.",
+                            "title": "This chat needs you",
+                            "body": "",          # just that: tapping it opens the chat
                             "tag": f"done-{uuid}", "uuid": uuid})
 
                 # ── prompt (needs-input) debounce ──────────────────────────
@@ -7255,8 +7255,8 @@ async def _notify_watcher():
                             opts = [o.get("label", "") for o in prm.get("options") or []]
                             q = " / ".join(o for o in opts[:3] if o) or "waiting on a choice"
                         await _push_all({
-                            "title": f"{name} needs you",
-                            "body": q[:180],
+                            "title": "This chat needs you",
+                            "body": "",          # just that: tapping it opens the chat
                             "tag": f"prompt-{uuid}", "uuid": uuid})
 
             # Drop debounce state only after a grace window of not being seen, so a
