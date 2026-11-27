@@ -4840,7 +4840,7 @@ function paint(force){
     let el = kids[i];
     if (!el || el === ECHO){
       el = document.createElement('div'); p.insertBefore(el, ECHO);
-      if (i >= paneHigh && pinBottom && !REDUCED_MOTION.matches && el.animate)
+      if (i >= paneHigh && pinBottom && !REDUCED_MOTION.matches && !composing() && el.animate)
         el.animate([{opacity: 0, transform: 'translateY(6px)'}, {opacity: 1, transform: 'none'}],
                    {duration: 240, easing: 'cubic-bezier(.2,.7,.3,1)'});
     }
@@ -4893,18 +4893,23 @@ function paint(force){
    page of output reads as lag, not smoothness. paint()'s own scrollTop
    writes never touch pinBottom (see the gesture watcher below). */
 let glideRaf = 0;
+// Typing in the composer: no motion at all in the pane behind it — new output
+// snaps in as it always did, so nothing drifts or fades while the keyboard is
+// up and the box is growing under the caret.
+const composing = () => document.activeElement && document.activeElement.id === 'input';
 function snapBottom(p){
   if (glideRaf){ cancelAnimationFrame(glideRaf); glideRaf = 0; }
   p.scrollTop = p.scrollHeight;
 }
 function glideBottom(p){
   const far = p.scrollHeight - p.clientHeight - p.scrollTop;
-  if (REDUCED_MOTION.matches || far > p.clientHeight * 1.2 || far < 1){ snapBottom(p); return; }
+  if (REDUCED_MOTION.matches || composing() || far > p.clientHeight * 1.2 || far < 1){ snapBottom(p); return; }
   if (glideRaf) return;                       // already on its way; it re-aims each frame
   let last = performance.now();
   const step = now => {
     glideRaf = 0;
     if (userScrolling || !pinBottom) return;  // the reader took over
+    if (composing()){ p.scrollTop = p.scrollHeight; return; }   // started typing mid-glide
     const dt = Math.min(64, now - last); last = now;
     const target = p.scrollHeight - p.clientHeight;
     const d = target - p.scrollTop;
