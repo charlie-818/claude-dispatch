@@ -35,6 +35,32 @@ def render(size, maskable=False):
     return im.resize((size, size), Image.LANCZOS)
 
 
+def render_badge(size=96):
+    """Android's notification badge: the status bar keeps only the alpha
+    channel and tints it, so the opaque app icon showed as a solid square.
+    Same clawd head, white on transparent, eyes cut clean through — and
+    filling the frame, since at 24dp every pixel of padding is lost detail."""
+    S = 4
+    n = size * S
+    im = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    W = (255, 255, 255, 255)
+    pad = n * 0.06
+    w = n - pad * 2
+    head_top = pad + w * 0.20
+    head_h = w * 0.66
+    ear_w, ear_h = w * 0.13, w * 0.26
+    for x in (pad + w * 0.13, pad + w * 0.74):
+        d.rounded_rectangle([x, pad, x + ear_w, pad + ear_h], radius=ear_w / 2, fill=W)
+    d.rounded_rectangle([pad, head_top, pad + w, head_top + head_h], radius=w * 0.22, fill=W)
+    eye_w, eye_h = w * 0.16, w * 0.22
+    eye_y = head_top + head_h * 0.30
+    for x in (pad + w * 0.21, pad + w * 0.63):
+        d.rounded_rectangle([x, eye_y, x + eye_w, eye_y + eye_h],
+                            radius=eye_w / 2.4, fill=(0, 0, 0, 0))
+    return im.resize((size, size), Image.LANCZOS)
+
+
 def write_all(out_dir):
     out_dir.mkdir(exist_ok=True)
     made = []
@@ -44,6 +70,9 @@ def write_all(out_dir):
         made.append(p)
     p = out_dir / "icon-maskable-512.png"
     render(512, maskable=True).save(p)
+    made.append(p)
+    p = out_dir / "icon-badge-096.png"
+    render_badge(96).save(p)
     made.append(p)
     return made
 

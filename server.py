@@ -3877,7 +3877,7 @@ async def manifest(request):
 
 async def icon(request):
     name = request.match_info["name"]
-    if not re.fullmatch(r"icon-(maskable-)?\d{3}\.png", name):
+    if not re.fullmatch(r"icon-(maskable-|badge-)?\d{3}\.png", name):
         return web.Response(status=404)
     path = HERE / "static" / "icons" / name
     if not path.exists():

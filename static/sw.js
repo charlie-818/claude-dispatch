@@ -11,7 +11,8 @@ self.addEventListener('push', event => {
     tag: d.tag || 'yard',
     renotify: true,
     icon: '/icons/icon-192.png',
-    badge: '/icons/icon-192.png',
+    // monochrome silhouette — Android tints the alpha, an opaque icon is a box
+    badge: '/icons/icon-badge-096.png',
     data: { uuid: d.uuid || '' }
   };
   // Report every push back to the server log: did it reach the phone, what
